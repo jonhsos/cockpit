@@ -14,6 +14,9 @@ import type { AgentSpec, Mission, PaneState, Project } from "./api.ts";
  *
  * Trocar de missão aqui não encerra nada: os terminais das outras continuam
  * montados e recebendo saída, só saem de vista.
+ *
+ * No desktop a lateral pode recolher (só ícones / setinha) para liberar o
+ * palco; o rodapé de ferramentas também tem setinha própria.
  */
 export type Pagina = "missoes" | "tarefas" | "arquivos";
 
@@ -33,6 +36,8 @@ export function Lateral({
   onRenomearMissao,
   aberta,
   onFechar,
+  recolhida,
+  onRecolher,
   pagina,
   onPagina,
   tarefas,
@@ -54,6 +59,8 @@ export function Lateral({
   onRenomearMissao: (missionId: string, nome: string) => void;
   aberta: boolean;
   onFechar: () => void;
+  recolhida: boolean;
+  onRecolher: (recolhida: boolean) => void;
   pagina: Pagina;
   onPagina: (pagina: Pagina) => void;
   tarefas?: ReactNode;
@@ -65,12 +72,23 @@ export function Lateral({
   const [abertas, setAbertas] = useState<Set<string>>(() => new Set(activeId ? [activeId] : []));
   const [renomeando, setRenomeando] = useState<string | null>(null);
   const [nomeEmEdicao, setNomeEmEdicao] = useState("");
+  const [ferramentasAbertas, setFerramentasAbertas] = useState(() => {
+    try {
+      return localStorage.getItem("cockpit.ferramentas") !== "0";
+    } catch {
+      return true;
+    }
+  });
   const anterior = useRef(activeId);
 
   useEffect(() => {
     if (activeId && activeId !== anterior.current) setAbertas(prev => new Set(prev).add(activeId));
     anterior.current = activeId;
   }, [activeId]);
+
+  useEffect(() => {
+    localStorage.setItem("cockpit.ferramentas", ferramentasAbertas ? "1" : "0");
+  }, [ferramentasAbertas]);
 
   const alternar = (id: string) => setAbertas(prev => {
     const proximo = new Set(prev);
@@ -79,12 +97,24 @@ export function Lateral({
   });
 
   return (
-    <aside className={`sidebar${aberta ? " aberta" : ""}`} aria-label="Projeto, missões e agentes">
+    <aside
+      className={`sidebar${aberta ? " aberta" : ""}${recolhida ? " recolhida" : ""}`}
+      aria-label="Projeto, missões e agentes"
+    >
       <div className="sidebar-top">
         <button className="brand-button" onClick={onProjetos} title="Projetos e missões">
           <span className="brand-mark"><Icon name="cockpit" size={20} /></span>
           <span className="project-name">{project?.nome ?? "Projetos"}</span>
           <Icon name="chevron" size={14} />
+        </button>
+        <button
+          className="icon-btn recolher-lateral"
+          aria-label={recolhida ? "Expandir lateral" : "Recolher lateral"}
+          title={recolhida ? "Expandir lateral" : "Recolher lateral"}
+          aria-pressed={recolhida}
+          onClick={() => onRecolher(!recolhida)}
+        >
+          <Icon name="panel" size={16} />
         </button>
         <button className="icon-btn fechar-lateral" aria-label="Fechar lateral" onClick={onFechar}><Icon name="close" /></button>
       </div>
@@ -151,9 +181,71 @@ export function Lateral({
         })}
         </>}
         </div>
-        {/* As ferramentas moram na mesma ilha, separadas por um fio. */}
-        <div className="sidebar-foot">{rodape}</div>
+        {/* As ferramentas moram na mesma ilha, separadas por um fio — com setinha para recolher. */}
+        <div className={`sidebar-foot${ferramentasAbertas ? "" : " recolhido"}`}>
+          <button
+            type="button"
+            className="sidebar-foot-toggle"
+            aria-expanded={ferramentasAbertas}
+            aria-controls="sidebar-ferramentas"
+            onClick={() => setFerramentasAbertas((v) => !v)}
+          >
+            <span>Ferramentas</span>
+            <Icon name="chevron" size={13} />
+          </button>
+          <div id="sidebar-ferramentas" className="sidebar-foot-corpo" hidden={!ferramentasAbertas}>
+            {rodape}
+          </div>
+        </div>
         </section>
+      </div>
+
+      {/* Trilho recolhido: só marca + setinha para expandir de novo. */}
+      <div className="sidebar-rail" aria-hidden={!recolhida}>
+        <button className="brand-mark rail-brand" onClick={onProjetos} title="Projetos e missões">
+          <Icon name="cockpit" size={18} />
+        </button>
+        <button
+          className="icon-btn rail-expand"
+          aria-label="Expandir lateral"
+          title="Expandir lateral"
+          onClick={() => onRecolher(false)}
+        >
+          <Icon name="chevron" size={16} style={{ transform: "rotate(-90deg)" }} />
+        </button>
+        <div className="rail-spacer" />
+        <button
+          className="icon-btn"
+          aria-label="Missões"
+          title="Missões"
+          onClick={() => { onRecolher(false); onPagina("missoes"); }}
+        >
+          <Icon name="team" size={16} />
+        </button>
+        <button
+          className="icon-btn"
+          aria-label="Tarefas"
+          title="Tarefas"
+          onClick={() => { onRecolher(false); onPagina("tarefas"); }}
+        >
+          <Icon name="grid" size={16} />
+        </button>
+        <button
+          className="icon-btn"
+          aria-label="Arquivos"
+          title="Arquivos"
+          onClick={() => { onRecolher(false); onPagina("arquivos"); }}
+        >
+          <Icon name="folder" size={16} />
+        </button>
+        <button
+          className="icon-btn"
+          aria-label="Ajustes"
+          title="Expandir e abrir ferramentas"
+          onClick={() => { onRecolher(false); setFerramentasAbertas(true); }}
+        >
+          <Icon name="settings" size={16} />
+        </button>
       </div>
     </aside>
   );

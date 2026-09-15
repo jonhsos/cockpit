@@ -241,6 +241,7 @@ export class MaestroCoordinator {
     harness?: Omit<Pedido, "agent">,
     skills: string[] = [],
     maestroOverride?: boolean,
+    accountOpts?: { preferredAccountId?: string; accountPinned?: boolean },
   ): PaneState {
     const mission = getMission(missionId);
     if (!mission) throw new Error("missão não encontrada");
@@ -272,6 +273,8 @@ export class MaestroCoordinator {
       tarefa: tarefaLimpa,
       maestro: maestroOverride,
       porta: this.deps.porta,
+      preferredAccountId: accountOpts?.preferredAccountId,
+      accountPinned: accountOpts?.accountPinned,
     });
     attachPane(mission.id, state.paneId);
     this.deps.continuity.record(
@@ -321,7 +324,11 @@ export class MaestroCoordinator {
     return { ok: true };
   }
 
-  public async switchMaestro(missionId: string, cli: string): Promise<PaneState> {
+  public async switchMaestro(
+    missionId: string,
+    cli: string,
+    accountOpts?: { preferredAccountId?: string; accountPinned?: boolean },
+  ): Promise<PaneState> {
     const fixo = execucaoDoPapel("maestro");
     if (fixo && fixo.cli !== cli) {
       throw Error("Altere a distribuição de IA antes de trocar este papel de provedor.");
@@ -353,20 +360,32 @@ export class MaestroCoordinator {
         missionId,
         paneId: previous[0]?.paneId,
       });
-      return this.abrirPainel("maestro", missionId, task, {
-        invoke: {
-          cli,
-          ...(configured?.cli === cli
-            ? { model: configured.model, effort: configured.effort }
-            : this.presetsDoMaestro()[cli]),
+      return this.abrirPainel(
+        "maestro",
+        missionId,
+        task,
+        {
+          invoke: {
+            cli,
+            ...(configured?.cli === cli
+              ? { model: configured.model, effort: configured.effort }
+              : this.presetsDoMaestro()[cli]),
+          },
         },
-      });
+        [],
+        undefined,
+        accountOpts,
+      );
     } finally {
       this.switching.delete(missionId);
     }
   }
 
-  public async switchSpecialist(pane: PaneState, cli: string): Promise<void> {
+  public async switchSpecialist(
+    pane: PaneState,
+    cli: string,
+    accountOpts?: { preferredAccountId?: string; accountPinned?: boolean },
+  ): Promise<void> {
     const fixo = execucaoDoPapel(pane.agent);
     if (fixo && fixo.cli !== cli) {
       throw Error("Este papel tem uma IA fixa. Altere a distribuição de IA para trocar de provedor.");
@@ -384,9 +403,15 @@ export class MaestroCoordinator {
         missionId: pane.missionId,
         paneId: pane.paneId,
       });
-      const newPane = this.abrirPainel(pane.agent, mission.id, task, {
-        invoke: { cli, ...this.presetsDoMaestro()[cli] },
-      });
+      const newPane = this.abrirPainel(
+        pane.agent,
+        mission.id,
+        task,
+        { invoke: { cli, ...this.presetsDoMaestro()[cli] } },
+        [],
+        undefined,
+        accountOpts,
+      );
       const delegations = this.pendingDelegations.get(mission.id);
       if (delegations && delegations.has(pane.paneId)) {
         const info = delegations.get(pane.paneId)!;
@@ -421,6 +446,23 @@ export class MaestroCoordinator {
     }
 
     if (signal.state === "blocked") {
+      // Conta fixada pelo usuário: não rotaciona intra-pool
+      if (pane.accountPinned) {
+        updatePane(pane.paneId, { status: "blocked", blockedReason: signal.detail });
+        this.deps.broadcast({
+          type: "limit",
+          paneId: pane.paneId,
+          cli: pane.cli,
+          state: "blocked",
+          detail: signal.detail,
+        });
+        this.deps.broadcast({
+          type: "error",
+          message: `${pane.label} (${pane.cli}) atingiu limite na conta fixada "${currentAcc?.label ?? currentAcc?.id ?? pane.accountLabel}". Rotação automática desativada para este painel.`,
+        });
+        return;
+      }
+
       // 2. Tenta failover intra-pool na mesma IA antes de qualquer outra coisa
       const nextAcc = accountPool.nextAvailable(pane.cli, currentAcc?.id);
       if (nextAcc && !this.switching.has(pane.maestro ? pane.missionId : pane.paneId)) {
@@ -437,9 +479,10 @@ export class MaestroCoordinator {
           message: `[Cockpit Pool] ${pane.label} atingiu limite na conta "${currentAcc?.label ?? currentAcc?.id}". Rotacionando automaticamente para "${nextAcc.label || nextAcc.id}"...`,
         });
 
+        const rotateOpts = { preferredAccountId: nextAcc.id };
         void (pane.maestro
-          ? this.switchMaestro(pane.missionId, pane.cli)
-          : this.switchSpecialist(pane, pane.cli)
+          ? this.switchMaestro(pane.missionId, pane.cli, rotateOpts)
+          : this.switchSpecialist(pane, pane.cli, rotateOpts)
         ).catch((err) =>
           this.deps.broadcast({ type: "error", message: `Falha na rotação do pool: ${String(err)}` }),
         );

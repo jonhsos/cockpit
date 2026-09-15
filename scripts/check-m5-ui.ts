@@ -129,6 +129,16 @@ ok(
   roleCatalogSrc.includes("clean-bash-banner") || roleCatalogSrc.includes("/bin/bash"),
   "bash puro é soberano: suprime modelos e informa execução direta limpa"
 );
+ok(
+  roleCatalogSrc.includes("Conta do pool") &&
+    roleCatalogSrc.includes("preferredAccountId") &&
+    roleCatalogSrc.includes("Fixar conta"),
+  "etapa de modelo permite escolher conta do pool e opcionalmente fixá-la"
+);
+ok(
+  roleCatalogSrc.includes("Automático (pool escolhe)"),
+  "seleção de conta inclui opção Automático"
+);
 
 const novaMissaoSrc = readFileSync(resolve("web/NovaMissao.tsx"), "utf8");
 ok(

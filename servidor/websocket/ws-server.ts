@@ -17,6 +17,7 @@ export interface WsServerContext {
     harness?: Omit<Pedido, "agent">,
     skills?: string[],
     maestroOverride?: boolean,
+    accountOpts?: { preferredAccountId?: string; accountPinned?: boolean },
   ) => PaneState;
   refreshQuota: () => Promise<void>;
   onPaneExit?: (paneId: string, code?: number) => void;

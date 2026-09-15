@@ -17,6 +17,9 @@ const paths = {
   chevron: "m7 10 5 5 5-5",
   close: "m6 6 12 12M6 18 18 6",
   agent: "M8 4h8l4 5v9l-4 2H8l-4-2V9zM9 10v3m6-3v3M9 16h6M12 4V2",
+  minimize: "M5 12h14",
+  expand: "M8 3H5v3M16 3h3v3M8 21H5v-3M16 21h3v-3",
+  panel: "M4 4h16v16H4zM10 4v16",
 };
 
 export function Icon({ name, size = 18, style }: { name: keyof typeof paths; size?: number; style?: CSSProperties }) {

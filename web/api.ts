@@ -78,6 +78,9 @@ export type PaneState = {
   maestro: boolean;
   role?: string;
   runner?: string;
+  accountId?: string | null;
+  accountLabel?: string | null;
+  accountPinned?: boolean;
   status:
     | "starting"
     | "waiting-user"
@@ -173,6 +176,8 @@ export type AccountPoolItemView = {
   limitedUntil?: number;
   lastLimitDetail?: string;
   env?: Record<string, string>;
+  /** true se a pasta isolada parece ter credencial de login */
+  authenticated?: boolean;
 };
 
 export type AccountPoolView = {
@@ -426,6 +431,11 @@ export const fetchHandoffs = (missionId: string) =>
 // painéis e times
 export const fetchPanes = () =>
   fetch("/api/panes").then(json<{ panes: (PaneState & { usage: Usage })[] }>);
+/** Scrollback do ring buffer do PTY — usado ao montar o xterm após refresh. */
+export const fetchPaneReplay = (paneId: string) =>
+  fetch(`/api/panes/${encodeURIComponent(paneId)}/replay`).then(
+    json<{ paneId: string; scrollback: string }>,
+  );
 export const postPapelPainel = (
   paneId: string,
   dados: { maestro: boolean; agent?: string; label?: string; cor?: string },

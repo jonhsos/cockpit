@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { config, salvarConfig, type ContaPoolSpec } from "../config.ts";
 
@@ -23,6 +25,8 @@ export interface AccountPoolItemView {
   limitedUntil?: number;
   lastLimitDetail?: string;
   env?: Record<string, string>;
+  /** true se a pasta isolada parece ter credencial de login */
+  authenticated?: boolean;
 }
 
 export interface AccountPoolView {
@@ -33,15 +37,41 @@ export interface AccountPoolView {
   emCooldown: number;
 }
 
+function expandPath(val: string): string {
+  const home = homedir();
+  return val
+    .replace(/^~(?=$|\/)/, home)
+    .replace(/^\$HOME(?=$|\/)/, home);
+}
+
 function expandEnv(env: Record<string, string>): Record<string, string> {
   const expanded: Record<string, string> = {};
-  const home = homedir();
   for (const [key, val] of Object.entries(env)) {
-    expanded[key] = val
-      .replace(/^~(?=$|\/)/, home)
-      .replace(/^\$HOME(?=$|\/)/, home);
+    expanded[key] = expandPath(val);
   }
   return expanded;
+}
+
+/**
+ * Heurística genérica por pastas do env da conta (não por produto na UI).
+ * Sem sinal conhecido → true (não esconde conta sem motivo).
+ */
+export function contaAutenticada(_cli: string, env: Record<string, string>): boolean {
+  const expanded = expandEnv(env);
+  const jetski = expanded.JETSKI_APP_DATA_DIR || expanded.HOME;
+  if (jetski && (expanded.JETSKI_APP_DATA_DIR || /antigravity-cli|profiles\/conta_/i.test(jetski))) {
+    return (
+      existsSync(join(jetski, "antigravity-oauth-token")) ||
+      existsSync(join(jetski, ".gemini", "antigravity-cli", "antigravity-oauth-token"))
+    );
+  }
+  if (expanded.CODEX_HOME) {
+    return existsSync(join(expanded.CODEX_HOME, "auth.json"));
+  }
+  if (expanded.GROK_HOME) {
+    return existsSync(join(expanded.GROK_HOME, "auth.json"));
+  }
+  return true;
 }
 
 export class AccountPoolManager {
@@ -144,15 +174,19 @@ export class AccountPoolManager {
 
     if (!selected) {
       candidates.sort((a, b) => {
-        // 1. Least active panes
+        // 1. Least active panes (concurrency first)
         if (a.activePanes.size !== b.activePanes.size) {
           return a.activePanes.size - b.activePanes.size;
         }
-        // 2. LRU: least recently used
+        // 2. Among equally loaded: prefer authenticated profiles
+        const authA = contaAutenticada(cli, a.env) ? 1 : 0;
+        const authB = contaAutenticada(cli, b.env) ? 1 : 0;
+        if (authA !== authB) return authB - authA;
+        // 3. LRU: least recently used
         if (a.lastUsedAt !== b.lastUsedAt) {
           return a.lastUsedAt - b.lastUsedAt;
         }
-        // 3. Consecutive usage count
+        // 4. Consecutive usage count
         return (a.consecutiveUseCount || 0) - (b.consecutiveUseCount || 0);
       });
       selected = candidates[0];
@@ -244,6 +278,9 @@ export class AccountPoolManager {
       if (a.activePanes.size !== b.activePanes.size) {
         return a.activePanes.size - b.activePanes.size;
       }
+      const authA = contaAutenticada(cli, a.env) ? 1 : 0;
+      const authB = contaAutenticada(cli, b.env) ? 1 : 0;
+      if (authA !== authB) return authB - authA;
       return a.lastUsedAt - b.lastUsedAt;
     });
 
@@ -290,6 +327,7 @@ export class AccountPoolManager {
           limitedUntil: isCooldown ? acc.limitedUntil! : undefined,
           lastLimitDetail: acc.lastLimitDetail ?? undefined,
           env: { ...acc.env },
+          authenticated: contaAutenticada(cli, acc.env),
         });
       }
 

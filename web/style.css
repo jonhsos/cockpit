@@ -438,7 +438,16 @@ button, select, input, textarea { font: inherit; color: inherit; }
 }
 .meter .custo { color: var(--ok); }
 
-.pane-term { flex: 1; min-height: 0; padding: 6px 0 0 10px; overflow: hidden; }
+.pane-term {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 0 0 10px;
+  overflow: hidden;
+  position: relative;
+  overscroll-behavior: contain;
+}
+.pane-term .xterm { height: 100%; width: 100%; }
+.pane-term .xterm-viewport { overflow-y: auto !important; }
 
 /* ==========================================================================
    6. EDITOR
@@ -1395,12 +1404,12 @@ svg { flex-shrink: 0; vertical-align: middle; }
   gap: 10px;
   padding: 0;
   background: none;
-  grid-auto-rows: minmax(240px, 1fr);
+  grid-auto-rows: minmax(280px, 1fr);
   overflow: auto;
+  overscroll-behavior: contain;
+  flex: 1;
+  min-height: 0;
 }
-.panes[data-colunas="2"] > .pane:nth-last-child(1 of :not([hidden])):nth-child(2n-1 of :not([hidden])) { grid-column: span 2; }
-.panes[data-colunas="3"] > .pane:nth-last-child(1 of :not([hidden])):nth-child(3n-2 of :not([hidden])) { grid-column: span 3; }
-.panes[data-colunas="3"] > .pane:nth-last-child(1 of :not([hidden])):nth-child(3n-1 of :not([hidden])) { grid-column: span 2; }
 
 .pane { border: 1px solid var(--fio); border-radius: 18px; }
 .pane:focus-within { border-color: #686868; box-shadow: none; }
@@ -1430,7 +1439,7 @@ svg { flex-shrink: 0; vertical-align: middle; }
 .pane:hover .fechar, .pane:focus-within .fechar { opacity: 1; }
 .pane-head .fechar:hover { color: var(--alerta); background: none; }
 
-.pane-term { padding: 3px 0 0 7px; }
+.pane-term { padding: 3px 4px 4px 7px; }
 
 /* ---- editor ---- */
 

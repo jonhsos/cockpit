@@ -118,6 +118,12 @@ export function validateAndParseClientMessage(raw: unknown): WsValidationResult<
       if (msg.maestro !== undefined && typeof msg.maestro !== "boolean") {
         return { ok: false, error: "Campo 'maestro' para spawn deve ser boolean quando fornecido" };
       }
+      if (msg.preferredAccountId !== undefined && typeof msg.preferredAccountId !== "string") {
+        return { ok: false, error: "Campo 'preferredAccountId' para spawn deve ser string quando fornecido" };
+      }
+      if (msg.accountPinned !== undefined && typeof msg.accountPinned !== "boolean") {
+        return { ok: false, error: "Campo 'accountPinned' para spawn deve ser boolean quando fornecido" };
+      }
       return {
         ok: true,
         message: {
@@ -132,6 +138,11 @@ export function validateAndParseClientMessage(raw: unknown): WsValidationResult<
           role: typeof msg.role === "string" ? msg.role : undefined,
           runner: typeof msg.runner === "string" ? msg.runner : undefined,
           maestro: typeof msg.maestro === "boolean" ? msg.maestro : undefined,
+          preferredAccountId:
+            typeof msg.preferredAccountId === "string" && msg.preferredAccountId.trim()
+              ? msg.preferredAccountId.trim()
+              : undefined,
+          accountPinned: typeof msg.accountPinned === "boolean" ? msg.accountPinned : undefined,
         },
       };
     }
@@ -253,6 +264,10 @@ export class WsDispatcher {
               },
               [],
               msg.maestro,
+              {
+                preferredAccountId: msg.preferredAccountId,
+                accountPinned: msg.accountPinned,
+              },
             );
           } catch (err) {
             this.clientManager.send(ws, {

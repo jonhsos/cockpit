@@ -71,6 +71,13 @@ export function App() {
   const [verAgentes, setVerAgentes] = useState(false);
   const [verAtividade, setVerAtividade] = useState(false);
   const [lateralAberta, setLateralAberta] = useState(false);
+  const [lateralRecolhida, setLateralRecolhida] = useState(() => {
+    try {
+      return localStorage.getItem("cockpit.lateral-recolhida") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [selectedPane, setSelectedPane] = useState<string | null>(null);
   const [paginaLateral, setPaginaLateral] = useState<Pagina>("missoes");
   // Quantas colunas de terminal. Fica nos Ajustes: a tela principal e terminal.
@@ -563,6 +570,11 @@ export function App() {
           onRenomearMissao={(id, nome) => guarded(async () => { await renomearMissao(id, nome); await recarregarMissoes(projectId); })}
           aberta={lateralAberta}
           onFechar={() => setLateralAberta(false)}
+          recolhida={lateralRecolhida}
+          onRecolher={(v) => {
+            setLateralRecolhida(v);
+            localStorage.setItem("cockpit.lateral-recolhida", v ? "1" : "0");
+          }}
           pagina={paginaLateral}
           onPagina={setPaginaLateral}
           tarefas={paginaTarefas}
@@ -792,6 +804,8 @@ export function App() {
                       tarefa: params.tarefa,
                       role: params.role,
                       runner: params.runner,
+                      preferredAccountId: params.preferredAccountId,
+                      accountPinned: params.accountPinned || undefined,
                     });
                     fecharEscolhaAgente();
                   }}
@@ -1060,6 +1074,7 @@ export function App() {
                 usos={usos}
                 colunas={colunas}
                 selectedId={selecionado}
+                onSelectPane={(paneId) => setSelectedPane(paneId)}
                 connections={connections}
                 tasks={tasks}
                 onMudarPapel={(paneId, maestro) => {

@@ -36,27 +36,27 @@
           }
         },
         {
-          "id": "agy-2",
-          "label": "Conta 2",
-          "env": {
-            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_2",
-            "HOME": "~/.gemini/antigravity-cli/profiles/conta_2"
-          }
-        },
-        {
-          "id": "agy-3",
-          "label": "Conta 3",
-          "env": {
-            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_3",
-            "HOME": "~/.gemini/antigravity-cli/profiles/conta_3"
-          }
-        },
-        {
           "id": "agy-4",
           "label": "Conta 4",
           "env": {
             "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_4",
             "HOME": "~/.gemini/antigravity-cli/profiles/conta_4"
+          }
+        },
+        {
+          "id": "agy-5",
+          "label": "jonathas.antonio23@gmail.com",
+          "env": {
+            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_5",
+            "HOME": "~/.gemini/antigravity-cli/profiles/conta_5"
+          }
+        },
+        {
+          "id": "agy-6",
+          "label": "somosjsc@gmail.com",
+          "env": {
+            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_6",
+            "HOME": "~/.gemini/antigravity-cli/profiles/conta_6"
           }
         }
       ]

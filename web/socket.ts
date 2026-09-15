@@ -169,5 +169,19 @@ export function onOutput(paneId: string, handler: OutputHandler): () => void {
   outputs.set(paneId, handler);
   for (const data of buffered.get(paneId) ?? []) handler(data);
   buffered.delete(paneId);
-  return () => outputs.delete(paneId);
+  return () => {
+    if (outputs.get(paneId) === handler) outputs.delete(paneId);
+  };
+}
+
+/** Descarta saída bufferizada ainda sem handler (ex.: dump de replay do WS). */
+export function discardBufferedOutput(paneId: string): void {
+  buffered.delete(paneId);
+}
+
+/** Pega e limpa o buffer sem registrar handler — útil entre replay HTTP e attach ao vivo. */
+export function takeBufferedOutput(paneId: string): string[] {
+  const buf = buffered.get(paneId) ?? [];
+  buffered.delete(paneId);
+  return buf;
 }

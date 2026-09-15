@@ -72,6 +72,10 @@ export type SpawnOpts = {
   porta: number;
   role?: string;
   runner?: string;
+  /** Conta preferida do pool (agy/codex/grok/…); omitido = LRU automático */
+  preferredAccountId?: string;
+  /** Se true, failover intra-pool não troca esta conta */
+  accountPinned?: boolean;
 };
 
 export interface ManagerPaneEntry {
@@ -439,7 +443,7 @@ export class PtyManager {
       assertExecutorDisponivel(bundle.cli);
       const spec: AgentSpec = { ...perfil, cli: bundle.cli, model: bundle.model, effort: bundle.effort };
       if (!isBash) {
-        allocatedAccount = accountPool.acquire(spec.cli, paneId);
+        allocatedAccount = accountPool.acquire(spec.cli, paneId, opts.preferredAccountId);
       }
       const args: string[] = [...(spec.args ?? []), ...(allocatedAccount?.args ?? [])];
       const familia = familiaDo(spec.cli);
@@ -621,6 +625,7 @@ export class PtyManager {
       maestro,
       accountId: allocatedAccount?.id ?? null,
       accountLabel: allocatedAccount?.label ?? null,
+      accountPinned: Boolean(opts.accountPinned && allocatedAccount?.id),
       status: "starting",
       bytesIn: 0,
       bytesOut: 0,

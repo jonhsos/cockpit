@@ -116,6 +116,14 @@ accountPool.release("pane-agy-2");
 accountPool.release("pane-agy-3");
 accountPool.release("pane-agy-4");
 
+console.log("\n=== AUTHENTICATED FLAG NO getView ===");
+const agyView = accountPool.getView("agy")["agy"];
+ok(agyView.contas.every((c) => typeof c.authenticated === "boolean"), "Todas as contas AGY expõem authenticated boolean");
+const codexView = accountPool.getView("codex")["codex"];
+ok(codexView.contas.every((c) => typeof c.authenticated === "boolean"), "Todas as contas Codex expõem authenticated boolean");
+const agyAuth = agyView.contas.filter((c) => c.authenticated);
+ok(agyAuth.length >= 1, `Pelo menos 1 conta AGY autenticada no disco (achou ${agyAuth.length})`);
+
 // Final cleanup
 accountPool.release("pane-5");
 

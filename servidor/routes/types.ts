@@ -32,8 +32,13 @@ export interface RouterContext {
     harness?: Omit<Pedido, "agent">,
     skills?: string[],
     maestroOverride?: boolean,
+    accountOpts?: { preferredAccountId?: string; accountPinned?: boolean },
   ) => PaneState;
-  switchMaestro: (missionId: string, cli: string) => Promise<PaneState>;
+  switchMaestro: (
+    missionId: string,
+    cli: string,
+    accountOpts?: { preferredAccountId?: string; accountPinned?: boolean },
+  ) => Promise<PaneState>;
   saveCheckpoint: (missionId: string, value: unknown) => { ok: boolean; instruction?: string };
   raizDe: (missionId: string | null, projectId: string | null) => string | null;
 

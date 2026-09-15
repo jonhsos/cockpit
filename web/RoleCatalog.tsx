@@ -19,6 +19,8 @@ export interface RoleCatalogProps {
     tarefa?: string;
     label?: string;
     customRole?: RoleDefinition;
+    preferredAccountId?: string;
+    accountPinned?: boolean;
   }) => void;
   onCancel: () => void;
   providers?: Provider[];
@@ -44,6 +46,8 @@ export function RoleCatalog({
   const [customModel, setCustomModel] = useState<string>("");
   const [selectedEffort, setSelectedEffort] = useState<string>("");
   const [tarefa, setTarefa] = useState<string>("");
+  const [preferredAccountId, setPreferredAccountId] = useState<string>("");
+  const [accountPinned, setAccountPinned] = useState(false);
   const [customRoles, setCustomRoles] = useState<RoleDefinition[]>([]);
   const [criandoCustom, setCriandoCustom] = useState(false);
 
@@ -97,9 +101,18 @@ export function RoleCatalog({
     return [];
   }, [selectedRunner, providers, pontes]);
 
-  // When runner changes, set a sensible default model
+  const contasElegiveis = useMemo(() => {
+    const pool = providers.find((p) => p.id === selectedRunner)?.pool;
+    return (pool?.contas ?? []).filter(
+      (c) => c.status === "livre" && c.authenticated !== false,
+    );
+  }, [providers, selectedRunner]);
+
+  // When runner changes, set a sensible default model and reset account pin
   const handleSelectRunner = (runnerId: RunnerId) => {
     setSelectedRunner(runnerId);
+    setPreferredAccountId("");
+    setAccountPinned(false);
     if (runnerId === "bash") {
       setSelectedModel("");
       setCustomModel("");
@@ -144,6 +157,7 @@ export function RoleCatalog({
   const handleFinish = () => {
     const finalModel = selectedRunner === "bash" ? null : customModel.trim() || selectedModel || null;
     const isCustom = customRoles.find((r) => r.id === currentRole.id);
+    const contaEscolhida = preferredAccountId.trim() || undefined;
 
     onLaunch({
       role: currentRole.id,
@@ -153,6 +167,8 @@ export function RoleCatalog({
       tarefa: tarefa.trim() || undefined,
       label: currentRole.label,
       customRole: isCustom,
+      preferredAccountId: contaEscolhida,
+      accountPinned: Boolean(contaEscolhida && accountPinned),
     });
   };
 
@@ -489,6 +505,48 @@ export function RoleCatalog({
               <option value="xhigh">Máximo (xhigh)</option>
             </select>
           </label>
+
+          {contasElegiveis.length > 0 && (
+            <>
+              <label className="campo-bloco">
+                <span className="rotulo">Conta do pool</span>
+                <select
+                  className="campo"
+                  value={preferredAccountId}
+                  onChange={(e) => {
+                    setPreferredAccountId(e.target.value);
+                    if (!e.target.value) setAccountPinned(false);
+                  }}
+                >
+                  <option value="">Automático (pool escolhe)</option>
+                  {contasElegiveis.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label || c.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label
+                className="campo-bloco"
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  opacity: preferredAccountId ? 1 : 0.55,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={accountPinned}
+                  disabled={!preferredAccountId}
+                  onChange={(e) => setAccountPinned(e.target.checked)}
+                />
+                <span className="rotulo" style={{ margin: 0 }}>
+                  Fixar conta (sem rotação automática se a cota acabar)
+                </span>
+              </label>
+            </>
+          )}
 
           <label className="campo-bloco">
             <span className="rotulo">

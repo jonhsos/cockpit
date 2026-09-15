@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { onOutput, send } from "./socket.ts";
-import type { AgentSpec, Usage } from "./api.ts";
+import { discardBufferedOutput, onOutput, send, takeBufferedOutput } from "./socket.ts";
+import { fetchPaneReplay, type AgentSpec, type Usage } from "./api.ts";
 import {
   type PaneState,
   type Connection,
@@ -50,6 +50,8 @@ export function Pane({
   spec,
   usage,
   onClose,
+  onMinimizar,
+  minimizado = false,
   onMudarPapel,
   onDefinirAgente,
   onRenomearLabel,
@@ -65,11 +67,15 @@ export function Pane({
   selecionado = false,
   onConectar,
   onDesconectar,
+  gridColumn,
+  layoutEpoch,
 }: {
   pane: PaneState;
   spec: AgentSpec | undefined;
   usage: Usage | undefined;
   onClose: () => void;
+  onMinimizar?: () => void;
+  minimizado?: boolean;
   onMudarPapel?: (paneId: string, maestro: boolean) => void;
   /** Só nomeia Shell já aberto; não troca CLI, modelo nem processo. */
   onDefinirAgente?: (paneId: string, agent: string) => void;
@@ -86,6 +92,9 @@ export function Pane({
   selecionado?: boolean;
   onConectar?: (origemId: string, destinoId: string) => void;
   onDesconectar?: (connectionId: string) => void;
+  gridColumn?: string;
+  /** Muda quando a grade reflowa (minimizar/colunas) — força fit do xterm. */
+  layoutEpoch?: string;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
@@ -145,6 +154,7 @@ export function Pane({
       cursorBlink: true,
       scrollback: 5000,
       allowProposedApi: true,
+      smoothScrollDuration: 0,
       theme: {
         background: "#141414",
         foreground: "#e5e5e5",
@@ -164,7 +174,48 @@ export function Pane({
     term.onResize(({ cols, rows }) =>
       send({ type: "resize", paneId: pane.paneId, cols, rows }),
     );
-    const offOutput = onOutput(pane.paneId, (data) => term.write(data));
+
+    // Roda: não deixa a grade roubar o evento. No buffer normal o xterm
+    // rola o scrollback. No alternativo (TUI): se há mouse tracking, o
+    // xterm manda CSI; senão PageUp/PageDown ao PTY (setas corrompiam Grok).
+    term.attachCustomWheelEventHandler((ev) => {
+      ev.stopPropagation();
+      if (term.buffer.active.type !== "alternate") return false;
+      if (term.modes.mouseTrackingMode !== "none") return false;
+      const viewport = area.querySelector(".xterm-viewport") as HTMLElement | null;
+      if (viewport && viewport.scrollHeight > viewport.clientHeight + 2) {
+        const subindo = ev.deltaY < 0;
+        const pode =
+          (subindo && viewport.scrollTop > 0) ||
+          (!subindo && viewport.scrollTop + viewport.clientHeight < viewport.scrollHeight - 1);
+        if (pode) return false;
+      }
+      ev.preventDefault();
+      const passos = Math.min(4, Math.max(1, Math.round(Math.abs(ev.deltaY) / 100)));
+      const seq = ev.deltaY < 0 ? "\x1b[5~" : "\x1b[6~";
+      for (let i = 0; i < passos; i++) send({ type: "input", paneId: pane.paneId, data: seq });
+      return true;
+    });
+
+    // Replay HTTP é a fonte da verdade após refresh (o dump do WS pode
+    // chegar antes do xterm existir e se perder no remount do React).
+    let cancelled = false;
+    let offOutput: (() => void) | null = null;
+    discardBufferedOutput(pane.paneId);
+    void (async () => {
+      try {
+        const { scrollback } = await fetchPaneReplay(pane.paneId);
+        if (cancelled || !terminal.current) return;
+        if (scrollback) terminal.current.write(scrollback);
+      } catch {
+        // Painel pode ter morrido entre o fetch e a resposta.
+      }
+      if (cancelled || !terminal.current) return;
+      const late = takeBufferedOutput(pane.paneId);
+      for (const chunk of late) terminal.current.write(chunk);
+      offOutput = onOutput(pane.paneId, (data) => terminal.current?.write(data));
+      if (area.clientHeight > 0 && area.clientWidth > 0) fit.fit();
+    })();
 
     const observer = new ResizeObserver(() => {
       if (area.clientHeight > 0 && area.clientWidth > 0) fit.fit();
@@ -173,8 +224,9 @@ export function Pane({
     if (area.clientHeight > 0 && area.clientWidth > 0) fit.fit();
 
     return () => {
+      cancelled = true;
       observer.disconnect();
-      offOutput();
+      offOutput?.();
       term.dispose();
       terminal.current = null;
       fitter.current = null;
@@ -193,7 +245,7 @@ export function Pane({
   }, [pane.cor]);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || minimizado) return;
     const frame = requestAnimationFrame(() => {
       if (host.current && host.current.clientWidth > 0 && host.current.clientHeight > 0) {
         fitter.current?.fit();
@@ -201,7 +253,7 @@ export function Pane({
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [visible, selecionado]);
+  }, [visible, selecionado, minimizado, layoutEpoch, gridColumn]);
 
   // Find active task for this pane
   const taskAtiva =
@@ -244,56 +296,229 @@ export function Pane({
 
   const roleName = pane.role || (pane.maestro ? "maestro" : pane.agent);
 
+  const nome = label ?? spec?.label ?? pane.label;
+
   return (
     <section
       className={`pane${selecionado ? " selecionado" : ""}${
         menuPapelAberto || detalhesAberto ? " popover-aberto" : ""
       }`}
-      hidden={!visible}
+      hidden={!visible || minimizado}
       data-pane-id={pane.paneId}
-      aria-label={`Terminal de ${label ?? spec?.label ?? pane.label}`}
-      style={{ ["--pane" as string]: pane.cor }}
+      aria-label={`Terminal de ${nome}`}
+      style={{
+        ["--pane" as string]: pane.cor,
+        ...(gridColumn ? { gridColumn } : {}),
+      }}
     >
       <header className="pane-head">
-        <div className="pane-head-main">
-          {/* Mascote */}
-          <Mascote semente={pane.agent} cor={pane.cor} estado={pane.status} tamanho={24} />
+        {/* Linha 1: identidade + ações — nunca compete com os badges. */}
+        <div className="pane-head-top">
+          <div className="pane-head-id">
+            <Mascote semente={pane.agent} cor={pane.cor} estado={pane.status} tamanho={22} />
+            {renomeando ? (
+              <input
+                autoFocus
+                className="pane-rename-input"
+                value={tempLabel}
+                onChange={(e) => setTempLabel(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSalvarLabel();
+                  if (e.key === "Escape") setRenomeando(false);
+                }}
+                onBlur={handleSalvarLabel}
+              />
+            ) : (
+              <span
+                className="who"
+                title="Clique para renomear este terminal"
+                onClick={() => setRenomeando(true)}
+              >
+                {nome}
+                <button
+                  type="button"
+                  className="pane-edit-hint-btn"
+                  aria-label="Renomear terminal"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRenomeando(true);
+                  }}
+                >
+                  ✏️
+                </button>
+              </span>
+            )}
+          </div>
 
-          {/* 1. Interactive Label with inline rename */}
-          {renomeando ? (
-            <input
-              autoFocus
-              className="pane-rename-input"
-              value={tempLabel}
-              onChange={(e) => setTempLabel(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSalvarLabel();
-                if (e.key === "Escape") setRenomeando(false);
+          <div className="pane-head-actions">
+            <details
+              className="pane-details"
+              ref={detailsRef}
+              onToggle={(e) => {
+                const open = e.currentTarget.open;
+                setDetalhesAberto(open);
+                if (open) {
+                  const summary = e.currentTarget.querySelector("summary");
+                  if (summary) {
+                    const r = summary.getBoundingClientRect();
+                    const top = Math.min(r.bottom + 6, Math.max(10, window.innerHeight - 380));
+                    const right = Math.max(16, window.innerWidth - r.right);
+                    setDetalhesPos({ top, right });
+                  }
+                }
               }}
-              onBlur={handleSalvarLabel}
-            />
-          ) : (
-            <span
-              className="who"
-              title="Clique para renomear este terminal"
-              onClick={() => setRenomeando(true)}
             >
-              {label ?? spec?.label ?? pane.label}
+              <summary>
+                Detalhes <Icon name="chevron" size={14} />
+              </summary>
+              <div className="pane-details-content" style={detalhesPos ? { top: detalhesPos.top, right: detalhesPos.right } : undefined}>
+                <Spark atividade={pane.atividade} />
+                {usage && usage.turnos > 0 ? (
+                  <span
+                    className="meter"
+                    title={`${compacto(usage.in + usage.cacheWrite + usage.cacheRead)} entrada · ${compacto(usage.out)} saída · ${usage.turnos} turnos em ${usage.model ?? "—"}`}
+                  >
+                    ${usage.custo.toFixed(2)}
+                  </span>
+                ) : (
+                  <span className="meter" title="tempo desde que o painel abriu">
+                    {desdeQuando(Date.now() - pane.iniciadoEm)}
+                  </span>
+                )}
+                <span className="dica">
+                  PID / Daemon PTY ativo · {pane.cli}
+                </span>
+
+                <div className="pane-meta-summary" style={{ display: "flex", flexDirection: "column", gap: 5, borderTop: "1px solid #30363d", paddingTop: 8, fontSize: 11.5 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ color: "var(--ink-3)" }}>Papel:</span>
+                    <span style={{ fontWeight: 600, color: "var(--ink)" }}>{roleName}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ color: "var(--ink-3)" }}>Executor:</span>
+                    <span style={{ color: "var(--ink)" }}>{pane.cli}</span>
+                  </div>
+                  {pane.model && (
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ color: "var(--ink-3)" }}>Modelo:</span>
+                      <span style={{ color: "var(--ink)", textAlign: "right", wordBreak: "break-word" }}>
+                        {pane.model}{pane.effort ? ` (${pane.effort})` : ""}
+                      </span>
+                    </div>
+                  )}
+                  {(pane.accountLabel || pane.accountId) && (
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ color: "var(--ink-3)" }}>Conta:</span>
+                      <span style={{ color: "var(--ink)", textAlign: "right", wordBreak: "break-word" }}>
+                        {pane.accountLabel || pane.accountId}
+                        {pane.accountPinned ? " · fixada" : ""}
+                      </span>
+                    </div>
+                  )}
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ color: "var(--ink-3)" }}>Status:</span>
+                    <span style={{ color: statusInfo.color, fontWeight: 600 }}>● {statusInfo.label}</span>
+                  </div>
+                  {pane.blockedReason && (
+                    <div style={{ fontSize: 11, color: "var(--alerta)" }}>
+                      Bloqueio: {pane.blockedReason}
+                    </div>
+                  )}
+                  {taskAtiva && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, borderTop: "1px solid #21262d", paddingTop: 5 }}>
+                      <span style={{ color: "var(--ink-3)" }}>Tarefa ativa:</span>
+                      <span style={{ color: "var(--ink)", fontSize: 11 }}>#{taskAtiva.id.slice(-6)}: {taskAtiva.título}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid #30363d", paddingTop: 10 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-2)" }}>
+                    Conexões ({conexoesReais.length})
+                  </span>
+                  {conexoesReais.map((c) => {
+                    const outroId = c.sourcePaneId === pane.paneId ? c.targetPaneId : c.sourcePaneId;
+                    const outroPane = todosPaineis.find((p) => p.paneId === outroId);
+                    const outroNome = outroPane?.label ?? outroId;
+                    return (
+                      <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, color: "var(--ink)" }}>
+                        <span>🔗 {outroNome}</span>
+                        <button
+                          type="button"
+                          className="btn mini"
+                          style={{ padding: "1px 6px", fontSize: 10 }}
+                          onClick={() => onDesconectar?.(c.id)}
+                          title="Desconectar"
+                        >
+                          Desconectar
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  {todosPaineis.filter((p) => p.paneId !== pane.paneId).length > 0 && (
+                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      <select
+                        className="campo"
+                        style={{ fontSize: 11, padding: "2px 4px", flex: 1 }}
+                        defaultValue=""
+                        onChange={(e) => {
+                          const destinoId = e.target.value;
+                          if (destinoId) {
+                            onConectar?.(pane.paneId, destinoId);
+                            e.target.value = "";
+                          }
+                        }}
+                      >
+                        <option value="" disabled>Conectar a...</option>
+                        {todosPaineis
+                          .filter((p) => p.paneId !== pane.paneId)
+                          .map((p) => (
+                            <option key={p.paneId} value={p.paneId}>
+                              {p.maestro ? "⭐ " : ""}{p.label} ({p.role || p.agent})
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  className="btn perigo"
+                  onClick={onClose}
+                >
+                  Encerrar painel
+                </button>
+              </div>
+            </details>
+
+            {onMinimizar && (
               <button
                 type="button"
-                className="pane-edit-hint-btn"
-                aria-label="Renomear terminal"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setRenomeando(true);
-                }}
+                className="pane-min-btn"
+                title="Minimizar painel (continua rodando)"
+                onClick={onMinimizar}
+                aria-label="Minimizar painel"
               >
-                ✏️
+                <Icon name="minimize" size={14} />
               </button>
-            </span>
-          )}
+            )}
 
-          {/* BADGE 1: Papel Funcional (.badge-role) with Reclassify Dropdown */}
+            <button
+              type="button"
+              className="pane-close-btn"
+              title="Encerrar painel"
+              onClick={onClose}
+              aria-label="Encerrar painel"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {/* Linha 2: badges — quebram de linha em janela estreita, nunca somem. */}
+        <div className="pane-head-badges">
           <div className="pane-role-container">
             <button
               ref={roleBtnRef}
@@ -341,7 +566,6 @@ export function Pane({
             )}
           </div>
 
-          {/* BADGE 2: Executor (.badge-runner) */}
           <span
             className={`pane-badge badge-runner ${pane.cli}`}
             title={`Executor: ${pane.cli} (Soberano)`}
@@ -359,7 +583,6 @@ export function Pane({
             )}
           </span>
 
-          {/* BADGE 3: Modelo (.badge-model) */}
           {pane.cli === "bash" ? (
             <span className="pane-badge badge-model clean-bash" title="Terminal Linux soberano sem LLM">
               clean-bash
@@ -371,7 +594,6 @@ export function Pane({
             </span>
           ) : null}
 
-          {/* BADGE 4: Status Granular de 8 Estados (.badge-status) */}
           <span
             className={`pane-badge badge-status ${pane.status}`}
             title={pane.blockedReason ? `Bloqueado: ${pane.blockedReason}` : statusInfo.description}
@@ -380,7 +602,6 @@ export function Pane({
             <span className="status-label">{statusInfo.label}</span>
           </span>
 
-          {/* BADGE 5: Tarefa Ativa (.badge-active-task) */}
           {taskAtiva ? (
             <span
               className="pane-badge badge-active-task"
@@ -396,7 +617,6 @@ export function Pane({
             </span>
           )}
 
-          {/* STRICT CONNECTION WIRE: Only rendered when real connection exists */}
           {conexoesReais.length > 0 && (
             <span
               className="pane-conn-line real"
@@ -408,155 +628,6 @@ export function Pane({
               <span className="conn-count">({conexoesReais.length})</span>
             </span>
           )}
-        </div>
-
-        <div className="pane-head-actions">
-          {/* Detalhes & Ações */}
-          <details
-            className="pane-details"
-            ref={detailsRef}
-            onToggle={(e) => {
-              const open = e.currentTarget.open;
-              setDetalhesAberto(open);
-              if (open) {
-                const summary = e.currentTarget.querySelector("summary");
-                if (summary) {
-                  const r = summary.getBoundingClientRect();
-                  const top = Math.min(r.bottom + 6, Math.max(10, window.innerHeight - 380));
-                  const right = Math.max(16, window.innerWidth - r.right);
-                  setDetalhesPos({ top, right });
-                }
-              }
-            }}
-          >
-            <summary>
-              Detalhes <Icon name="chevron" size={14} />
-            </summary>
-            <div className="pane-details-content" style={detalhesPos ? { top: detalhesPos.top, right: detalhesPos.right } : undefined}>
-              <Spark atividade={pane.atividade} />
-              {usage && usage.turnos > 0 ? (
-                <span
-                  className="meter"
-                  title={`${compacto(usage.in + usage.cacheWrite + usage.cacheRead)} entrada · ${compacto(usage.out)} saída · ${usage.turnos} turnos em ${usage.model ?? "—"}`}
-                >
-                  ${usage.custo.toFixed(2)}
-                </span>
-              ) : (
-                <span className="meter" title="tempo desde que o painel abriu">
-                  {desdeQuando(Date.now() - pane.iniciadoEm)}
-                </span>
-              )}
-              <span className="dica">
-                PID / Daemon PTY ativo · {pane.cli}
-              </span>
-
-              {/* Ficha Completa de Metadados (visível e acessível em qualquer tamanho de tela) */}
-              <div className="pane-meta-summary" style={{ display: "flex", flexDirection: "column", gap: 5, borderTop: "1px solid #30363d", paddingTop: 8, fontSize: 11.5 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                  <span style={{ color: "var(--ink-3)" }}>Papel:</span>
-                  <span style={{ fontWeight: 600, color: "var(--ink)" }}>{roleName}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                  <span style={{ color: "var(--ink-3)" }}>Executor:</span>
-                  <span style={{ color: "var(--ink)" }}>{pane.cli}</span>
-                </div>
-                {pane.model && (
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                    <span style={{ color: "var(--ink-3)" }}>Modelo:</span>
-                    <span style={{ color: "var(--ink)", textAlign: "right", wordBreak: "break-word" }}>
-                      {pane.model}{pane.effort ? ` (${pane.effort})` : ""}
-                    </span>
-                  </div>
-                )}
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                  <span style={{ color: "var(--ink-3)" }}>Status:</span>
-                  <span style={{ color: statusInfo.color, fontWeight: 600 }}>● {statusInfo.label}</span>
-                </div>
-                {pane.blockedReason && (
-                  <div style={{ fontSize: 11, color: "var(--alerta)" }}>
-                    Bloqueio: {pane.blockedReason}
-                  </div>
-                )}
-                {taskAtiva && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2, borderTop: "1px solid #21262d", paddingTop: 5 }}>
-                    <span style={{ color: "var(--ink-3)" }}>Tarefa ativa:</span>
-                    <span style={{ color: "var(--ink)", fontSize: 11 }}>#{taskAtiva.id.slice(-6)}: {taskAtiva.título}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Gerenciamento de Conexões */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid #30363d", paddingTop: 10 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-2)" }}>
-                  Conexões ({conexoesReais.length})
-                </span>
-                {conexoesReais.map((c) => {
-                  const outroId = c.sourcePaneId === pane.paneId ? c.targetPaneId : c.sourcePaneId;
-                  const outroPane = todosPaineis.find((p) => p.paneId === outroId);
-                  const outroNome = outroPane?.label ?? outroId;
-                  return (
-                    <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, color: "var(--ink)" }}>
-                      <span>🔗 {outroNome}</span>
-                      <button
-                        type="button"
-                        className="btn mini"
-                        style={{ padding: "1px 6px", fontSize: 10 }}
-                        onClick={() => onDesconectar?.(c.id)}
-                        title="Desconectar"
-                      >
-                        Desconectar
-                      </button>
-                    </div>
-                  );
-                })}
-
-                {/* Conectar a outro painel disponível */}
-                {todosPaineis.filter((p) => p.paneId !== pane.paneId).length > 0 && (
-                  <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                    <select
-                      className="campo"
-                      style={{ fontSize: 11, padding: "2px 4px", flex: 1 }}
-                      defaultValue=""
-                      onChange={(e) => {
-                        const destinoId = e.target.value;
-                        if (destinoId) {
-                          onConectar?.(pane.paneId, destinoId);
-                          e.target.value = "";
-                        }
-                      }}
-                    >
-                      <option value="" disabled>Conectar a...</option>
-                      {todosPaineis
-                        .filter((p) => p.paneId !== pane.paneId)
-                        .map((p) => (
-                          <option key={p.paneId} value={p.paneId}>
-                            {p.maestro ? "⭐ " : ""}{p.label} ({p.role || p.agent})
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-
-              <button
-                type="button"
-                className="btn perigo"
-                onClick={onClose}
-              >
-                Encerrar painel
-              </button>
-            </div>
-          </details>
-
-          <button
-            type="button"
-            className="pane-close-btn"
-            title="Encerrar painel"
-            onClick={onClose}
-            aria-label="Encerrar painel"
-          >
-            ✕
-          </button>
         </div>
       </header>
 

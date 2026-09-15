@@ -48,6 +48,8 @@ export interface PaneState {
   maestro: boolean;
   accountId?: string | null;
   accountLabel?: string | null;
+  /** Se true, cota blocked não rotaciona para outra conta do pool */
+  accountPinned?: boolean;
   status: PaneStatus;
   blockedReason?: string | null;
   exitCode?: number | null;

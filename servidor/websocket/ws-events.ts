@@ -4,7 +4,7 @@ import type { Task, TaskStatus, TaskEvidence } from "../tasks/task-types.ts";
 import type { MailboxMessage } from "../connections/connection-types.ts";
 
 export type ClientMessage =
-  | { type: "spawn"; agent: string; missionId: string; tipo?: string; tarefa?: string; cli?: string; model?: string | null; effort?: string | null; role?: string; runner?: string; maestro?: boolean }
+  | { type: "spawn"; agent: string; missionId: string; tipo?: string; tarefa?: string; cli?: string; model?: string | null; effort?: string | null; role?: string; runner?: string; maestro?: boolean; preferredAccountId?: string; accountPinned?: boolean }
   | { type: "input"; paneId: string; data: string }
   | { type: "resize"; paneId: string; cols: number; rows: number }
   | { type: "kill"; paneId: string }
