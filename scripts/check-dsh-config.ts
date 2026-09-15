@@ -155,16 +155,20 @@ try {
 }
 
 // ----------------------------------------------------------------------------
-// 5. Estado real atual do sistema (pré-PR2)
+// 5. Estado real atual do sistema
 // ----------------------------------------------------------------------------
-console.log("\n--- 5. Estado real do sistema (pré-PR2) ---");
+console.log("\n--- 5. Estado real do sistema ---");
 const realStatus = checkDshAvailability();
 ok(realStatus.binExists === true, "Checkout local do DSH contém binário funcional");
 ok(realStatus.isolated === true, "Caminho configurado para DSH_HOME é isolado");
-ok(realStatus.homeExists === false, "DSH_HOME real (~/.cockpit/dsh-home) ainda não existe (será provisionado no PR-2)");
-ok(realStatus.available === false, "Estado atual honesto: engine reporta indisponível até o PR-2 configurar o home");
-ok(typeof realStatus.error === "string", `Mensagem descritiva do estado atual: ${realStatus.error}`);
-
+if (realStatus.homeExists) {
+  ok(realStatus.available === true, "DSH_HOME presente → engine disponível");
+  ok(realStatus.error === undefined, "Sem erro de disponibilidade com home provisionado");
+  ok(realStatus.version === PINNED_DSH_VERSION, `Versão real pinada: ${realStatus.version}`);
+} else {
+  ok(realStatus.available === false, "Sem DSH_HOME → engine indisponível (rode setup-dsh-cockpit-home.sh)");
+  ok(typeof realStatus.error === "string", `Mensagem descritiva: ${realStatus.error}`);
+}
 // ----------------------------------------------------------------------------
 // Resumo
 // ----------------------------------------------------------------------------
@@ -173,6 +177,6 @@ if (falhas > 0) {
   console.error(`FALHA: ${falhas} teste(s) falharam.`);
   process.exit(1);
 } else {
-  console.log("SUCESSO: Todos os testes do PR-1 (config + detecção DSH) passaram!");
+  console.log("SUCESSO: Todos os testes de config + detecção DSH passaram!");
   process.exit(0);
 }
