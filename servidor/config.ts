@@ -37,9 +37,18 @@ export type ContaPoolSpec = {
   args?: string[];
 };
 
+export type CliBackend = "pty" | "dsh";
+
 export type CliSpec = {
   command: string;
   args?: string[];
+  /**
+   * Transporte de execução do CLI:
+   * - "pty": processo direto via node-pty (padrão legado do Cockpit)
+   * - "dsh": engine DeepSeek Harness via profile sdk
+   * Default: "pty" quando omitido.
+   */
+  backend?: CliBackend;
   /**
    * De que família este CLI é. Ausente = ele mesmo. Serve para um provedor
    * que roda pelo binário de outro herdar o mesmo tratamento de argumentos.
@@ -196,11 +205,54 @@ export type CockpitConfig = {
   marketplaces?: { id: string; url: string }[];
 };
 
+export const CLI_BACKENDS: readonly CliBackend[] = ["pty", "dsh"] as const;
+
+export function isCliBackend(value: unknown): value is CliBackend {
+  return value === "pty" || value === "dsh";
+}
+
+/**
+ * Valida e converte um valor de backend para CliBackend.
+ * Se omitido/indefinido/null, retorna o padrão "pty".
+ * Se valor desconhecido, lança erro.
+ */
+export function parseCliBackend(value: unknown): CliBackend {
+  if (value === undefined || value === null) {
+    return "pty";
+  }
+  if (isCliBackend(value)) {
+    return value;
+  }
+  throw new Error(`Valor inválido para backend de CLI: "${String(value)}". Valores suportados: "pty" | "dsh"`);
+}
+
+/**
+ * Retorna o backend efetivo para um CLI ou CliSpec.
+ * Retorna "pty" como fallback quando omitido.
+ */
+export function backendDo(cli: CliSpec | string | undefined | null): CliBackend {
+  if (!cli) return "pty";
+  if (typeof cli === "string") {
+    const spec = config?.clis?.[cli];
+    return spec?.backend ?? "pty";
+  }
+  return cli.backend ?? "pty";
+}
+
+export const resolveCliBackend = backendDo;
+
 const ARQUIVO = process.env.COCKPIT_CONFIG ?? fileURLToPath(new URL("../cockpit.json", import.meta.url));
 
-const ler = (): CockpitConfig => {
+export const ler = (): CockpitConfig => {
   const cfg = JSON.parse(readFileSync(ARQUIVO, "utf8")) as CockpitConfig;
   if (cfg.maestroAutoSwitch === undefined) cfg.maestroAutoSwitch = false;
+  if (cfg.clis) {
+    for (const [id, cli] of Object.entries(cfg.clis)) {
+      if (cli && typeof cli === "object" && cli.backend !== undefined) {
+        cli.backend = parseCliBackend(cli.backend);
+      }
+    }
+  }
   return cfg;
 };
 
@@ -220,3 +272,4 @@ export function recarregarConfig(): void {
   for (const k of Object.keys(alvo)) delete alvo[k];
   Object.assign(alvo, novo);
 }
+
