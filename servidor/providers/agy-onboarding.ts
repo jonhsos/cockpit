@@ -225,6 +225,7 @@ export class AgyOnboardingService {
     expiresAt: number;
   }> {
     const cli = options?.cli ?? "agy";
+    assertOAuthConfigured();
     if (AgyOnboardingService.countActiveSessions() >= MAX_ACTIVE_SESSIONS) {
       throw new Error(
         `Limite de ${MAX_ACTIVE_SESSIONS} sessões de onboarding simultâneas atingido. Cancele uma sessão antes de iniciar outra.`,
