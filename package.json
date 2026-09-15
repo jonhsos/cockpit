@@ -2,6 +2,9 @@
   "name": "cockpit",
   "private": true,
   "type": "module",
+  "bin": {
+    "cockpit": "./bin/cockpit.mjs"
+  },
   "scripts": {
     "build": "vite build",
     "start": "vite build && node servidor/index.ts",
@@ -37,5 +40,11 @@
     "@types/ws": "^8.18.1",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"
+  },
+  "allowScripts": {
+    "node-pty@1.1.0": true,
+    "onnxruntime-node@1.24.3": true,
+    "protobufjs@7.6.6": true,
+    "sharp@0.34.5": true
   }
 }

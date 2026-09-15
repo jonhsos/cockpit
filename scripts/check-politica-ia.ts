@@ -20,6 +20,16 @@ try {
     }
   }
   assert.equal(resolverHarness({ agent: "shell" }).cli, "bash");
+  assert.equal(
+    resolverHarness({ agent: "shell", tipo: "implementar", elenco: { clis: ["codex"] } }).cli,
+    "bash",
+    "SHELL vazio não pode virar Codex por causa do elenco da missão",
+  );
+  assert.equal(
+    resolverHarness({ agent: "shell", invoke: { cli: "codex" }, elenco: { clis: ["codex"] } }).cli,
+    "codex",
+    "SHELL só vira IA após escolha explícita",
+  );
   config.politicaIA = validarPoliticaIA({ modo: "dividida", papeis: { builder: sol } });
   assert.equal(resolverHarness({ agent: "builder", tipo: "arquitetura" }).model, sol.model);
   assert.equal(resolverHarness({ agent: "piloto" }).cli, config.agents.piloto!.cli);

@@ -21,6 +21,7 @@ setInterval(() => {}, 1000);
 `);
 const cfg = JSON.parse(readFileSync('cockpit.json', 'utf8'));
 cfg.port = port; cfg.confiarNasPastasQueEuAbrir = false;
+cfg.politicaIA = { modo: 'padrao' };
 cfg.clis = { codex: { command: process.execPath, args: [cli] }, claude: { command: process.execPath, args: [cli] } };
 cfg.maestroAutoSwitch = true;
 const configFile = join(dir, 'config.json'); writeFileSync(configFile, JSON.stringify(cfg));

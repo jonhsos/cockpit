@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { AgentSpec, Elenco, Provider, Receita, SquadSpec, TipoTarefa } from "./api.ts";
 
-export type Modo = "livre" | "squad" | "agentico";
+export type Modo = "livre" | "dirigido" | "autonomo" | "squad" | "agentico";
 
 export type Plano = {
   nome: string;
@@ -23,6 +23,7 @@ const NOME_CLI: Record<string, string> = {
   codex: "GPT · Codex",
   agy: "Gemini · Antigravity",
   bash: "Terminal",
+  grok: "Grok · xAI",
 };
 
 const nomeCli = (id: string) => NOME_CLI[id] ?? id;
@@ -75,9 +76,9 @@ const FORMACOES: { id: string; label: string; explica: string; monta: (ligados: 
 ];
 
 const MODOS: { id: Modo; label: string; explica: string }[] = [
-  { id: "livre", label: "Livre", explica: "A missão nasce vazia. Você abre os painéis quando quiser." },
-  { id: "squad", label: "Time", explica: "Um time pronto sobe junto, em fases, com portão entre elas." },
-  { id: "agentico", label: "Agêntico", explica: "Só o maestro sobe. Ele lê o objetivo e chama quem precisar." },
+  { id: "livre", label: "Livre", explica: "Controle manual absoluto (padrão). Terminais abertos sob seu comando." },
+  { id: "dirigido", label: "Dirigido", explica: "Maestro delega tarefas estritamente dentro da equipe e permissões definidas." },
+  { id: "autonomo", label: "Autônomo", explica: "Maestro pode criar tarefas e instanciar painéis dentro do limite autorizado." },
 ];
 
 const QUANTIDADES = [1, 2, 4, 8, 12];
@@ -184,9 +185,9 @@ function Elencar({
                     className="campo mini"
                     value={fixo.model ?? ""}
                     onChange={(e) => fixar(p.id, "model", e.target.value)}
-                    title="modelo fixo, ou automático pelo tipo da tarefa"
+                    title="modelo fixo, ou perfil do agente escolhido"
                   >
-                    <option value="">modelo: pelo tipo da tarefa</option>
+                    <option value="">modelo: pelo agente escolhido</option>
                     {(p.modelos ?? []).map((m) => (
                       <option key={m} value={m}>{m}</option>
                     ))}
@@ -196,9 +197,9 @@ function Elencar({
                     className="campo mini"
                     value={fixo.effort ?? ""}
                     onChange={(e) => fixar(p.id, "effort", e.target.value)}
-                    title="esforço fixo, ou automático pelo tipo da tarefa"
+                    title="esforço fixo, ou perfil do agente escolhido"
                   >
-                    <option value="">esforço: pelo tipo da tarefa</option>
+                    <option value="">esforço: pelo agente escolhido</option>
                     {(p.efforts ?? []).map((e) => (
                       <option key={e} value={e}>{e}</option>
                     ))}
@@ -249,7 +250,7 @@ export function NovaMissao({
 
   const [nome, setNome] = useState("");
   const [objetivo, setObjetivo] = useState("");
-  const [modo, setModo] = useState<Modo>("agentico");
+  const [modo, setModo] = useState<Modo>("livre");
   const [squad, setSquad] = useState(Object.keys(squads)[0] ?? "");
   const [tipo, setTipo] = useState("");
   const [quantos, setQuantos] = useState(2);
@@ -294,13 +295,15 @@ export function NovaMissao({
 
   // No modo livre você diz quantos painéis quer; a escolha manual manda.
   const agentesFinais =
-    modo === "agentico"
+    modo === "autonomo" || modo === "agentico"
       ? ["maestro"]
-      : modo === "squad"
-        ? (squads[squad]?.fases[0]?.agentes ?? [])
-        : escolhidos.length > 0
-          ? escolhidos
-          : usaveis.slice(0, quantos).map(([id]) => id);
+      : modo === "dirigido"
+        ? (escolhidos.length > 0 ? escolhidos : ["maestro"])
+        : modo === "squad"
+          ? (squads[squad]?.fases[0]?.agentes ?? [])
+          : escolhidos.length > 0
+            ? escolhidos
+            : usaveis.slice(0, quantos).map(([id]) => id);
 
   const pronto = nome.trim().length > 0 && (modo !== "squad" || squad !== "");
 
@@ -390,7 +393,16 @@ export function NovaMissao({
         </div>
         )}
 
-        {modo === "agentico" && <p className="ressalva">Maestro: <strong>{agents.maestro?.cli === "codex" ? "GPT · Codex" : agents.maestro?.cli}</strong> · {agents.maestro?.model} · {agents.maestro?.effort}. Para mudar, use Maestro na barra superior.</p>}
+        {(modo === "autonomo" || modo === "agentico") && (
+          <p className="ressalva">
+            Modo Autônomo: O Maestro coordena a missão e instancia painéis conforme o escopo concedido.
+          </p>
+        )}
+        {modo === "dirigido" && (
+          <p className="ressalva">
+            Modo Dirigido: O Maestro delega tarefas exclusivamente para a equipe de agentes selecionada abaixo.
+          </p>
+        )}
         {modo === "squad" && cobre("squad") && (
           <Resolvido
             rotulo="Time"
@@ -419,7 +431,7 @@ export function NovaMissao({
           </div>
         )}
 
-        {modo === "livre" && (
+        {(modo === "livre" || modo === "dirigido") && (
           <>
             <div className="campo-bloco">
               <span className="rotulo">Quantos painéis abrir agora</span>
@@ -455,7 +467,7 @@ export function NovaMissao({
                   >
                     <i />
                     <b>{a.label}</b>
-                    <span>{a.model ?? a.cli}</span>
+                    <span>{a.papel ?? a.label}</span>
                   </button>
                 ))}
               </div>
@@ -474,7 +486,7 @@ export function NovaMissao({
         {modo !== "squad" && !cobre("tipo") && (
           <div className="campo-bloco">
             <span className="rotulo">
-              Tipo do trabalho <em>— decide modelo e esforço; é aqui que se economiza</em>
+              Tipo do trabalho <em>— organiza contexto; agente escolhido mantém modelo e esforço</em>
             </span>
             <div className="pilulas">
               <button

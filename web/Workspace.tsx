@@ -79,7 +79,7 @@ export function Workspace({
                 <Icon name="plus" size={13} /> Abrir pasta
               </button>
             </span>
-            {escolhendo && <p className="dica sem-margem">escolha a pasta na janela do Windows…</p>}
+            {escolhendo && <p className="dica sem-margem">escolha a pasta na janela que apareceu…</p>}
 
             <div className="lista-skills curta">
               {projects.length === 0 && <p className="vazio-nota">Nenhum projeto aberto ainda.</p>}

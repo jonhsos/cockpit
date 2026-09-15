@@ -51,7 +51,8 @@ const soStatus = extrairLimiteClaude({ rateLimit: { status: "exceeded" } })!;
 ok(soStatus.estado === "bloqueado", "status 'exceeded' bloqueia mesmo sem número");
 const estranho = extrairLimiteClaude({ rateLimit: { coisaNova: 42 } })!;
 ok(estranho.estado === "desconhecido" && /coisaNova:number/.test(estranho.detalhe ?? ""), "formato novo reporta a FORMA, sem valores");
-ok(!JSON.stringify(estranho).includes("42"), "e nenhum valor vaza no relato");
+const { lidoEm: _t, ...semData } = estranho;
+ok(!JSON.stringify(semData).includes("42"), "e nenhum valor vaza no relato");
 
 console.log("\n=== o aviso do painel sobrepõe a conta ===");
 const base: Cota[] = [

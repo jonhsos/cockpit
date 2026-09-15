@@ -30,15 +30,35 @@ export type PonteSpec = {
   nota?: string;
 };
 
+export type ContaPoolSpec = {
+  id: string;
+  label?: string;
+  env?: Record<string, string>;
+  args?: string[];
+};
+
+export type CliBackend = "pty" | "dsh";
+
 export type CliSpec = {
   command: string;
   args?: string[];
+  /**
+   * Transporte de execução do CLI:
+   * - "pty": processo direto via node-pty (padrão legado do Cockpit)
+   * - "dsh": engine DeepSeek Harness via profile sdk
+   * Default: "pty" quando omitido.
+   */
+  backend?: CliBackend;
   /**
    * De que família este CLI é. Ausente = ele mesmo. Serve para um provedor
    * que roda pelo binário de outro herdar o mesmo tratamento de argumentos.
    */
   familia?: string;
   ponte?: PonteSpec;
+  env?: Record<string, string>;
+  sandbox?: string;
+  /** Pool de contas para concorrência e failover transparente */
+  pool?: ContaPoolSpec[];
 };
 
 export type AgentSpec = {
@@ -125,7 +145,7 @@ export type Roster = Record<string, { cli?: string; model?: string; effort?: str
 export type Elenco = {
   /** Provedores liberados, na ordem de preferência. Vazio = todos. */
   clis: string[];
-  /** Modelo e esforço fixados por provedor. Fixado ganha do tipo da tarefa. */
+  /** Modelo e esforço fixados por provedor. Fixado ganha do perfil do agente. */
   porCli?: Record<string, { model?: string; effort?: string }>;
   /** Provedores que só entram em tarefa visual — imagem, vídeo, mockup. */
   soVisual?: string[];
@@ -157,12 +177,14 @@ export type Preco = { in: number; out: number; cacheWrite: number; cacheRead: nu
 export type ExecucaoIA = { cli: string; model: string; effort: string };
 export type PoliticaIA = { modo: "padrao" | "unica" | "dividida"; unica?: ExecucaoIA; papeis?: Record<string, ExecucaoIA> };
 
-type CockpitConfig = {
+export type CockpitConfig = {
   politicaIA?: PoliticaIA;
   maestroAutoSwitch?: boolean;
   port: number;
   /** Marca as pastas que você abre como confiáveis para o Claude Code. */
   confiarNasPastasQueEuAbrir?: boolean;
+  /** Auto-aprova comandos e ferramentas nos CLIs (--dangerously-skip-permissions, --ask-for-approval never, etc.). */
+  autoAprovar?: boolean;
   /** Idioma do ditado: portuguese, english, spanish… */
   vozIdioma?: string;
   /** Colado no prompt de todo agente: fatos desta máquina. */
@@ -183,9 +205,56 @@ type CockpitConfig = {
   marketplaces?: { id: string; url: string }[];
 };
 
+export const CLI_BACKENDS: readonly CliBackend[] = ["pty", "dsh"] as const;
+
+export function isCliBackend(value: unknown): value is CliBackend {
+  return value === "pty" || value === "dsh";
+}
+
+/**
+ * Valida e converte um valor de backend para CliBackend.
+ * Se omitido/indefinido/null, retorna o padrão "pty".
+ * Se valor desconhecido, lança erro.
+ */
+export function parseCliBackend(value: unknown): CliBackend {
+  if (value === undefined || value === null) {
+    return "pty";
+  }
+  if (isCliBackend(value)) {
+    return value;
+  }
+  throw new Error(`Valor inválido para backend de CLI: "${String(value)}". Valores suportados: "pty" | "dsh"`);
+}
+
+/**
+ * Retorna o backend efetivo para um CLI ou CliSpec.
+ * Retorna "pty" como fallback quando omitido.
+ */
+export function backendDo(cli: CliSpec | string | undefined | null): CliBackend {
+  if (!cli) return "pty";
+  if (typeof cli === "string") {
+    const spec = config?.clis?.[cli];
+    return spec?.backend ?? "pty";
+  }
+  return cli.backend ?? "pty";
+}
+
+export const resolveCliBackend = backendDo;
+
 const ARQUIVO = process.env.COCKPIT_CONFIG ?? fileURLToPath(new URL("../cockpit.json", import.meta.url));
 
-const ler = (): CockpitConfig => JSON.parse(readFileSync(ARQUIVO, "utf8")) as CockpitConfig;
+export const ler = (): CockpitConfig => {
+  const cfg = JSON.parse(readFileSync(ARQUIVO, "utf8")) as CockpitConfig;
+  if (cfg.maestroAutoSwitch === undefined) cfg.maestroAutoSwitch = false;
+  if (cfg.clis) {
+    for (const [id, cli] of Object.entries(cfg.clis)) {
+      if (cli && typeof cli === "object" && cli.backend !== undefined) {
+        cli.backend = parseCliBackend(cli.backend);
+      }
+    }
+  }
+  return cfg;
+};
 
 /**
  * O objeto é sempre o mesmo, mutado no lugar: todos os módulos que já
@@ -203,3 +272,4 @@ export function recarregarConfig(): void {
   for (const k of Object.keys(alvo)) delete alvo[k];
   Object.assign(alvo, novo);
 }
+

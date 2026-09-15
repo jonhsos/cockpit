@@ -1,3 +1,57 @@
+import type {
+  Task,
+  TaskStatus,
+  TaskPriority,
+  TaskEvidence,
+  EvidenceType,
+  TaskTimestamps,
+  CreateTaskParams,
+  UpdateTaskParams,
+  TaskBoardData,
+  FileLock,
+  LockMode,
+  LockResult,
+  Connection,
+  ConnectionStatus,
+  Handoff,
+  HandoffStatus,
+  MailboxMessage,
+  MailboxMessageType,
+  RoleDefinition,
+  RunnerId,
+  RunnerOption,
+  ModelOption,
+  GranularPaneStatus,
+  MissionMode,
+} from "./tipos.ts";
+
+export type {
+  Task,
+  TaskStatus,
+  TaskPriority,
+  TaskEvidence,
+  EvidenceType,
+  TaskTimestamps,
+  CreateTaskParams,
+  UpdateTaskParams,
+  TaskBoardData,
+  FileLock,
+  LockMode,
+  LockResult,
+  Connection,
+  ConnectionStatus,
+  Handoff,
+  HandoffStatus,
+  MailboxMessage,
+  MailboxMessageType,
+  RoleDefinition,
+  RunnerId,
+  RunnerOption,
+  ModelOption,
+  GranularPaneStatus,
+  MissionMode,
+};
+
 export type Usage = {
   in: number;
   out: number;
@@ -22,7 +76,20 @@ export type PaneState = {
   missionId: string | null;
   sessionId: string | null;
   maestro: boolean;
-  status: "run" | "idle" | "dead";
+  role?: string;
+  runner?: string;
+  status:
+    | "starting"
+    | "waiting-user"
+    | "working"
+    | "blocked"
+    | "review"
+    | "completed"
+    | "failed"
+    | "dead"
+    | "run"
+    | "idle";
+  blockedReason?: string | null;
   bytesIn: number;
   bytesOut: number;
   iniciadoEm: number;
@@ -56,6 +123,8 @@ export type Mission = {
   git: { dirty: number; head: string | null };
   usage: Usage;
   squad: SquadRun | null;
+  modo?: string;
+  ownershipMode?: string;
 };
 
 export type AgentSpec = {
@@ -95,6 +164,25 @@ export type Consumo = {
   agy: { conversas: number; pedidos: number; ultima: string | null };
 };
 
+export type AccountPoolItemView = {
+  id: string;
+  label: string;
+  status: "livre" | "ocupada" | "cooldown";
+  painelId?: string;
+  painelLabel?: string;
+  limitedUntil?: number;
+  lastLimitDetail?: string;
+  env?: Record<string, string>;
+};
+
+export type AccountPoolView = {
+  cli: string;
+  contas: AccountPoolItemView[];
+  total: number;
+  ativas: number;
+  emCooldown: number;
+};
+
 export type Provider = {
   id: string;
   comando: string;
@@ -107,11 +195,13 @@ export type Provider = {
   instalar?: string;
   /** Presente quando o provedor é uma API rodando pelo binário de outro CLI. */
   ponte?: { base: string; chaveEnv: string; chaveEm: string | null; gratis: boolean };
+  /** Pool de contas multicontas configurado para este provedor */
+  pool?: AccountPoolView;
 };
 
 /**
  * Elenco: quais IAs entram na missão. "porCli" fixa modelo e esforço — o que
- * for fixado ganha até do tipo da tarefa. "soVisual" marca quem só entra para
+ * for fixado ganha do perfil do agente. "soVisual" marca quem só entra para
  * imagem: é assim que o Gemini desenha sem escrever o site.
  */
 export type Elenco = {
@@ -175,6 +265,7 @@ export const fetchConfig = () =>
       tarefas: Record<string, TipoTarefa>;
       providers: Provider[];
       receitas: Record<string, Receita>;
+      autoAprovar?: boolean;
     }>,
   );
 
@@ -182,7 +273,11 @@ export const fetchConfig = () =>
 export const fetchProjects = () => fetch("/api/projects").then(json<{ projects: Project[] }>);
 export const postProject = (root: string) => post("/api/projects", { root }).then(json<Project>);
 export const escolherPasta = () =>
-  post("/api/escolher-pasta", {}).then(json<{ caminho: string | null }>);
+  post("/api/escolher-pasta", {}).then(json<{ caminho: string | null; navegar?: boolean }>);
+export const listarDiretorios = (path?: string) =>
+  post("/api/listar-diretorios", { path: path ?? "" }).then(
+    json<{ path: string; dirs: string[]; parent: string }>,
+  );
 export const closeProject = (id: string) => del(`/api/projects/${id}`).then(json<{ ok: true }>);
 export const prepararGit = (id: string) =>
   post(`/api/projects/${id}/git`, {}).then(json<{ ok: true; pronto: boolean }>);
@@ -190,7 +285,11 @@ export const prepararGit = (id: string) =>
 // provedores
 export const fetchProviders = (rescan = false) =>
   fetch(`/api/providers${rescan ? "?rescan=1" : ""}`).then(
-    json<{ providers: Provider[]; presets: Preset[] }>,
+    json<{ providers: Provider[]; presets: Preset[]; autoAprovar?: boolean }>,
+  );
+export const salvarAutoAprovar = (autoAprovar: boolean) =>
+  post("/api/config/auto-aprovar", { autoAprovar }).then(
+    json<{ ok: true; autoAprovar: boolean }>,
   );
 export const conectarProvider = (c: { id: string; comando: string; modelos?: string[] }) =>
   post("/api/providers", c).then(json<Provider>);
@@ -226,11 +325,111 @@ export const postMission = (
 
 export const salvarElenco = (missionId: string, elenco: Elenco | null) =>
   post("/api/missions/" + missionId + "/elenco", { elenco }).then(json<{ elenco: Elenco | null }>);
+export const renomearMissao = (missionId: string, nome: string) =>
+  post(`/api/missions/${missionId}/nome`, { nome }).then(json<{ mission: Mission }>);
 export const deleteMission = (id: string) => del(`/api/missions/${id}`).then(json<{ ok: true }>);
+export const mudarModo = (missionId: string, modo: string) =>
+  post(`/api/missions/${missionId}/modo`, { modo }).then(json<{ ok: true; modo: string }>);
+
+// tarefas (R6)
+export const fetchTasks = (missionId: string) =>
+  fetch(`/api/missions/${missionId}/tasks`).then(json<{ ok: boolean; tasks: Task[] }>);
+
+export const fetchTaskBoard = (missionId: string) =>
+  fetch(`/api/missions/${missionId}/tasks/board`).then(json<{ ok: boolean; board: TaskBoardData }>);
+
+export const fetchTask = (missionId: string, taskId: string) =>
+  fetch(`/api/missions/${missionId}/tasks/${taskId}`).then(json<{ ok: boolean; task: Task }>);
+
+export const createTask = (missionId: string, params: CreateTaskParams) =>
+  post(`/api/missions/${missionId}/tasks`, params).then(json<{ ok: boolean; task: Task }>);
+
+export const updateTask = (missionId: string, taskId: string, params: UpdateTaskParams) =>
+  fetch(`/api/missions/${missionId}/tasks/${taskId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(params),
+  }).then(json<{ ok: boolean; task: Task }>);
+
+export const transitionTask = (
+  missionId: string,
+  taskId: string,
+  status: TaskStatus,
+  context?: { reason?: string; resultado?: string; evidence?: TaskEvidence; force?: boolean },
+) =>
+  post(`/api/missions/${missionId}/tasks/${taskId}/status`, { status, ...context }).then(
+    json<{ ok: boolean; task: Task }>,
+  );
+
+export const assignTask = (
+  missionId: string,
+  taskId: string,
+  paneId: string | null,
+  responsavel?: string,
+  papel?: string,
+) =>
+  post(`/api/missions/${missionId}/tasks/${taskId}/atribuir`, { paneId, responsavel, papel }).then(
+    json<{ ok: boolean; task: Task }>,
+  );
+
+export const addEvidence = (
+  missionId: string,
+  taskId: string,
+  evidence: Partial<TaskEvidence>,
+) =>
+  post(`/api/missions/${missionId}/tasks/${taskId}/evidencia`, evidence).then(
+    json<{ ok: boolean; evidence: TaskEvidence }>,
+  );
+
+export const recordKnowledge = (
+  missionId: string,
+  taskId: string,
+  descricao: string,
+  conteudo?: string,
+  autor?: string,
+) =>
+  post(`/api/missions/${missionId}/tasks/${taskId}/conhecimento`, { descricao, conteudo, autor }).then(
+    json<{ ok: boolean; evidence: TaskEvidence }>,
+  );
+
+export const deleteTask = (missionId: string, taskId: string) =>
+  del(`/api/missions/${missionId}/tasks/${taskId}`).then(json<{ ok: true }>);
+
+// file locks (R7)
+export const fetchLocks = (missionId: string) =>
+  fetch(`/api/missions/${missionId}/locks`).then(json<{ ok: boolean; locks: FileLock[] }>);
+
+export const acquireLock = (
+  missionId: string,
+  params: { taskId: string; paneId?: string | null; files: string[]; mode: LockMode; owner: string },
+) =>
+  post(`/api/missions/${missionId}/locks/acquire`, params).then(json<LockResult>);
+
+export const releaseLock = (missionId: string, params: { taskId: string; files?: string[] }) =>
+  post(`/api/missions/${missionId}/locks/release`, params).then(json<{ ok: true }>);
+
+// conexões e handoffs (R5)
+export const fetchConnections = (missionId: string) =>
+  fetch(`/api/missions/${missionId}/connections`).then(json<{ ok: boolean; connections: Connection[] }>);
+
+export const createConnection = (missionId: string, sourcePaneId: string, targetPaneId: string) =>
+  post(`/api/missions/${missionId}/connections`, { sourcePaneId, targetPaneId }).then(
+    json<{ ok: boolean; connection: Connection }>,
+  );
+
+export const deleteConnection = (missionId: string, id: string) =>
+  del(`/api/missions/${missionId}/connections/${id}`).then(json<{ ok: boolean }>);
+
+export const fetchHandoffs = (missionId: string) =>
+  fetch(`/api/missions/${missionId}/handoffs`).then(json<{ ok: boolean; handoffs: Handoff[] }>);
 
 // painéis e times
 export const fetchPanes = () =>
   fetch("/api/panes").then(json<{ panes: (PaneState & { usage: Usage })[] }>);
+export const postPapelPainel = (
+  paneId: string,
+  dados: { maestro: boolean; agent?: string; label?: string; cor?: string },
+) => post(`/api/panes/${paneId}/papel`, dados).then(json<{ ok: true; pane: PaneState }>);
 export const postSquad = (id: string, squad: string, brief: string) =>
   post(`/api/missions/${id}/squad`, { squad, brief }).then(json<{ run: SquadRun }>);
 export const postAvancarFase = (id: string) =>
@@ -435,6 +634,56 @@ export const sincronizarModelosPonte = (id: string) =>
   post(`/api/pontes/${id}/modelos`, {}).then(
     json<{ modelos: ModeloPonte[]; status: StatusPonte }>,
   );
+
+// account pools
+export const fetchAccountPools = () =>
+  fetch("/api/account-pools").then(json<{ ok: boolean; pools: Record<string, AccountPoolView> }>);
+
+export const resetAccountCooldown = (cli: string, accountId?: string) =>
+  post("/api/account-pools/reset-limit", { cli, accountId }).then(json<{ ok: boolean }>);
+
+export const addAccountToPool = (cli: string, account: { id: string; label?: string; env?: Record<string, string> }) =>
+  post("/api/account-pools/account", { cli, account }).then(json<{ ok: boolean; pool: AccountPoolView }>);
+
+export const removeAccountFromPool = (cli: string, accountId: string) =>
+  del(`/api/account-pools/account?cli=${encodeURIComponent(cli)}&accountId=${encodeURIComponent(accountId)}`).then(json<{ ok: boolean; pool: AccountPoolView }>);
+
+// automated onboarding (Google OAuth / Loopback & Reverse Tunnel)
+export interface OnboardSessionStartResult {
+  ok: boolean;
+  sessionId: string;
+  authUrl: string;
+  loopbackPort: number;
+  expiresAt: number;
+}
+
+export interface OnboardSessionStatusResult {
+  ok: boolean;
+  sessionId: string;
+  status: "waiting" | "configuring" | "success" | "cancelled" | "expired" | "error";
+  error?: string | null;
+  account?: {
+    id: string;
+    label: string;
+    profileDir: string;
+    env: Record<string, string>;
+  } | null;
+}
+
+export const startOnboarding = (cli = "agy") =>
+  post("/api/account-pools/onboard", { cli }).then(json<OnboardSessionStartResult>);
+
+export const getOnboardingStatus = (sessionId: string) =>
+  fetch(`/api/account-pools/onboard/${encodeURIComponent(sessionId)}`).then(json<OnboardSessionStatusResult>);
+
+export const cancelOnboarding = (sessionId: string) =>
+  del(`/api/account-pools/onboard/${encodeURIComponent(sessionId)}`).then(json<{ ok: boolean; message: string }>);
+
+export const submitManualOnboardingCallback = (sessionId: string, urlOrCode: string) =>
+  post(`/api/account-pools/onboard/${encodeURIComponent(sessionId)}/callback`, { url: urlOrCode }).then(
+    json<{ ok: boolean; account: { id: string; label: string; profileDir: string; env: Record<string, string> } }>
+  );
+
 
 export const testarPonte = (id: string, modelo?: string) =>
   post(`/api/pontes/${id}/testar`, { modelo }).then(json<TestePonte>);

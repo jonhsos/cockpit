@@ -10,6 +10,9 @@ import { escolherPasta as pelaApi } from "./api.ts";
  * No navegador comum não existe essa ponte, então cai no servidor. O
  * showDirectoryPicker do navegador não serve: devolve um handle, não o caminho
  * absoluto que o servidor precisa.
+ *
+ * Quando o servidor não tem seletor nativo (Linux sem zenity), ele devolve
+ * { navegar: true } e o frontend abre o navegador de pastas embutido.
  */
 
 type PonteApp = {
@@ -23,7 +26,7 @@ const ponte = (): PonteApp | null =>
 
 export const dentroDoApp = (): boolean => ponte() !== null;
 
-export function escolherPasta(): Promise<{ caminho: string | null }> {
+export function escolherPasta(): Promise<{ caminho: string | null; navegar?: boolean }> {
   const app = ponte();
   if (!app) return pelaApi();
 

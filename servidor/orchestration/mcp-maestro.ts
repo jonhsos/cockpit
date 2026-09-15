@@ -1,0 +1,468 @@
+/**
+ * Servidor MCP (stdio) que o Claude Code sobe junto com um painel maestro.
+ * Não faz trabalho nenhum: só empresta ao agente as alavancas do cockpit.
+ * Fala JSON-RPC pelo stdin/stdout e chama a API HTTP do cockpit de volta.
+ */
+import { createInterface } from "node:readline";
+
+const PORTA = process.env.COCKPIT_PORT ?? "3000";
+const MISSAO = process.env.COCKPIT_MISSION ?? "";
+const PROJETO = process.env.COCKPIT_PROJECT ?? "";
+const EU = process.env.COCKPIT_AGENT ?? "maestro";
+
+const base = `http://127.0.0.1:${PORTA}`;
+
+async function api(caminho: string, corpo?: unknown): Promise<unknown> {
+  const res = await fetch(base + caminho, {
+    method: corpo ? "POST" : "GET",
+    headers: corpo ? { "content-type": "application/json" } : undefined,
+    body: corpo ? JSON.stringify(corpo) : undefined,
+  });
+  const dados = (await res.json()) as { error?: string };
+  if (!res.ok) throw new Error(dados.error ?? res.statusText);
+  return dados;
+}
+
+type Tool = {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  run: (args: Record<string, string>) => Promise<string>;
+};
+
+const texto = (v: unknown) => JSON.stringify(v, null, 2);
+
+const TOOLS: Tool[] = [
+  {
+    name: "checkpoint",
+    description: "Salva o resumo de continuidade da missão após cada etapa: objetivo, decisões, progresso, arquivos alterados, tarefas delegadas, testes e próximos passos. Permite que outro provedor continue sem recomeçar.",
+    inputSchema: { type: "object", properties: { texto: { type: "string" } }, required: ["texto"], additionalProperties: false },
+    run: async (args) => texto(await api(`/api/missions/${MISSAO}/checkpoint`, { texto: args.texto })),
+  },
+  {
+    name: "listar_especialistas",
+    description:
+      "Lista os agentes disponíveis para delegação, já filtrados pelo elenco desta missão: cada um vem com o provedor e o modelo em que vai realmente rodar. Quem tem escopo declarado só aceita o trabalho descrito ali — não delegue código a ele. Chame antes de delegar.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    run: async () => texto(await api(`/api/missions/${MISSAO}/elenco`)),
+  },
+  {
+    name: "tipos_de_tarefa",
+    description:
+      "Lista os tipos de tarefa do harness. Tipo descreve e organiza trabalho; não escolhe modelo, esforço ou provedor. Quem delega escolhe o agente, e o perfil daquele agente é preservado.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    run: async () => {
+      const cfg = (await api("/api/config")) as { tarefas: Record<string, unknown> };
+      return texto(cfg.tarefas);
+    },
+  },
+  {
+    name: "delegar",
+    description:
+      "Abre um painel novo com um especialista e entrega uma tarefa a ele. A tarefa deve ser autossuficiente: o especialista não vê esta conversa. Ele trabalha no mesmo worktree da missão, então diga exatamente quais arquivos são dele para evitar colisão. Tipo é opcional e somente descreve trabalho; agente escolhido mantém modelo e esforço.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agente: { type: "string", description: "id do especialista, ex: builder" },
+        tarefa: { type: "string", description: "instrução completa e autossuficiente" },
+        skills: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "skills que este especialista deve carregar, pelo nome. Veja listar_skills. Ele recebe o índice delas e lê o arquivo quando for do assunto.",
+        },
+        tipo: {
+          type: "string",
+          description:
+            "tipo da tarefa: mecanico, explorar, implementar, site, arquitetura, auditoria, visual ou volume",
+        },
+        provedor: {
+          type: "string",
+          description:
+            "provedor em que este especialista deve rodar: claude, codex (GPT) ou agy (Gemini). Use para alternar Claude e GPT de propósito — o mesmo trabalho visto por dois modelos diferentes. Só vale se estiver no elenco da missão; fora dele o cockpit troca pelo provedor liberado.",
+        },
+      },
+      required: ["agente", "tarefa", "tipo"],
+      additionalProperties: false,
+    },
+    run: async (a) => {
+      const skills = Array.isArray(a.skills) ? (a.skills as unknown as string[]) : [];
+      const r = (await api(`/api/missions/${MISSAO}/delegar`, {
+        agent: a.agente,
+        tarefa: a.tarefa,
+        tipo: a.tipo,
+        provedor: a.provedor,
+        skills,
+      })) as { paneId: string; label: string; cli: string; skills?: string[] };
+      const comSkills = r.skills?.length ? ` Carregou: ${r.skills.join(", ")}.` : "";
+      return `Painel ${r.paneId} aberto com ${r.label} (${r.cli}), tarefa do tipo "${a.tipo}" entregue.${comSkills}`;
+    },
+  },
+  {
+    name: "situacao",
+    description:
+      "Mostra os painéis da missão: quem está aberto, se está produzindo ou parado, tarefa atribuída, resumo da entrega recente e quanto já gastou. Use para saber o estado da missão e verificar conclusões de especialistas.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    run: async () => {
+      const r = (await api(`/api/panes?missionId=${MISSAO}`)) as {
+        panes: {
+          paneId: string;
+          label: string;
+          cli: string;
+          status: string;
+          tarefa?: string;
+          saida_recente?: string;
+          usage?: { custo: number };
+        }[];
+      };
+      return texto(
+        r.panes.map((p) => ({
+          painel: p.paneId,
+          funcao: p.label,
+          terminal: p.cli,
+          estado: p.status === "run" || p.status === "working" ? "produzindo" : "parado",
+          tarefa: p.tarefa ?? undefined,
+          entrega_recente: p.saida_recente ?? undefined,
+          custo: p.usage?.custo ?? 0,
+        })),
+      );
+    },
+  },
+  {
+    name: "ler_resultado",
+    description:
+      "Lê o relatório completo ou a saída do terminal de um especialista da missão (ex: 'builder', 'scout' ou pelo ID do painel). Chame para obter os dados detalhados do que o especialista produziu, descobriu ou modificou.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        painel: {
+          type: "string",
+          description: "ID do painel ou nome/papel do especialista (ex: 'scout', 'builder')",
+        },
+      },
+      required: ["painel"],
+      additionalProperties: false,
+    },
+    run: async (a) => {
+      const r = (await api(`/api/missions/${MISSAO}/resultado/${encodeURIComponent(a.painel)}`)) as {
+        agente: string;
+        saida: string;
+      };
+      return `=== RESULTADO DE ${r.agente} ===\n${r.saida || "(sem saída registrada)"}`;
+    },
+  },
+  {
+    name: "anotar",
+    description:
+      "Grava um fato na memória compartilhada do projeto. Todo agente que abrir depois — nesta missão ou em qualquer outra do mesmo projeto — recebe essa anotação. Use para decisões, convenções e armadilhas do código. Não use para status ou log de progresso.",
+    inputSchema: {
+      type: "object",
+      properties: { texto: { type: "string", description: "o fato, em uma ou duas frases" } },
+      required: ["texto"],
+      additionalProperties: false,
+    },
+    run: async (a) => {
+      await api(`/api/projects/${PROJETO}/memoria`, { quem: EU, texto: a.texto });
+      return "Anotado na memória do projeto.";
+    },
+  },
+  {
+    name: "lembrar",
+    description:
+      "Lê a memória compartilhada do projeto. As anotações já entram no seu prompt inicial; use isto para reler durante a conversa.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    run: async () => texto(await api(`/api/projects/${PROJETO}/memoria`)),
+  },
+
+  // ---------- skills ----------
+  {
+    name: "listar_skills",
+    description:
+      "Lista as skills do acervo: nome, para que serve e o arquivo de cada uma. Skills são instruções que mudam como um agente trabalha. Use antes de delegar, para passar a skill certa a quem for executar.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    run: async () => {
+      const r = (await api("/api/skills")) as { skills: { nome: string; descricao: string; caminho: string }[] };
+      return texto(r.skills.map((s) => ({ nome: s.nome, descricao: s.descricao, arquivo: s.caminho })));
+    },
+  },
+  {
+    name: "ler_skill",
+    description:
+      "Lê o conteúdo inteiro de uma skill. Chame quando a tarefa for do assunto dela — não leia todas por precaução.",
+    inputSchema: {
+      type: "object",
+      properties: { nome: { type: "string" } },
+      required: ["nome"],
+      additionalProperties: false,
+    },
+    run: async (a) => {
+      const r = (await api(`/api/skills/${encodeURIComponent(a.nome)}`)) as { corpo: string };
+      return r.corpo;
+    },
+  },
+
+  // ---------- receitas ----------
+  {
+    name: "listar_receitas",
+    description:
+      "Lista as receitas: formações prontas de agente + skills + modelo + esforço já provadas para um tipo de objetivo. Use para montar o time sem escolher peça por peça.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    run: async () => texto(await api("/api/receitas")),
+  },
+  {
+    name: "salvar_receita",
+    description:
+      "Guarda a formação que funcionou nesta missão como receita reutilizável. Passe só o que importa fixar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        label: { type: "string" },
+        descricao: { type: "string" },
+        agent: { type: "string" },
+        tipo: { type: "string" },
+        model: { type: "string" },
+        effort: { type: "string" },
+        squad: { type: "string" },
+      },
+      required: ["id", "label", "descricao"],
+      additionalProperties: false,
+    },
+    run: async (a) => texto(await api("/api/receitas", a)),
+  },
+
+  // ---------- media ----------
+  {
+    name: "provedores_de_media",
+    description:
+      "Lista quem pode gerar imagem, vídeo e áudio agora, e o que falta nos que não estão prontos. Chame antes de gerar: provedor sem chave falha.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    run: async () => texto(await api("/api/media")),
+  },
+  {
+    name: "gerar_imagem",
+    description:
+      "Gera uma imagem a partir de um prompt e salva na pasta media/ da missão. Passe `referencia` com o caminho de uma imagem para editar em vez de criar do zero. Devolve o caminho do arquivo.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        prompt: { type: "string" },
+        provedor: { type: "string" },
+        modelo: { type: "string" },
+        referencia: { type: "string" },
+      },
+      required: ["prompt"],
+      additionalProperties: false,
+    },
+    run: async (a) => texto(await api(`/api/missions/${MISSAO}/media`, { tipo: "image", ...a })),
+  },
+  {
+    name: "gerar_video",
+    description:
+      "Gera um vídeo a partir de um prompt e salva na pasta media/ da missão. Passe `referencia` para animar uma imagem. Pode levar minutos. Devolve o caminho do arquivo.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        prompt: { type: "string" },
+        provedor: { type: "string" },
+        modelo: { type: "string" },
+        referencia: { type: "string" },
+      },
+      required: ["prompt"],
+      additionalProperties: false,
+    },
+    run: async (a) => texto(await api(`/api/missions/${MISSAO}/media`, { tipo: "video", ...a })),
+  },
+  {
+    name: "gerar_audio",
+    description:
+      "Gera áudio (fala ou som) a partir de um texto e salva na pasta media/ da missão. Devolve o caminho do arquivo.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        prompt: { type: "string" },
+        provedor: { type: "string" },
+        modelo: { type: "string" },
+      },
+      required: ["prompt"],
+      additionalProperties: false,
+    },
+    run: async (a) => texto(await api(`/api/missions/${MISSAO}/media`, { tipo: "audio", ...a })),
+  },
+
+  // ---------- marketplace ----------
+  {
+    name: "procurar_no_marketplace",
+    description:
+      "Procura skills e MCPs nos marketplaces conectados. Passe `busca` para filtrar por nome ou descrição.",
+    inputSchema: {
+      type: "object",
+      properties: { busca: { type: "string" } },
+      additionalProperties: false,
+    },
+    run: async (a) => {
+      const r = (await api("/api/marketplace")) as {
+        plugins: { id: string; descricao: string; skills: { nome: string; descricao: string; instalada: boolean }[] }[];
+      };
+      const alvo = (a.busca ?? "").toLowerCase();
+      const achados = alvo
+        ? r.plugins.filter((p) =>
+            `${p.id} ${p.descricao} ${p.skills.map((s) => `${s.nome} ${s.descricao}`).join(" ")}`
+              .toLowerCase()
+              .includes(alvo),
+          )
+        : r.plugins;
+      return texto(achados.slice(0, 40));
+    },
+  },
+  {
+    name: "instalar_skill",
+    description:
+      "Instala uma skill do marketplace no acervo do cockpit, deixando-a disponível para qualquer CLI. Passe o id do plugin e o nome da skill.",
+    inputSchema: {
+      type: "object",
+      properties: { plugin: { type: "string" }, skill: { type: "string" } },
+      required: ["plugin", "skill"],
+      additionalProperties: false,
+    },
+    run: async (a) => texto(await api("/api/marketplace/instalar", { plugin: a.plugin, skill: a.skill })),
+  },
+
+  // ---------- cockpit inter-agent communication tools ----------
+  {
+    name: "cockpit_list",
+    description: "Lista os painéis da missão com detalhes de papéis, executores, modelos, tarefas ativas e mensagens na caixa de entrada.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    run: async () => texto(await api(`/api/missions/${MISSAO}/cockpit/list`)),
+  },
+  {
+    name: "cockpit_connect",
+    description: "Cria uma conexão persistente entre dois painéis existentes na missão.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        origem: { type: "string", description: "ID do painel de origem" },
+        destino: { type: "string", description: "ID do painel de destino" },
+      },
+      required: ["origem", "destino"],
+      additionalProperties: false,
+    },
+    run: async (a) => texto(await api(`/api/missions/${MISSAO}/cockpit/connect`, { sourcePaneId: a.origem, targetPaneId: a.destino })),
+  },
+  {
+    name: "cockpit_ask",
+    description: "Envia uma tarefa estruturada para a caixa de entrada (inbox) de um painel existente, sem injetar comandos no shell. Retorna correlationId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        destino: { type: "string", description: "ID do painel destinatário" },
+        tarefa: { type: "string", description: "Instrução estruturada de trabalho" },
+        taskId: { type: "string", description: "ID opcional da tarefa persistida associada" },
+      },
+      required: ["destino", "tarefa"],
+      additionalProperties: false,
+    },
+    run: async (a) => texto(await api(`/api/missions/${MISSAO}/cockpit/ask`, { from: EU, to: a.destino, task: a.tarefa, taskId: a.taskId })),
+  },
+  {
+    name: "cockpit_reply",
+    description: "Responde a uma solicitação recebida na caixa de entrada com resultado estruturado correspondente ao correlationId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        destino: { type: "string", description: "ID do painel que fez a pergunta" },
+        correlationId: { type: "string", description: "ID de correlação da mensagem recebida" },
+        resultado: { type: "string", description: "Resultado ou resposta do trabalho" },
+      },
+      required: ["destino", "correlationId", "resultado"],
+      additionalProperties: false,
+    },
+    run: async (a) => texto(await api(`/api/missions/${MISSAO}/cockpit/reply`, { from: EU, to: a.destino, correlationId: a.correlationId, result: a.resultado })),
+  },
+  {
+    name: "cockpit_handoff",
+    description: "Realiza a transferência estruturada (handoff) de uma tarefa e seu contexto de um painel para outro, anexando evidências.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        origem: { type: "string", description: "ID do painel de origem da tarefa" },
+        destino: { type: "string", description: "ID do painel que assumirá a tarefa" },
+        taskId: { type: "string", description: "ID da tarefa transferida" },
+        contexto: { type: "string", description: "Resumo do contexto, progresso e orientações para o sucessor" },
+        force: { type: "boolean", description: "Forçar transferência mesmo se o painel de origem não possuir lock exclusivo" },
+      },
+      required: ["origem", "destino", "taskId"],
+      additionalProperties: false,
+    },
+    run: async (a) => texto(await api(`/api/missions/${MISSAO}/cockpit/handoff`, {
+      sourcePaneId: a.origem,
+      targetPaneId: a.destino,
+      taskId: a.taskId,
+      context: a.contexto,
+      force: Boolean(a.force),
+    })),
+  },
+  {
+    name: "cockpit_inbox",
+    description: "Lê as mensagens recebidas na caixa de entrada deste painel.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        naoLidas: { type: "boolean", description: "Se true, filtra apenas mensagens não lidas" },
+      },
+      additionalProperties: false,
+    },
+    run: async (a) => texto(await api(`/api/missions/${MISSAO}/panes/${EU}/inbox${a.naoLidas ? "?unread=1" : ""}`)),
+  },
+];
+
+// ---------- JSON-RPC ----------
+
+function responder(id: unknown, result: unknown): void {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
+}
+
+function falhar(id: unknown, message: string): void {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32000, message } }) + "\n");
+}
+
+createInterface({ input: process.stdin }).on("line", (linha) => {
+  if (!linha.trim()) return;
+  let msg: { id?: unknown; method?: string; params?: Record<string, unknown> };
+  try {
+    msg = JSON.parse(linha);
+  } catch {
+    return;
+  }
+  const { id, method, params } = msg;
+
+  if (method === "initialize") {
+    responder(id, {
+      protocolVersion: "2024-11-05",
+      capabilities: { tools: {} },
+      serverInfo: { name: "cockpit-maestro", version: "1.0.0" },
+    });
+    return;
+  }
+  if (method === "tools/list") {
+    responder(
+      id,
+      { tools: TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) },
+    );
+    return;
+  }
+  if (method === "tools/call") {
+    const nome = params?.name as string;
+    const tool = TOOLS.find((t) => t.name === nome);
+    if (!tool) return falhar(id, `ferramenta desconhecida: ${nome}`);
+    tool
+      .run((params?.arguments ?? {}) as Record<string, string>)
+      .then((saida) => responder(id, { content: [{ type: "text", text: saida }] }))
+      .catch((err: Error) =>
+        responder(id, { content: [{ type: "text", text: `Falhou: ${err.message}` }], isError: true }),
+      );
+    return;
+  }
+  // notifications/* não pedem resposta
+  if (id !== undefined && method) falhar(id, `método não suportado: ${method}`);
+});

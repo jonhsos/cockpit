@@ -55,19 +55,21 @@ export function Ajustes({
   return (
     <div className="ajustes">
       <nav className="abas" role="tablist" aria-label="Ajustes">
-        {ABAS.map((a) => (
-          <button
-            key={a.id}
-            role="tab"
-            aria-selected={aba === a.id}
-            className={`aba${aba === a.id ? " on" : ""}`}
-            onClick={() => setAba(a.id)}
-          >
-            {a.label}
-          </button>
-        ))}
+        <div className="abas-scroll">
+          {ABAS.map((a) => (
+            <button
+              key={a.id}
+              role="tab"
+              aria-selected={aba === a.id}
+              className={`aba${aba === a.id ? " on" : ""}`}
+              onClick={() => setAba(a.id)}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
         <span className="spacer" />
-        <button className="icon-btn" onClick={onFechar} aria-label="Fechar ajustes" title="Fechar">
+        <button className="icon-btn fechar-modal-btn" onClick={onFechar} aria-label="Fechar ajustes" title="Fechar">
           ✕
         </button>
       </nav>

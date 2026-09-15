@@ -15,7 +15,7 @@ import type { AgentSpec, Mission, PaneState, Project } from "./api.ts";
  * Trocar de missão aqui não encerra nada: os terminais das outras continuam
  * montados e recebendo saída, só saem de vista.
  */
-export type Pagina = "missoes" | "arquivos";
+export type Pagina = "missoes" | "tarefas" | "arquivos";
 
 export function Lateral({
   project,
@@ -30,10 +30,12 @@ export function Lateral({
   onSelectPane,
   onNovaMissao,
   onAddAgente,
+  onRenomearMissao,
   aberta,
   onFechar,
   pagina,
   onPagina,
+  tarefas,
   arquivos,
   rodape,
 }: {
@@ -49,16 +51,20 @@ export function Lateral({
   onSelectPane: (missionId: string, paneId: string) => void;
   onNovaMissao: () => void;
   onAddAgente: (missionId: string) => void;
+  onRenomearMissao: (missionId: string, nome: string) => void;
   aberta: boolean;
   onFechar: () => void;
   pagina: Pagina;
   onPagina: (pagina: Pagina) => void;
+  tarefas?: ReactNode;
   arquivos: ReactNode;
   rodape: ReactNode;
 }) {
   // Missões abertas na árvore. A ativa entra sozinha; fechar a ativa é
   // legítimo (você quer olhar outra) e por isso o conjunto é livre.
   const [abertas, setAbertas] = useState<Set<string>>(() => new Set(activeId ? [activeId] : []));
+  const [renomeando, setRenomeando] = useState<string | null>(null);
+  const [nomeEmEdicao, setNomeEmEdicao] = useState("");
   const anterior = useRef(activeId);
 
   useEffect(() => {
@@ -83,17 +89,17 @@ export function Lateral({
         <button className="icon-btn fechar-lateral" aria-label="Fechar lateral" onClick={onFechar}><Icon name="close" /></button>
       </div>
 
-      {/* Duas páginas na mesma ilha: o trabalho (missões e agentes) e o que o
-          projeto tem (arquivos e memória). Arquivos não abre painel novo. */}
+      {/* Três páginas na mesma ilha: o trabalho (missões e agentes), placar de tarefas e arquivos/memória. */}
       {project && <div className="sidebar-paginas" role="tablist" aria-label="Páginas da lateral">
         <button role="tab" aria-selected={pagina === "missoes"} className={pagina === "missoes" ? "on" : undefined} onClick={() => onPagina("missoes")}>Missões</button>
+        <button role="tab" aria-selected={pagina === "tarefas"} className={pagina === "tarefas" ? "on" : undefined} onClick={() => onPagina("tarefas")}>Tarefas</button>
         <button role="tab" aria-selected={pagina === "arquivos"} className={pagina === "arquivos" ? "on" : undefined} onClick={() => onPagina("arquivos")}>Arquivos</button>
       </div>}
 
       <div className="sidebar-scroll">
-        <section className="sidebar-island" aria-label={pagina === "arquivos" ? "Arquivos e memória" : "Missões do projeto"}>
+        <section className="sidebar-island" aria-label={pagina === "arquivos" ? "Arquivos e memória" : pagina === "tarefas" ? "Placar de tarefas" : "Missões do projeto"}>
         <div className="island-corpo">
-        {pagina === "arquivos" ? arquivos : <>
+        {pagina === "arquivos" ? arquivos : pagina === "tarefas" ? (tarefas ?? <p className="sidebar-vazio">Nenhuma tarefa nesta missão.</p>) : <>
         <div className="sidebar-secao">
           <span className="sidebar-titulo">Missões</span>
           {project && <button className="icon-btn" aria-label="Nova missão" title="Nova missão" onClick={onNovaMissao}><Icon name="plus" size={15} /></button>}
@@ -111,10 +117,15 @@ export function Lateral({
                 <button className="caret-btn" aria-expanded={expandida} aria-label={`${expandida ? "Recolher" : "Expandir"} ${m.nome}`} onClick={() => alternar(m.id)}>
                   <Icon name="chevron" size={13} />
                 </button>
-                <button className="mission-name" aria-current={activeId === m.id ? "true" : undefined} onClick={() => { onSelectMission(m.id); setAbertas(prev => new Set(prev).add(m.id)); }} title={m.objetivo || m.nome}>
+                {renomeando === m.id ? (
+                  <form className="mission-rename" onSubmit={(event) => { event.preventDefault(); const nome = nomeEmEdicao.trim(); if (nome) onRenomearMissao(m.id, nome); setRenomeando(null); }}>
+                    <input autoFocus value={nomeEmEdicao} aria-label="Nome da missão" onChange={(event) => setNomeEmEdicao(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setRenomeando(null); }} />
+                  </form>
+                ) : <button className="mission-name" aria-current={activeId === m.id ? "true" : undefined} onClick={() => { onSelectMission(m.id); setAbertas(prev => new Set(prev).add(m.id)); }} title={m.objetivo || m.nome}>
                   <span>{m.nome}</span>
                   {daMissao.length > 0 && <em className="mission-count" aria-hidden="true">{daMissao.length}</em>}
-                </button>
+                </button>}
+                <button className="mission-rename-btn" aria-label={`Renomear ${m.nome}`} title="Renomear missão" onClick={() => { setRenomeando(m.id); setNomeEmEdicao(m.nome); }}>renomear</button>
               </div>
 
               {expandida && <div className="mission-agents">

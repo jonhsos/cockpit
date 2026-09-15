@@ -97,7 +97,7 @@ export function Receitas({
         {r.squad && <span title="time">{squads[r.squad]?.label ?? r.squad}</span>}
         {r.agent && <span title="agente">{agents[r.agent]?.label ?? r.agent}</span>}
         {r.tipo && (
-          <span className="peca-tipo" title="tipo da tarefa — é ele que escolhe modelo e esforço">
+          <span className="peca-tipo" title="tipo da tarefa — descreve trabalho; agente escolhe modelo e esforço">
             {tarefas[r.tipo]?.label ?? r.tipo}
           </span>
         )}
@@ -166,7 +166,7 @@ export function Receitas({
           </label>
         </div>
         <p className="ressalva">
-          Deixe o tipo preenchido e o modelo em branco: assim a receita continua valendo se você
+          Deixe o tipo preenchido e o modelo em branco: perfil do agente continua valendo se você
           trocar de provedor, porque quem escolhe o modelo é o harness.
         </p>
         <div className="form-acoes">
