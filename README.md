@@ -105,7 +105,7 @@ Em projetos Git, a missão pode usar um worktree separado. Isso cria uma branch 
 
 Em **Maestro → Quem faz o trabalho**, há três formas de operar:
 
-- **Padrão atual:** usa os papéis e modelos definidos em `cockpit.json` e os tipos de tarefa.
+- **Padrão atual:** usa perfil e modelo do agente escolhido em `cockpit.json`. Tipo de tarefa só organiza contexto.
 - **Uma IA para tudo:** escolha, por exemplo, `gpt-5.6-sol`; ela assume maestro, piloto, builder e revisão. O maestro passa a poder implementar diretamente.
 - **Escolher por papel:** fixa um provedor, modelo e esforço para papéis específicos, deixando o restante seguir o padrão.
 
@@ -113,7 +113,7 @@ A configuração vale para painéis abertos depois de salvar. Um painel já em e
 
 ## Configuração e dados locais
 
-`cockpit.json` é a configuração compartilhável do Cockpit: agentes, modelos, times, receitas e porta. O Cockpit grava alterações feitas nas telas nesse arquivo.
+`cockpit.json` é a configuração compartilhável do Cockpit: agentes, modelos, times, receitas, permissões e porta. O Cockpit grava alterações feitas nas telas nesse arquivo. A opção `autoAprovar` (ativa por padrão) passa flags como `--dangerously-skip-permissions`, `--ask-for-approval never` e `-y` para que os painéis não travem pedindo confirmação a cada comando.
 
 O estado pessoal fica fora do repositório, em `~/.cockpit` (ou no caminho definido por `COCKPIT_HOME`). Ali ficam os projetos abertos, missões, notas e a continuidade. Essa pasta já está no `.gitignore`.
 
