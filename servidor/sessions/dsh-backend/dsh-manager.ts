@@ -5,6 +5,12 @@
 import type { PaneState } from "../pane-state.ts";
 import { createDshRuntime, type DshRuntimeHandle } from "./dsh-runtime.ts";
 import {
+  autoAprovarAtivo,
+  resolveCodexHome,
+  sandboxDoCli,
+  writePaneCordisPatch,
+} from "./dsh-pane-config.ts";
+import {
   extractPromptText,
   notificationToTranscript,
   sessionIdForPane,
@@ -64,11 +70,23 @@ export class DshManager {
     opts.state.sessionId = sessionId;
     opts.state.status = "starting";
 
+    const cli = opts.state.cli;
+    const codexHome = opts.env ? resolveCodexHome(opts.env) : undefined;
+    const patch = writePaneCordisPatch({
+      cli,
+      model: opts.model ?? opts.state.model,
+      codexHome,
+      autoAprovar: autoAprovarAtivo(),
+      sandbox: sandboxDoCli(cli),
+    });
+
     const runtime = await createDshRuntime({
       cwd: opts.cwd,
       env: opts.env as NodeJS.ProcessEnv | undefined,
       provider: opts.provider,
-      model: opts.model ?? undefined,
+      // Handshake do cérebro: não hardcodar OmniRoute — model do pane se houver.
+      model: opts.model ?? opts.state.model ?? undefined,
+      patches: patch ? [patch] : undefined,
     });
 
     const entry: DshPaneEntry = {

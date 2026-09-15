@@ -65,6 +65,8 @@ export type DshRuntimeOptions = {
   provider?: string;
   model?: string;
   env?: NodeJS.ProcessEnv;
+  /** Patches Cordis por pane (OmniRoute / permissionMode). */
+  patches?: string[];
   initializeTimeoutMs?: number;
 };
 
@@ -101,6 +103,7 @@ export async function createDshRuntime(options: DshRuntimeOptions = {}): Promise
     dshBin,
     profile: "sdk",
     dshHome,
+    ...(options.patches?.length ? { patches: options.patches } : {}),
     // Substitui o env do child: herda o parent e força DSH_HOME isolado.
     env: {
       ...(options.env ?? process.env),

@@ -21,7 +21,8 @@
   "vozIdioma": "portuguese",
   "clis": {
     "claude": {
-      "command": "claude"
+      "command": "claude",
+      "backend": "dsh"
     },
     "agy": {
       "command": "agy",
@@ -69,6 +70,7 @@
     },
     "codex": {
       "command": "codex",
+      "backend": "dsh",
       "env": {
         "CODEX_HOME": "/home/jj/.jion"
       },

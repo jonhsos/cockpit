@@ -36,14 +36,13 @@ ok(config.clis.claude !== undefined, "CLI 'claude' está presente no config");
 ok(config.clis.codex !== undefined, "CLI 'codex' está presente no config");
 ok(config.clis.agy !== undefined, "CLI 'agy' está presente no config");
 
-// No PR-1, cockpit.json permanece PTY implícito (backend não definido no JSON)
-ok(config.clis.claude.backend === undefined, "cockpit.json: claude.backend é omitido (pty implícito)");
-ok(config.clis.codex.backend === undefined, "cockpit.json: codex.backend é omitido (pty implícito)");
-ok(config.clis.agy.backend === undefined, "cockpit.json: agy.backend é omitido (pty implícito)");
+// PR-4: claude/codex no DSH; Agy/Grok/bash permanecem PTY implícito
+ok(config.clis.claude.backend === "dsh", "cockpit.json: claude.backend = dsh");
+ok(config.clis.codex.backend === "dsh", "cockpit.json: codex.backend = dsh");
+ok(config.clis.agy.backend === undefined, "cockpit.json: agy.backend omitido (pty implícito)");
 
-// backendDo / resolveCliBackend retornam "pty" para CLIs sem backend explícito
-ok(backendDo("claude") === "pty", "backendDo('claude') retorna 'pty' por default");
-ok(backendDo("codex") === "pty", "backendDo('codex') retorna 'pty' por default");
+ok(backendDo("claude") === "dsh", "backendDo('claude') retorna 'dsh'");
+ok(backendDo("codex") === "dsh", "backendDo('codex') retorna 'dsh'");
 ok(backendDo("agy") === "pty", "backendDo('agy') retorna 'pty' por default");
 ok(backendDo("inexistente") === "pty", "backendDo('inexistente') retorna 'pty'");
 
