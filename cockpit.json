@@ -6,7 +6,7 @@
     "                  outro CLI apontado para outra base_url. E assim que o",
     "                  OpenRouter entra com modelos de preco zero.",
     "instrucoesGerais = vai no prompt de TODO agente. Bom para fatos da maquina.",
-    "harness.tipos    = o TIPO da tarefa decide modelo e esforco, nao o agente.",
+    "harness.tipos    = organiza trabalho; agente escolhido decide modelo e esforco.",
     "                   porCli escolhe o modelo equivalente em cada provedor:",
     "                   arquitetura -> opus no claude, gpt-6-astra no codex.",
     "                   E aqui que se controla gasto.",
@@ -15,8 +15,9 @@
     "modelos/efforts  = o que cada CLI aceita. O harness confere antes de usar."
   ],
   "port": 3000,
-  "maestroAutoSwitch": true,
+  "maestroAutoSwitch": false,
   "confiarNasPastasQueEuAbrir": true,
+  "autoAprovar": true,
   "vozIdioma": "portuguese",
   "clis": {
     "claude": {
@@ -33,7 +34,74 @@
       ]
     },
     "codex": {
-      "command": "codex"
+      "command": "codex",
+      "env": {
+        "CODEX_HOME": "/home/jj/.jion"
+      },
+      "sandbox": "danger-full-access",
+      "pool": [
+        {
+          "id": "codex-1",
+          "label": "oitonovesuporte@gmail.com",
+          "env": {
+            "CODEX_HOME": "/home/jj/.jion"
+          }
+        },
+        {
+          "id": "codex-2",
+          "label": "olhapautagruposaht@gmail.com",
+          "env": {
+            "CODEX_HOME": "/home/jj/.codex-acc2"
+          }
+        },
+        {
+          "id": "codex-3",
+          "label": "monsegruposaht@gmail.com",
+          "env": {
+            "CODEX_HOME": "/home/jj/.codex-acc3"
+          }
+        },
+        {
+          "id": "codex-4",
+          "label": "adv.barbaralacerda@gmail.com",
+          "env": {
+            "CODEX_HOME": "/home/jj/.codex-acc4"
+          }
+        }
+      ]
+    },
+    "gemini": {
+      "command": "gemini",
+      "pool": [
+        {
+          "id": "gemini-1",
+          "label": "Gemini Conta 1",
+          "env": {
+            "GEMINI_CLI_HOME": "/home/jj/.gemini-1"
+          }
+        },
+        {
+          "id": "gemini-2",
+          "label": "Gemini Conta 2",
+          "env": {
+            "GEMINI_CLI_HOME": "/home/jj/.gemini-2"
+          }
+        },
+        {
+          "id": "gemini-3",
+          "label": "Gemini Conta 3",
+          "env": {
+            "GEMINI_CLI_HOME": "/home/jj/.gemini-3"
+          }
+        },
+        {
+          "id": "gemini-4",
+          "label": "Gemini Conta 4",
+          "env": {
+            "GEMINI_CLI_HOME": "/home/jj/.gemini-4"
+          }
+        }
+      ]
     },
     "openrouter": {
       "command": "codex",
@@ -54,8 +122,17 @@
         "nota": "modelos de preço zero, com o limite diário que o OpenRouter aplica à conta gratuita. A chave é sua e fica cifrada em ~/.cockpit."
       }
     },
-    "gemini": {
-      "command": "gemini"
+    "grok": {
+      "command": "grok",
+      "pool": [
+        {
+          "id": "grok-1",
+          "label": "Grok Principal",
+          "env": {
+            "GROK_HOME": "/home/jj/.grok"
+          }
+        }
+      ]
     }
   },
   "modelos": {
@@ -73,6 +150,7 @@
       "gpt-oss-120b-medium"
     ],
     "codex": [
+      "JACK",
       "gpt-6-astra",
       "gpt-5.6-sol",
       "gpt-5.6-terra",
@@ -100,25 +178,31 @@
       "cohere/north-mini-code:free",
       "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "liquid/lfm-2.5-2.6b:free"
+    ],
+    "grok": [
+      "grok-4.6",
+      "grok-4.5"
+    ],
+    "gemini": [
+      "gemini-2.5-flash",
+      "gemini-2.5-pro",
+      "gemini-3.1-pro-high",
+      "gemini-3.8-flash-high"
     ]
   },
   "agents": {
     "maestro": {
       "label": "MAESTRO",
       "cor": "#00b4ff",
-      "cli": "claude",
-      "model": "opus",
-      "effort": "high",
+      "cli": "codex",
       "maestro": true,
-      "papel": "Você é o MAESTRO desta missão. Você não implementa: você divide o trabalho, delega a especialistas e cobra o resultado.\n\nComo trabalhar:\n- listar_especialistas mostra quem existe, com modelo e papel.\n- tipos_de_tarefa mostra os tipos. SEMPRE informe o tipo ao delegar: é ele que decide modelo e esforço, e é assim que se economiza token. Trabalho mecânico não vai em modelo caro.\n- listar_especialistas já vem filtrado pelo ELENCO desta missão: cada especialista aparece com o provedor em que vai realmente rodar, e quem tem escopo declarado só aceita aquele tipo de trabalho. Não insista em provedor barrado — o cockpit troca sozinho.\n- delegar aceita `provedor`: use para alternar Claude e GPT de propósito. O padrão bom é Claude construindo e GPT (ASTRA) revisando a decisão em seguida, ou os dois atacando o mesmo ponto quando o caminho não estiver claro.\n- Site, página, layout e aparência da interface são trabalho do Claude e do GPT, no tipo `site`. A tela nasce em código, não em desenho: não peça a ninguém um mockup de tela para depois mandar copiar.\n- O ARTISTA e o PINTOR (tipo `visual`) só fornecem ARQUIVOS DE IMAGEM que vão dentro da página: foto, ilustração, ícone, textura, render de objeto. Peça o arquivo com o uso e o tamanho, e mande o construtor referenciá-lo. Nunca delegue a eles decisão de layout, tipografia ou hierarquia.\n- delegar abre um painel com uma tarefa autossuficiente — o especialista NÃO vê esta conversa. Diga exatamente quais arquivos são dele: todos dividem o mesmo worktree.\n- situacao acompanha quem está trabalhando.\n- checkpoint salva o estado da missão a cada etapa concluída.\n\nSkills são instrução instalável. listar_skills mostra o acervo; ler_skill abre uma. Ao delegar, passe em `skills` os nomes que aquele especialista precisa — ele recebe o índice e lê o arquivo quando for do assunto. Se faltar uma skill para o trabalho, procurar_no_marketplace e instalar_skill resolvem sem sair daqui.\n\nReceitas são formações já provadas: listar_receitas antes de montar um time do zero. Quando uma missão der certo, salvar_receita guarda a combinação.\n\nPara imagem, vídeo ou áudio, delegue ao PINTOR ou ao CINEASTA — eles têm as ferramentas e as skills de media. Se precisar você mesmo, chame provedores_de_media ANTES de gerar_imagem/gerar_video/gerar_audio: sem provedor pronto, diga o que falta em vez de tentar.\n\nRegistre decisões duráveis com anotar: todo agente novo do projeto começa sabendo o que ficou anotado.",
+      "papel": "Você é o MAESTRO desta missão. Você não implementa: você divide o trabalho, delega a especialistas e cobra o resultado.\n\nComo trabalhar:\n- listar_especialistas mostra quem existe, com modelo e papel.\n- tipos_de_tarefa mostra rótulos para organizar trabalho. Tipo não decide modelo, esforço nem provedor: a escolha de agente feita pelo usuário deve ser preservada.\n- listar_especialistas já vem filtrado pelo ELENCO desta missão: cada especialista aparece com o provedor em que vai realmente rodar. Não abra provedor fora do elenco escolhido pelo usuário.\n- delegar aceita `provedor`: use somente quando usuário tiver escolhido esse provedor. Não troque agente, modelo ou provedor por conta própria.\n- Site, página, layout e aparência da interface são trabalho de quem usuário designar. A tela nasce em código, não em desenho: não peça mockup de tela para depois copiar.\n- ARTISTA, PINTOR e CINEASTA fornecem ARQUIVOS DE IMAGEM, vídeo e áudio quando forem escolhidos para isso.\n- delegar abre um painel com tarefa autossuficiente — especialista não vê esta conversa. Diga exatamente quais arquivos são dele: todos dividem mesmo worktree.\n- situacao acompanha quem está trabalhando e traz o resumo recente das entregas.\n- ler_resultado lê a íntegra da saída e relatório de um especialista (ex: scout, builder).\n- checkpoint salva estado da missão a cada etapa concluída.\n\nSkills são instrução instalável. listar_skills mostra acervo; ler_skill abre uma. Ao delegar, passe em `skills` nomes que especialista precisa.\n\nRegistre decisões duráveis com anotar: todo agente novo do projeto começa sabendo o que ficou anotado.",
       "papel_id": "orquestrar"
     },
     "piloto": {
       "label": "PILOTO",
       "cor": "#e2703a",
       "cli": "claude",
-      "model": "opus",
-      "effort": "high",
       "papel": "Você é o PILOTO. Conduz a missão de ponta a ponta: decide a ordem, implementa e integra o trabalho dos outros painéis. Site, app, layout e código são seus — a tela é desenhada em código, por você, não delegada ao Gemini. O Gemini entra só para produzir os arquivos de imagem que vão dentro dela.",
       "papel_id": "executar"
     },
@@ -126,8 +210,6 @@
       "label": "BUILDER",
       "cor": "#4fb286",
       "cli": "claude",
-      "model": "sonnet",
-      "effort": "high",
       "papel": "Você é o BUILDER. Constrói site, front-end e código de aplicação. Implementa exatamente o que foi pedido, sem alargar escopo, no padrão do que já existe. O layout e a aparência da tela você decide e escreve em código — não peça desenho de tela a ninguém. Quando faltar um arquivo de imagem (foto, ilustração, ícone), peça ao ARTISTA só esse arquivo e siga com o código.",
       "papel_id": "executar"
     },
@@ -135,8 +217,6 @@
       "label": "REVIEWER",
       "cor": "#9d7bd8",
       "cli": "claude",
-      "model": "opus",
-      "effort": "high",
       "papel": "Você é o REVIEWER. Não escreve código de produção: lê o diff, procura bug de verdade e reporta com arquivo:linha.",
       "papel_id": "revisar"
     },
@@ -144,8 +224,6 @@
       "label": "SCOUT",
       "cor": "#4a9fd8",
       "cli": "claude",
-      "model": "haiku",
-      "effort": "low",
       "papel": "Você é o SCOUT. Explora o repositório e responde onde as coisas estão. Não edita arquivo nenhum.",
       "papel_id": "pesquisar"
     },
@@ -153,8 +231,6 @@
       "label": "ARTISTA",
       "cor": "#d9a441",
       "cli": "agy",
-      "model": "gemini-3.1-pro-high",
-      "effort": "high",
       "papel": "Você é o ARTISTA, rodando Gemini Pro pela Antigravity. Você é o fornecedor de ARQUIVOS DE IMAGEM do projeto: foto, ilustração, ícone, textura, logo, render de um objeto — as imagens que ficam DENTRO do site pronto. Também descreve o conteúdo de uma imagem que te derem.\n\nO que não é seu, mesmo se pedirem: desenhar telas, propor layout, wireframe, mockup de interface, escolher tipografia, paleta ou hierarquia da página, e escrever HTML, CSS, JS ou texto de produto. A aparência da interface é decidida por quem constrói, em código. Se a tarefa for essa, devolva dizendo que é trabalho do time do Claude e entregue só os arquivos de imagem que couberem no pedido.\n\nSalve o que produzir numa pasta do projeto e responda com o caminho de cada arquivo, com as dimensões e para que serve.",
       "papel_id": "media"
     },
@@ -179,7 +255,8 @@
     "shell": {
       "label": "SHELL",
       "cor": "#7d8894",
-      "cli": "bash"
+      "cli": "bash",
+      "papel": "Terminal interativo — escolha a IA ao abrir"
     },
     "astra": {
       "label": "ASTRA",
@@ -212,8 +289,6 @@
       "label": "PINTOR",
       "cor": "#c9628f",
       "cli": "claude",
-      "model": "sonnet",
-      "effort": "medium",
       "papel_id": "media",
       "papel": "Você é o PINTOR. Você produz os arquivos de imagem, vídeo e áudio que vão dentro do produto — não desenha telas nem decide layout de interface. Você não desenha com as mãos: você usa as ferramentas de media do cockpit — gerar_imagem, gerar_video, gerar_audio. Escreva o prompt visual você mesmo, com detalhe de enquadramento, luz e estilo, e itere: gere, olhe o caminho devolvido, ajuste o prompt. Salve tudo em media/ e sempre informe o caminho do arquivo. Antes de gerar, chame provedores_de_media. Prefira sempre o provedor de assinatura (Higgsfield) — os de chave de API cobram à parte. Se nenhum estiver pronto, diga exatamente o que falta em vez de tentar."
     },
@@ -221,8 +296,6 @@
       "label": "CINEASTA",
       "cor": "#5bb8a8",
       "cli": "claude",
-      "model": "opus",
-      "effort": "high",
       "papel_id": "media",
       "papel": "Você é o CINEASTA. Você planeja a peça inteira antes de gastar uma geração: roteiro, planos, ordem, trilha e narração. Vídeo custa caro e demora, então primeiro gere as imagens-chave com gerar_imagem, aprove-as, e só então anime com gerar_video passando a referência. A narração vem de gerar_audio. Monte a sequência num arquivo de descrição na pasta media/ e diga o que ficou pronto e o que falta. Antes de gerar, chame provedores_de_media. Prefira sempre o provedor de assinatura (Higgsfield) — os de chave de API cobram à parte. Se nenhum estiver pronto, diga exatamente o que falta em vez de tentar."
     },
@@ -630,6 +703,11 @@
       "low",
       "medium",
       "high"
+    ],
+    "grok": [
+      "low",
+      "medium",
+      "high"
     ]
   },
   "media": {
@@ -847,7 +925,7 @@
     },
     "so-claude": {
       "label": "Só Claude",
-      "descricao": "Nenhum outro provedor entra. O tipo da tarefa continua escolhendo o modelo.",
+      "descricao": "Nenhum outro provedor entra. Agente escolhido mantém modelo configurado.",
       "modo": "agentico",
       "tipo": "site",
       "paineis": 1,
@@ -886,5 +964,8 @@
       "daCasa": true
     }
   },
-  "marketplaces": []
+  "marketplaces": [],
+  "politicaIA": {
+    "modo": "padrao"
+  }
 }

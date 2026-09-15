@@ -6,3 +6,9 @@ web/dist
 
 # Logs de execução do servidor, quando você o inicia redirecionando a saída.
 *.log
+
+# Caches e diretórios de execução temporários
+.agents
+graphify-out
+.cockpit_test_*
+prints_old

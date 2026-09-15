@@ -2,6 +2,9 @@
   "name": "cockpit",
   "private": true,
   "type": "module",
+  "bin": {
+    "cockpit": "./bin/cockpit.mjs"
+  },
   "scripts": {
     "build": "vite build",
     "start": "vite build && node servidor/index.ts",

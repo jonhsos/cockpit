@@ -30,6 +30,13 @@ export type PonteSpec = {
   nota?: string;
 };
 
+export type ContaPoolSpec = {
+  id: string;
+  label?: string;
+  env?: Record<string, string>;
+  args?: string[];
+};
+
 export type CliSpec = {
   command: string;
   args?: string[];
@@ -39,6 +46,10 @@ export type CliSpec = {
    */
   familia?: string;
   ponte?: PonteSpec;
+  env?: Record<string, string>;
+  sandbox?: string;
+  /** Pool de contas para concorrência e failover transparente */
+  pool?: ContaPoolSpec[];
 };
 
 export type AgentSpec = {
@@ -125,7 +136,7 @@ export type Roster = Record<string, { cli?: string; model?: string; effort?: str
 export type Elenco = {
   /** Provedores liberados, na ordem de preferência. Vazio = todos. */
   clis: string[];
-  /** Modelo e esforço fixados por provedor. Fixado ganha do tipo da tarefa. */
+  /** Modelo e esforço fixados por provedor. Fixado ganha do perfil do agente. */
   porCli?: Record<string, { model?: string; effort?: string }>;
   /** Provedores que só entram em tarefa visual — imagem, vídeo, mockup. */
   soVisual?: string[];
@@ -157,12 +168,14 @@ export type Preco = { in: number; out: number; cacheWrite: number; cacheRead: nu
 export type ExecucaoIA = { cli: string; model: string; effort: string };
 export type PoliticaIA = { modo: "padrao" | "unica" | "dividida"; unica?: ExecucaoIA; papeis?: Record<string, ExecucaoIA> };
 
-type CockpitConfig = {
+export type CockpitConfig = {
   politicaIA?: PoliticaIA;
   maestroAutoSwitch?: boolean;
   port: number;
   /** Marca as pastas que você abre como confiáveis para o Claude Code. */
   confiarNasPastasQueEuAbrir?: boolean;
+  /** Auto-aprova comandos e ferramentas nos CLIs (--dangerously-skip-permissions, --ask-for-approval never, etc.). */
+  autoAprovar?: boolean;
   /** Idioma do ditado: portuguese, english, spanish… */
   vozIdioma?: string;
   /** Colado no prompt de todo agente: fatos desta máquina. */
@@ -185,7 +198,11 @@ type CockpitConfig = {
 
 const ARQUIVO = process.env.COCKPIT_CONFIG ?? fileURLToPath(new URL("../cockpit.json", import.meta.url));
 
-const ler = (): CockpitConfig => JSON.parse(readFileSync(ARQUIVO, "utf8")) as CockpitConfig;
+const ler = (): CockpitConfig => {
+  const cfg = JSON.parse(readFileSync(ARQUIVO, "utf8")) as CockpitConfig;
+  if (cfg.maestroAutoSwitch === undefined) cfg.maestroAutoSwitch = false;
+  return cfg;
+};
 
 /**
  * O objeto é sempre o mesmo, mutado no lugar: todos os módulos que já
