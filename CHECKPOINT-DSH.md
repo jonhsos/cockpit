@@ -36,12 +36,23 @@
 ```bash
 node scripts/check-dsh-config.ts
 node scripts/check-dsh-omniroute.ts
+node scripts/check-dsh-maestro-compat.ts
 node scripts/check-dsh-runtime.ts          # skip sem flag
 DSH_RUNTIME_SMOKE=1 node scripts/check-dsh-runtime.ts
 DSH_RUNTIME_SMOKE=1 node scripts/check-dsh-pane-lifecycle.ts
+# E2E vivo (Cockpit com código DSH no ar):
+DSH_E2E=1 COCKPIT_PORT=3011 COCKPIT_PROJECT=<id> node scripts/check-dsh-e2e-mission.ts
 node scripts/check-decoupled-pty.ts        # regressão PTY
 node scripts/check-pane-states.ts
 ```
+
+## Evidência E2E (2026-09-15)
+
+- Servidor isolado na worktree `feat/dsh-pr5-checkpoint` em `:3011`.
+- `claude` ausente no PATH desta máquina → E2E com **Codex/TERRA** via `backend: dsh`.
+- Banner `[dsh]` / runtime ok; `processos sdk` 0→1→0 após `DELETE /missions/:id`.
+- Kill de missão usa `stopPane` + `flushDshKills` (anti-zumbi).
+- Cotas Claude/Codex no path DSH anotam: fonte = assinatura do CLI worker.
 
 ## Riscos aceitos (SDK developer preview)
 
