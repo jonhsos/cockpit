@@ -12,3 +12,4 @@ web/dist
 graphify-out
 .cockpit_test_*
 prints_old
+.docs-internos
