@@ -116,6 +116,11 @@ export async function stopPane(paneId: string): Promise<void> {
   await manager.stopPane(paneId);
 }
 
+/** Aguarda reaps DSH enfileirados por killPty (missão/kill em lote). */
+export async function flushDshKills(): Promise<void> {
+  await manager.flushDshKills();
+}
+
 /**
  * Periodic 1-second pulse for activity tracking and state transitions.
  */

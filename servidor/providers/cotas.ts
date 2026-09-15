@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { resolveCli } from "../pty.ts";
 import { chaveDaPonte, listarPontes } from "./ponte.ts";
 import { accountPool } from "./account-pool.ts";
+import { backendDo } from "../config.ts";
 
 /**
  * Redline: quanto resta de cada assinatura.
@@ -131,7 +132,8 @@ function cotaCodex(): Promise<Cota | null> {
         escrever({ jsonrpc: "2.0", method: "initialized", params: {} });
         escrever({ jsonrpc: "2.0", id: 2, method: "account/rateLimits/read", params: {} });
       } else if (m.id === 2) {
-        terminar(lerBucketCodex(m.result));
+        const c = lerBucketCodex(m.result);
+        terminar(c ? { ...c, detalhe: notaBackendDsh("codex", c.detalhe) } : null);
       }
     });
     escrever({
@@ -235,12 +237,21 @@ export function extrairLimiteClaude(bruto: unknown): Cota | null {
  * na hora. Então a régua dele vive do que o próprio painel disser: quando o
  * CLI avisa que bateu o limite, o cockpit lê no terminal e marca aqui.
  */
+/** Cota honesta: path DSH não inventa medidor — continua sendo a do CLI worker. */
+export function notaBackendDsh(cli: string, detalhe: string | null): string | null {
+  if (backendDo(cli) !== "dsh") return detalhe;
+  const base = detalhe ?? "sem porcentagem em disco";
+  return `${base} (backend dsh: cota = assinatura do CLI worker, não do cérebro harness)`;
+}
+
 function cotaClaude(): Cota {
   const arquivo = join(homedir(), ".claude", ".credentials.json");
   if (existsSync(arquivo)) {
     try {
       const c = extrairLimiteClaude(JSON.parse(readFileSync(arquivo, "utf8")));
-      if (c) return c;
+      if (c) {
+        return { ...c, detalhe: notaBackendDsh("claude", c.detalhe) };
+      }
     } catch {
       // arquivo ilegível: cai no desconhecido
     }
@@ -250,12 +261,14 @@ function cotaClaude(): Cota {
     estado: "desconhecido",
     janelas: [],
     plano: null,
-    detalhe: "o Claude Code não guarda porcentagem em disco — o aviso vem do painel",
+    detalhe: notaBackendDsh(
+      "claude",
+      "o Claude Code não guarda porcentagem em disco — o aviso vem do painel",
+    ),
     fonte: "aviso do painel",
     lidoEm: Date.now(),
   };
 }
-
 /**
  * Um aviso vindo do terminal vale mais que a falta de dado: se o painel
  * disse que bateu o limite, o painel está certo.

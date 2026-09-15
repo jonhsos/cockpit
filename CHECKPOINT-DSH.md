@@ -12,7 +12,7 @@
 | Claude / Codex | `backend: "dsh"` em `cockpit.json` |
 | Agy / Grok / bash | **PTY** (sem adapter neste ciclo) |
 | OmniRoute | `CODEX_HOME` da conta/pool + `spec.model` + sandbox/autoAprovar → `permissionMode` |
-| Settings / Models | PR-S1 no repo DSH; exemplo S2 em `docs/dsh-home/settings.example.yaml` |
+| Settings / Models | PR-S1 no repo DSH; S2 em `docs/dsh-home/settings.example.yaml` (Kimi/xAI/OpenRouter via `apiKeyEnv`) |
 
 ## Branches (stack local)
 
@@ -21,8 +21,8 @@
 | PR-1 | `feat/dsh-pr1-cli-backend` | `bc0cd5a` CliSpec.backend + detecção |
 | PR-2 | `feat/dsh-pr2-runtime-sdk` | `37abd14` runtime + setup home |
 | PR-3 | `feat/dsh-pr3-pane-lifecycle` | `f359d38` dsh-manager + seam |
-| PR-4 | `feat/dsh-pr4-claude-codex-backend` | (este tip) backends + OmniRoute |
-| PR-5 | `feat/dsh-pr5-checkpoint` | este arquivo |
+| PR-4 | `feat/dsh-pr4-claude-codex-backend` | `a6dfade` backends + OmniRoute |
+| PR-5 | `feat/dsh-pr5-checkpoint` | tip atual — maestro/cotas/kill + E2E + S2 |
 | S1 | DSH `feat/dsh-s1-settings-models` | `beee4442cc` persistence host em LAN |
 
 ## Home isolado

@@ -15,6 +15,25 @@ import { argsDaPonte, envDaPonte, pontede } from "../ponte.ts";
 import { getDefaultPaneStore } from "../persistence/index.ts";
 import { accountPool } from "../providers/account-pool.ts";
 import { getDshManager } from "./dsh-backend/dsh-manager.ts";
+import { checkDshAvailability } from "./dsh-backend/dsh-availability.ts";
+
+function assertExecutorDisponivel(cli: string): void {
+  if (backendDo(cli) === "dsh") {
+    const dsh = checkDshAvailability();
+    if (!dsh.available) {
+      throw new Error(`Engine DSH indisponível: ${dsh.error ?? "bin/home"}`);
+    }
+    if (!providerDisponivel(cli)) {
+      throw new Error(
+        `Worker "${cli}" necessário para o subagent DSH, mas não está no PATH (cota/auth continuam do CLI)`,
+      );
+    }
+    return;
+  }
+  if (!providerDisponivel(cli)) {
+    throw new Error(`Executor "${cli}" não disponível no sistema`);
+  }
+}
 
 import {
   type PaneState,
@@ -177,6 +196,8 @@ export class PtyManager {
   private initialized: boolean = false;
   private globalOutputListeners = new Set<(paneId: string, data: string) => void>();
   private globalExitListeners = new Set<(paneId: string, code: number) => void>();
+  /** Reaps DSH iniciados por killPty síncrono — flushDshKills() espera todos. */
+  private pendingDshKills: Promise<void>[] = [];
 
   constructor(socketPath: string = getDefaultSocketPath()) {
     this.client = new PtyClient(socketPath);
@@ -386,8 +407,8 @@ export class PtyManager {
       });
       if (bundle.cli === "bash") {
         isBash = true;
-      } else if (!providerDisponivel(bundle.cli)) {
-        throw new Error(`Executor "${bundle.cli}" não disponível no sistema`);
+      } else {
+        assertExecutorDisponivel(bundle.cli);
       }
     }
 
@@ -415,9 +436,7 @@ export class PtyManager {
       if (!bundle.model && !bundle.effort) {
         bundle = resolverHarness({ agent: opts.agent, runner: opts.runner, ...(opts.harness ?? {}) });
       }
-      if (!providerDisponivel(bundle.cli)) {
-        throw new Error(`Executor "${bundle.cli}" não disponível no sistema`);
-      }
+      assertExecutorDisponivel(bundle.cli);
       const spec: AgentSpec = { ...perfil, cli: bundle.cli, model: bundle.model, effort: bundle.effort };
       if (!isBash) {
         allocatedAccount = accountPool.acquire(spec.cli, paneId);
@@ -743,7 +762,12 @@ export class PtyManager {
     const entry = this.ptys.get(paneId);
     if (!entry) return;
     if (getDshManager().has(paneId)) {
-      void getDshManager().kill(paneId, 0);
+      // Não fire-and-forget puro: enfileira reap para flushDshKills / stopPane.
+      this.pendingDshKills.push(
+        getDshManager()
+          .kill(paneId, 0)
+          .catch(() => {}),
+      );
       entry.state.status = "dead";
       this.ptys.delete(paneId);
       this.savePaneToDisk(entry.state);
@@ -753,6 +777,13 @@ export class PtyManager {
     this.ptys.delete(paneId);
     this.savePaneToDisk(entry.state);
     this.client.kill(paneId).catch(() => {});
+  }
+
+  /** Espera todos os reaps DSH pendentes de killPty (anti-zumbi). */
+  public async flushDshKills(): Promise<void> {
+    const pending = this.pendingDshKills.splice(0);
+    if (pending.length === 0) return;
+    await Promise.allSettled(pending);
   }
 
   public async stopPane(paneId: string): Promise<void> {

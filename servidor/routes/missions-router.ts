@@ -8,7 +8,7 @@ import {
   persistir,
 } from "../missions/missions.ts";
 import { getProject, lerMemoria, anotar } from "../state.ts";
-import { listPanes, killPty, replayPane } from "../pty.ts";
+import { listPanes, killPty, stopPane, replayPane, flushDshKills } from "../pty.ts";
 import { branchStatus } from "../missions/git.ts";
 import { readUsage, somaUsage } from "../providers/usage.ts";
 import { getRun, iniciarSquad, avancarFase, encerrarRun } from "../orchestration/squad.ts";
@@ -314,10 +314,12 @@ export function createMissionsRouter(ctx: RouterContext): Router {
       const mission = getMission(req.params.id);
       if (mission) parar(mission.worktree);
       encerrarRun(req.params.id);
-      await archiveMission(req.params.id, (paneId) => {
-        killPty(paneId);
+      await archiveMission(req.params.id, async (paneId) => {
+        // stopPane aguarda reap do runtime DSH; killPty sozinho era fire-and-forget.
+        await stopPane(paneId);
         ctx.broadcast({ type: "exit", paneId, code: 0 });
       });
+      await flushDshKills();
       res.json({ ok: true });
     } catch (err) {
       fail(res, err);

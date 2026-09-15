@@ -58,13 +58,14 @@ export async function createMission(
 
 export async function archiveMission(
   missionId: string,
-  killPane: (paneId: string) => void,
+  killPane: (paneId: string) => void | Promise<void>,
 ): Promise<void> {
   const mission = getMission(missionId);
   if (!mission) throw new Error("missão não encontrada");
   const project = getProject(mission.projectId);
 
-  for (const paneId of mission.panes) killPane(paneId);
+  // Aguarda reap de panes DSH (KD-A) — kill síncrono fire-and-forget deixava zumbi.
+  await Promise.all(mission.panes.map((paneId) => Promise.resolve(killPane(paneId))));
 
   // Só existe pasta para apagar se ela foi criada por nós. Uma missão não
   // isolada aponta para a pasta do projeto: arquivar nunca pode tocar nela.

@@ -18,7 +18,7 @@ import { observar, parar } from "../missions/watcher.ts";
 import { prepararGit, temCommit } from "../missions/git.ts";
 import { listMissions } from "../missions/missions.ts";
 import { encerrarRun } from "../orchestration/squad.ts";
-import { killPty } from "../pty.ts";
+import { killPty, stopPane, flushDshKills } from "../pty.ts";
 
 export function createProjectsRouter(ctx: RouterContext): Router {
   const router = Router();
@@ -103,10 +103,11 @@ export function createProjectsRouter(ctx: RouterContext): Router {
         parar(mission.worktree);
         encerrarRun(mission.id);
         for (const paneId of mission.panes) {
-          killPty(paneId);
+          await stopPane(paneId);
           ctx.broadcast({ type: "exit", paneId, code: 0 });
         }
       }
+      await flushDshKills();
       closeProject(project.id);
       res.json({ ok: true });
     } catch (err) {

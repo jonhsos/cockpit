@@ -1,10 +1,46 @@
-# Exemplo mínimo para ~/.cockpit/dsh-home/settings.yaml (trilha PR-S2).
-# Copie para o DSH_HOME isolado do Cockpit — NÃO use ~/.dsh do dsh web.
+# Exemplo mínimo para o DSH_HOME isolado do Cockpit (PR-S2).
 #
-# Catálogo pi-ai (não inventar provider): deepseek, kimi-coding, moonshotai,
-# xai, openrouter, anthropic, openai, google, …
-# Rotas/credenciais reais entram pela UI Settings → Models (profile web)
-# ou por entradas válidas no namespace llm-pi-ai.providers.
+# Copie para:  ~/.cockpit/dsh-home/settings.yaml
+# NÃO use ~/.dsh (home do `dsh web` interativo).
+#
+# Isto é o catálogo do CÉREBRO do harness (pi-ai), não worker CLI.
+# Workers Claude/Codex continuam via subagents oficiais no profile sdk.
+#
+# Providers abaixo existem no catálogo pi-ai instalado (não inventados):
+#   deepseek, kimi-coding, moonshotai, moonshotai-cn, xai, openrouter,
+#   anthropic, openai, openai-codex, google, google-vertex, azure-openai-responses
+#
+# `apiKeyEnv` é referência de credencial — o segredo NÃO entra neste arquivo.
+# Exporte a variável no ambiente do processo `dsh` / do Cockpit, ou use
+# Settings → Models (profile web) para configurar pela UI.
+#
+# Depois de copiar:
+#   export DSH_HOME="$HOME/.cockpit/dsh-home"
+#   # ex.: export MOONSHOT_API_KEY=...   XAI_API_KEY=...   OPENROUTER_API_KEY=...
+#   dsh web   # ou o motor sdk do Cockpit — Models lista as rotas configuráveis
 
 llm-pi-ai:
-  providers: {}
+  providers:
+    # DeepSeek (cérebro default do harness)
+    deepseek:
+      apiKeyEnv: DEEPSEEK_API_KEY
+
+    # Kimi Coding (catálogo: kimi-coding)
+    kimi-coding:
+      apiKeyEnv: KIMI_API_KEY
+
+    # Moonshot (catálogo: moonshotai) — variante CN: moonshotai-cn
+    moonshotai:
+      apiKeyEnv: MOONSHOT_API_KEY
+
+    # xAI / Grok API (catálogo: xai) — isto NÃO é o CLI `grok` do Cockpit
+    xai:
+      apiKeyEnv: XAI_API_KEY
+
+    # OpenRouter (catálogo: openrouter)
+    openrouter:
+      apiKeyEnv: OPENROUTER_API_KEY
+
+# Opcional: deixe providers vazios e configure só pela UI Models
+# llm-pi-ai:
+#   providers: {}
