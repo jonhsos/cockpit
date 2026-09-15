@@ -1111,6 +1111,136 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .form-inline { display: flex; flex-direction: column; gap: 5px; max-width: 460px; }
 .form-acoes { display: flex; justify-content: flex-end; gap: var(--gap); }
 
+/* Onboarding Plug-and-Play (OAuth Loopback & Túnel Reverso) */
+.onboard-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(0, 180, 255, 0.05);
+  border: 1px solid rgba(0, 180, 255, 0.25);
+  border-radius: var(--raio);
+  margin-top: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.onboard-card.sucesso {
+  background: rgba(79, 178, 134, 0.08);
+  border-color: rgba(79, 178, 134, 0.35);
+}
+
+.onboard-card.erro {
+  background: rgba(226, 112, 58, 0.08);
+  border-color: rgba(226, 112, 58, 0.35);
+}
+
+.onboard-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.onboard-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.onboard-status.esperando {
+  color: var(--neon, #00b4ff);
+}
+
+.onboard-status.configurando {
+  color: #c988ff;
+}
+
+.onboard-status.sucesso {
+  color: #4fb286;
+}
+
+.onboard-status.erro {
+  color: var(--alerta, #e2703a);
+}
+
+.onboard-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+  animation: onboard-pulsar 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes onboard-pulsar {
+  from { opacity: 0.4; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1.15); }
+}
+
+.onboard-desc {
+  font-size: 12px;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+
+.onboard-detalhe {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-family: var(--fonte-mono);
+  color: var(--ink-3);
+  background: rgba(0, 0, 0, 0.2);
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--fio);
+  align-self: flex-start;
+}
+
+.onboard-acoes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.onboard-manual-toggle {
+  font-size: 11px;
+  color: var(--ink-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.onboard-manual-toggle:hover {
+  color: var(--neon);
+}
+
+.onboard-manual-caixa {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px dashed var(--fio);
+  border-radius: 4px;
+  margin-top: 4px;
+}
+
+.onboard-manual-linha {
+  display: flex;
+  gap: 6px;
+}
+
+
 .carta code,
 .prov-instalar code,
 .ressalva code {

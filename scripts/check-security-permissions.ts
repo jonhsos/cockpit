@@ -72,10 +72,6 @@ try {
   const agyFlagsDefault = resolveSandboxFlags("agy");
   assert.equal(agyFlagsDefault.permissionMode, "workspace-write");
   assert.ok(!agyFlagsDefault.args.includes("--dangerously-skip-permissions"));
-
-  const geminiFlagsDefault = resolveSandboxFlags("gemini");
-  assert.equal(geminiFlagsDefault.permissionMode, "workspace-write");
-  assert.ok(!geminiFlagsDefault.args.includes("-y"));
   console.log("  ✓ 5. Default workspace-write sandbox flags enforced for all CLIs");
 
   // 6. Danger flags require explicit confirmation
@@ -88,8 +84,8 @@ try {
   assert.deepEqual(dangerConfirmed.args, ["--dangerously-skip-permissions"]);
   assert.equal(dangerConfirmed.dangerOptIn, true);
 
-  const geminiDangerConfirmed = resolveSandboxFlags("gemini", "danger-full-access", true);
-  assert.deepEqual(geminiDangerConfirmed.args, ["-y"]);
+  const agyDangerConfirmed = resolveSandboxFlags("agy", "danger-full-access", true);
+  assert.deepEqual(agyDangerConfirmed.args, ["--dangerously-skip-permissions"]);
   console.log("  ✓ 6. Danger-full-access elevation restricted to explicit user opt-in");
 
   // 7. Stdin protection: Prohibit agent text in bash stdin

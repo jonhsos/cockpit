@@ -139,10 +139,6 @@ export function resolveSandboxFlags(
     if (dangerOptIn) {
       args.push("--dangerously-skip-permissions");
     }
-  } else if (lowerCli === "gemini") {
-    if (dangerOptIn) {
-      args.push("-y");
-    }
   }
 
   return {

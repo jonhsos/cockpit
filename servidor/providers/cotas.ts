@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveCli } from "../pty.ts";
 import { chaveDaPonte, listarPontes } from "./ponte.ts";
+import { accountPool } from "./account-pool.ts";
 
 /**
  * Redline: quanto resta de cada assinatura.
@@ -332,14 +333,13 @@ export function lerBloqueioAgy(texto: string, agora = Date.now()): Cota | null {
   };
 }
 
-function cotaAgy(): Cota | null {
-  const base = join(homedir(), ".gemini", "antigravity-cli");
-  const candidatos: string[] = [];
+function coletarLogsAgyEm(base: string, destino: string[]): void {
   const atual = join(base, "cli.log");
-  if (existsSync(atual)) candidatos.push(atual);
+  if (existsSync(atual)) destino.push(atual);
 
   const pasta = join(base, "log");
-  if (existsSync(pasta)) {
+  if (!existsSync(pasta)) return;
+  try {
     const recentes = readdirSync(pasta)
       .filter((n) => n.endsWith(".log"))
       .map((n) => join(pasta, n))
@@ -347,7 +347,27 @@ function cotaAgy(): Cota | null {
       .sort((a, b) => b.quando - a.quando)
       .slice(0, 3)
       .map((x) => x.c);
-    candidatos.push(...recentes);
+    destino.push(...recentes);
+  } catch {
+    // pasta rotacionando / inacessível
+  }
+}
+
+function cotaAgy(): Cota | null {
+  const candidatos: string[] = [];
+  const bases = new Set<string>([join(homedir(), ".gemini", "antigravity-cli")]);
+
+  // Perfis isolados do pool: logs ficam em app_data_dir e/ou HOME/.gemini/antigravity-cli.
+  for (const dir of [
+    ...accountPool.getAllEnvDirs("JETSKI_APP_DATA_DIR"),
+    ...accountPool.getAllEnvDirs("HOME"),
+  ]) {
+    bases.add(dir);
+    bases.add(join(dir, ".gemini", "antigravity-cli"));
+  }
+
+  for (const base of bases) {
+    coletarLogsAgyEm(base, candidatos);
   }
 
   for (const arquivo of candidatos) {

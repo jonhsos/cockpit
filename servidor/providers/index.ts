@@ -9,3 +9,6 @@ export * from "./conectar.ts";
 export * from "./confianca.ts";
 export { definirModelo as definirModeloAgy } from "./agy.ts";
 export * from "./voz.ts";
+export * from "./account-pool.ts";
+export * from "./agy-onboarding.ts";
+

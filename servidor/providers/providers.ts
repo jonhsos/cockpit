@@ -38,7 +38,6 @@ const COMO_INSTALAR: Record<string, string> = {
   claude: "npm i -g @anthropic-ai/claude-code",
   agy: "baixe a Antigravity CLI em antigravity.google",
   codex: "npm i -g @openai/codex",
-  gemini: "npm i -g @google/gemini-cli",
   grok: "curl -sSfL https://x.ai/grok/install.sh | sh",
 };
 

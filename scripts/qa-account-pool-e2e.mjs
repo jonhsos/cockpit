@@ -38,16 +38,16 @@ try {
     ]
   };
 
-  const geminiPool = {
-    cli: 'gemini',
+  const agyPool = {
+    cli: 'agy',
     total: 4,
     ativas: 0,
     emCooldown: 0,
     contas: [
-      { id: 'gemini-1', label: 'Gemini Conta 1', status: 'livre', env: { GEMINI_CLI_HOME: '/home/jj/.gemini-1' } },
-      { id: 'gemini-2', label: 'Gemini Conta 2', status: 'livre', env: { GEMINI_CLI_HOME: '/home/jj/.gemini-2' } },
-      { id: 'gemini-3', label: 'Gemini Conta 3', status: 'livre', env: { GEMINI_CLI_HOME: '/home/jj/.gemini-3' } },
-      { id: 'gemini-4', label: 'Gemini Conta 4', status: 'livre', env: { GEMINI_CLI_HOME: '/home/jj/.gemini-4' } }
+      { id: 'agy-1', label: 'Conta 1 (Principal)', status: 'livre', env: { JETSKI_APP_DATA_DIR: '/home/jj/.gemini/antigravity-cli/profiles/conta_1', HOME: '/home/jj/.gemini/antigravity-cli/profiles/conta_1' } },
+      { id: 'agy-2', label: 'Conta 2', status: 'livre', env: { JETSKI_APP_DATA_DIR: '/home/jj/.gemini/antigravity-cli/profiles/conta_2', HOME: '/home/jj/.gemini/antigravity-cli/profiles/conta_2' } },
+      { id: 'agy-3', label: 'Conta 3', status: 'livre', env: { JETSKI_APP_DATA_DIR: '/home/jj/.gemini/antigravity-cli/profiles/conta_3', HOME: '/home/jj/.gemini/antigravity-cli/profiles/conta_3' } },
+      { id: 'agy-4', label: 'Conta 4', status: 'livre', env: { JETSKI_APP_DATA_DIR: '/home/jj/.gemini/antigravity-cli/profiles/conta_4', HOME: '/home/jj/.gemini/antigravity-cli/profiles/conta_4' } }
     ]
   };
 
@@ -72,13 +72,13 @@ try {
       pool: codexPool
     },
     {
-      id: 'gemini',
-      comando: 'gemini',
+      id: 'agy',
+      comando: 'agy',
       disponivel: true,
-      caminho: '/usr/bin/gemini',
-      modelos: ['gemini-2.5-pro', 'gemini-3.1-pro-high'],
-      agentes: ['artista'],
-      pool: geminiPool
+      caminho: '/usr/bin/agy',
+      modelos: ['gemini-3.8-flash-high', 'gemini-3.1-pro-high'],
+      agentes: ['artista', 'flash'],
+      pool: agyPool
     },
     {
       id: 'grok',
@@ -102,7 +102,7 @@ try {
     usage: { in: 100, out: 50, custo: 0 },
     panes: [],
     modo: 'dirigido',
-    elenco: { clis: ['codex', 'gemini', 'grok'], soVisual: [] }
+    elenco: { clis: ['codex', 'agy', 'grok'], soVisual: [] }
   }];
 
   const setupPage = async (page) => {
@@ -131,7 +131,7 @@ try {
           },
           squads: {},
           tarefas: {},
-          clis: { codex: { pool: codexPool.contas }, gemini: { pool: geminiPool.contas }, grok: { pool: grokPool.contas } }
+          clis: { codex: { pool: codexPool.contas }, agy: { pool: agyPool.contas }, grok: { pool: grokPool.contas } }
         }
       });
       if (path === '/api/skills') return route.fulfill({ json: { skills: [], acervo: { total: 0, porOrigem: {} } } });
@@ -141,11 +141,11 @@ try {
       if (path === '/api/consumo') return route.fulfill({ json: {} });
       if (path === '/api/memoria') return route.fulfill({ json: [] });
       if (path === '/api/tree') return route.fulfill({ json: { tree: [] } });
-      if (path === '/api/account-pools') return route.fulfill({ json: { ok: true, pools: { codex: codexPool, gemini: geminiPool, grok: grokPool } } });
+      if (path === '/api/account-pools') return route.fulfill({ json: { ok: true, pools: { codex: codexPool, agy: agyPool, grok: grokPool } } });
       if (path === '/api/account-pools/reset-limit') {
         codexPool.emCooldown = 0;
         codexPool.contas.forEach(c => { c.status = 'livre'; c.limitedUntil = undefined; });
-        return route.fulfill({ json: { ok: true, pools: { codex: codexPool, gemini: geminiPool, grok: grokPool } } });
+        return route.fulfill({ json: { ok: true, pools: { codex: codexPool, agy: agyPool, grok: grokPool } } });
       }
       return route.fulfill({ json: {} });
     });

@@ -469,19 +469,23 @@ export class PtyManager {
       }
 
       if (familia === "agy") {
-        definirModelo(spec.model);
+        const rawTargetDir =
+          allocatedAccount?.env?.JETSKI_APP_DATA_DIR ||
+          allocatedAccount?.env?.HOME ||
+          config.clis[spec.cli]?.env?.JETSKI_APP_DATA_DIR ||
+          config.clis[spec.cli]?.env?.HOME;
+        const targetDir = rawTargetDir
+          ? rawTargetDir
+              .replace(/^~(?=$|\/)/, homedir())
+              .replace(/^\$HOME(?=$|\/)/, homedir())
+          : undefined;
+
+        definirModelo(spec.model, targetDir);
         if (autoAprovar && !args.includes("--dangerously-skip-permissions")) {
           args.push("--dangerously-skip-permissions");
         }
         if (spec.model) args.push("--model", spec.model);
         if (spec.effort) args.push("--effort", spec.effort);
-      }
-
-      if (familia === "gemini") {
-        if (autoAprovar && !args.includes("-y") && !args.includes("--yolo")) {
-          args.push("-y");
-        }
-        if (spec.model) args.push("-m", spec.model);
       }
 
       let promptInicial = opts.tarefa;
@@ -529,9 +533,9 @@ export class PtyManager {
         if (spec.papel) args.push("--rules", spec.papel);
       }
 
-      const porArgumento = Boolean(promptInicial) && ["claude", "agy", "codex", "gemini", "grok"].includes(familia);
+      const porArgumento = Boolean(promptInicial) && ["claude", "agy", "codex", "grok"].includes(familia);
       if (porArgumento) {
-        if (familia === "agy" || familia === "gemini") args.push("--prompt-interactive", promptInicial!);
+        if (familia === "agy") args.push("--prompt-interactive", promptInicial!);
         else args.push(promptInicial!);
       }
 
@@ -544,8 +548,13 @@ export class PtyManager {
           .replace(/^~(?=$|\/)/, homedir())
           .replace(/^\$HOME(?=$|\/)/, homedir());
       }
-      if (cliEnv.GEMINI_CLI_HOME) {
-        cliEnv.GEMINI_CLI_HOME = cliEnv.GEMINI_CLI_HOME
+      if (cliEnv.JETSKI_APP_DATA_DIR) {
+        cliEnv.JETSKI_APP_DATA_DIR = cliEnv.JETSKI_APP_DATA_DIR
+          .replace(/^~(?=$|\/)/, homedir())
+          .replace(/^\$HOME(?=$|\/)/, homedir());
+      }
+      if (cliEnv.HOME) {
+        cliEnv.HOME = cliEnv.HOME
           .replace(/^~(?=$|\/)/, homedir())
           .replace(/^\$HOME(?=$|\/)/, homedir());
       }

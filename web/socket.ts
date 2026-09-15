@@ -31,6 +31,16 @@ export type ServerMessage =
   | { type: "connection:updated"; missionId?: string }
   | { type: "pool:updated"; [key: string]: unknown }
   | { type: "pool:rotated"; cli: string; from: string; to: string; paneId: string; detail?: string }
+  | {
+      type: "onboarding:step";
+      sessionId: string;
+      cli: string;
+      step: "waiting" | "configuring" | "success" | "error";
+      label?: string;
+      account?: unknown;
+      error?: string;
+      loopbackPort?: number;
+    }
   | { type: "maestro:reactivated"; missionId: string; especialistas: string };
 
 type OutputHandler = (data: string) => void;

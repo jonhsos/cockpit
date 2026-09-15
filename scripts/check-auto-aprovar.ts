@@ -32,13 +32,6 @@ try {
   }
   assert.ok(codexArgs.includes("--ask-for-approval") && codexArgs.includes("never"), "Codex deve incluir --ask-for-approval never");
 
-  // Gemini com autoAprovar = true
-  const geminiArgs: string[] = [];
-  if (config.autoAprovar !== false && !geminiArgs.includes("-y") && !geminiArgs.includes("--yolo")) {
-    geminiArgs.push("-y");
-  }
-  assert.ok(geminiArgs.includes("-y"), "Gemini deve incluir -y");
-
   // Teste 2: Desativado
   config.autoAprovar = false;
 
@@ -62,13 +55,7 @@ try {
   }
   assert.ok(!codexOff.includes("--ask-for-approval"), "Codex NÃO deve incluir --ask-for-approval quando autoAprovar = false");
 
-  const geminiOff: string[] = [];
-  if (config.autoAprovar !== false && !geminiOff.includes("-y") && !geminiOff.includes("--yolo")) {
-    geminiOff.push("-y");
-  }
-  assert.ok(!geminiOff.includes("-y"), "Gemini NÃO deve incluir -y quando autoAprovar = false");
-
-  console.log("PASS: Auto-aprovação de comandos testada com sucesso para Claude, Antigravity, Codex e Gemini.");
+  console.log("PASS: Auto-aprovação de comandos testada com sucesso para Claude, Antigravity e Codex.");
 } finally {
   config.autoAprovar = original;
 }

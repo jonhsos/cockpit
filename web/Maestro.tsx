@@ -4,7 +4,7 @@ import { onMessage } from "./socket.ts";
 import { PoliticaIA } from "./PoliticaIA.tsx";
 
 type Status = { agent: AgentSpec; auto: boolean; providers: Provider[]; codexQuota?: { remaining: number; checkedAt: number; resetsAt: number | null } | null; quotaError?: string | null; limits: Record<string, { state: "warning" | "blocked"; detail: string; remaining?: number }> };
-const labels: Record<string, string> = { codex: "GPT · Codex", claude: "Claude", agy: "Gemini · AGY", grok: "Grok · xAI", gemini: "Gemini CLI" };
+const labels: Record<string, string> = { codex: "GPT · Codex", claude: "Claude", agy: "Gemini · AGY", grok: "Grok · xAI" };
 async function request(path: string, body?: unknown) {
   const response = await fetch(path, body === undefined ? undefined : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   if (!response.headers.get("content-type")?.includes("application/json")) {

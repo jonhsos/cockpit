@@ -54,13 +54,6 @@ export const PRESETS: Preset[] = [
     nota: "o Codex escolhe o modelo pela própria configuração",
   },
   {
-    id: "gemini",
-    label: "Gemini CLI",
-    comando: "gemini",
-    instalar: "npm i -g @google/gemini-cli",
-    modelos: [],
-  },
-  {
     id: "kimi",
     label: "Kimi",
     comando: "kimi",

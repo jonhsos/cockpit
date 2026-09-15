@@ -385,3 +385,48 @@ Integrity mode: benchmark
 - [ ] Auditoria final de vitória independente aprovada (Victory Audit), confirmando a conclusão dos Marcos 5 e 6.
 - [ ] Zero comandos `git commit` ou `git add` executados no repositório.
 
+
+## Follow-up — 2026-09-15T03:21:23Z
+
+Refatorar a gestão de provedores e o sistema de pool multicontas do Cockpit, migrando o pool das 4 contas para o Antigravity CLI (`agy`), removendo o CLI fictício `gemini` e transformando o botão "+ Adicionar conta ao pool" em um fluxo 100% plug-and-play com servidor loopback e túnel reverso OAuth (estilo OmniRoute).
+
+Working directory: /DATA/Projetos/agent-project
+Integrity mode: development
+
+## Requirements
+
+### R1. Reestruturação do Pool do AGY e Higienização de Configuração
+- Remover completamente a seção `clis.gemini` com as pastas fictícias do `cockpit.json`.
+- Configurar as contas do pool diretamente em `clis.agy` com isolamento por perfil (diretório de configuração/sessão dedicado por conta).
+- Assegurar que os agentes que utilizam modelos Gemini (ex: Flash, Artista) estejam apontados para o provedor `agy` e recebam contas dinâmicas do pool sem colisões.
+
+### R2. Serviço de Onboarding Automatizado (Loopback & Túnel Reverso estilo OmniRoute)
+- Criar endpoint no servidor do Cockpit para gerenciar o ciclo de vida da autenticação de contas do Antigravity CLI.
+- Implementar servidor loopback HTTP local (127.0.0.1) com suporte a túnel reverso (estilo `omniroute login antigravity`) para captura segura do código/token de autorização Google em ambientes locais ou remotos.
+- Ao concluir a autorização, persistir o perfil da conta em pasta isolada e registrar a nova conta automaticamente no pool do `agy` no `cockpit.json`.
+
+### R3. Experiência do Usuário Plug-and-Play no Cockpit
+- Na interface web do Cockpit (`web/Config.tsx` / `web/Ajustes.tsx`), eliminar formulários técnicos que solicitam variáveis de ambiente (`CLI_HOME`, chaves manuais).
+- Substituir por um fluxo guiado de 1 clique: botão "+ Adicionar conta ao pool" dispara a conexão, abre o navegador para autenticação e exibe status em tempo real (Aguardando login ➔ Conta vinculada com sucesso).
+- Atualização instantânea dos badges de status do pool (`Pool: X contas (Y livres · Z em uso)`) sem necessidade de reiniciar o Cockpit manualmente.
+
+## Acceptance Criteria
+
+### Integridade do Pool AGY
+- [ ] `cockpit.json` não contém mais o bloco `clis.gemini` com caminhos artificiais.
+- [ ] `clis.agy` possui as 4 contas configuradas com perfis isolados.
+- [ ] `AccountPoolManager` adquire (`acquire`) e rotaciona as contas do `agy` para os agentes sem erros de concorrência.
+
+### Fluxo de Autenticação Loopback / Túnel Reverso
+- [ ] O backend disponibiliza rota de autenticação que inicia o servidor de captura de autorização OAuth sem travamentos ou vazamento de portas.
+- [ ] O processo de login é compatível com o mecanismo de autenticação do Antigravity CLI.
+- [ ] Novas contas autenticadas são salvas e persistidas no arquivo de configuração do Cockpit.
+
+### Usabilidade Plug-and-Play na Interface
+- [ ] O botão "+ Adicionar conta ao pool" não expõe campos de variáveis de ambiente para o usuário comum.
+- [ ] A interface exibe feedback claro de progresso e confirmação visual quando uma nova conta é integrada ao pool.
+- [ ] Os badges e lista de contas refletem o estado em tempo real das contas ativas e livres.
+
+### Verificação e Testes
+- [ ] Teste de regressão ou script de validação de rotas do pool executado com saída positiva.
+- [ ] O build do frontend (`npm run build`) e o servidor do Cockpit iniciam sem erros de tipo ou compilação.

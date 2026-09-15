@@ -10,9 +10,26 @@ import {
   resetAccountCooldown,
   addAccountToPool,
   removeAccountFromPool,
+  startOnboarding,
+  getOnboardingStatus,
+  cancelOnboarding,
+  submitManualOnboardingCallback,
   type Preset,
   type Provider,
 } from "./api.ts";
+
+interface OnboardUIState {
+  sessionId: string;
+  authUrl: string;
+  loopbackPort: number;
+  status: "waiting" | "configuring" | "success" | "error";
+  stepLabel?: string;
+  error?: string;
+  account?: { id: string; label: string };
+  manualInput?: string;
+  showManual?: boolean;
+  submittingManual?: boolean;
+}
 
 /**
  * Conectar um provedor é dizer ao cockpit qual comando chamar. Nenhuma
@@ -28,6 +45,7 @@ export function Config({ onFechar, onMudou }: { onFechar: () => void; onMudou: (
   const [ocupado, setOcupado] = useState(false);
 
   const [poolAberto, setPoolAberto] = useState<Record<string, boolean>>({});
+  const [onboardSessions, setOnboardSessions] = useState<Record<string, OnboardUIState | null>>({});
   const [novaConta, setNovaConta] = useState<Record<string, { id: string; label: string; envKey: string; envVal: string } | null>>({});
   const [novo, setNovo] = useState<{ id: string; comando: string; modelos: string } | null>(null);
 
@@ -44,8 +62,174 @@ export function Config({ onFechar, onMudou }: { onFechar: () => void; onMudou: (
       if (msg.type === "pool:updated" || msg.type === "pool:rotated") {
         void recarregar();
       }
+      if (msg.type === "onboarding:step") {
+        const { sessionId, cli, step, label, error, account, loopbackPort } = msg;
+        // Defesa: backends antigos podiam emitir "waiting_browser".
+        const mappedStatus =
+          step === "waiting" || (step as string) === "waiting_browser"
+            ? "waiting"
+            : step === "configuring" || step === "success" || step === "error"
+              ? step
+              : "waiting";
+        setOnboardSessions((prev) => {
+          const cur = prev[cli];
+          if (!cur || cur.sessionId !== sessionId) return prev;
+          return {
+            ...prev,
+            [cli]: {
+              ...cur,
+              status: mappedStatus,
+              stepLabel: label || cur.stepLabel,
+              error: error || cur.error,
+              account: (account as any) || cur.account,
+              loopbackPort: loopbackPort ?? cur.loopbackPort,
+            },
+          };
+        });
+        if (mappedStatus === "success") {
+          void recarregar();
+          onMudou();
+          setTimeout(() => {
+            setOnboardSessions((prev) => ({ ...prev, [cli]: null }));
+          }, 2500);
+        }
+      }
     });
   }, []);
+
+  // Polling de fallback caso o websocket sofra atraso
+  useEffect(() => {
+    const active = Object.entries(onboardSessions).filter(
+      ([_, s]) => s && (s.status === "waiting" || s.status === "configuring")
+    );
+    if (active.length === 0) return;
+
+    const timer = setInterval(() => {
+      for (const [cli, session] of active) {
+        if (!session) continue;
+        getOnboardingStatus(session.sessionId)
+          .then((res) => {
+            if (!res.ok) return;
+            if (res.status === "success") {
+              setOnboardSessions((prev) => {
+                const cur = prev[cli];
+                if (!cur || cur.sessionId !== session.sessionId) return prev;
+                return {
+                  ...prev,
+                  [cli]: { ...cur, status: "success", account: res.account || undefined },
+                };
+              });
+              void recarregar();
+              onMudou();
+              setTimeout(() => {
+                setOnboardSessions((prev) => ({ ...prev, [cli]: null }));
+              }, 2500);
+            } else if (res.status === "error" || res.status === "cancelled" || res.status === "expired") {
+              setOnboardSessions((prev) => {
+                const cur = prev[cli];
+                if (!cur || cur.sessionId !== session.sessionId) return prev;
+                return {
+                  ...prev,
+                  [cli]: {
+                    ...cur,
+                    status: "error",
+                    error: res.error || `Sessão encerrada (${res.status})`,
+                  },
+                };
+              });
+            }
+          })
+          .catch(() => {});
+      }
+    }, 1500);
+
+    return () => clearInterval(timer);
+  }, [onboardSessions]);
+
+  const iniciarOnboardingAgy = async (cli = "agy") => {
+    setOcupado(true);
+    setErro(null);
+    try {
+      const res = await startOnboarding(cli);
+      if (!res.ok) {
+        throw new Error("Não foi possível iniciar o servidor de login.");
+      }
+      setOnboardSessions((prev) => ({
+        ...prev,
+        [cli]: {
+          sessionId: res.sessionId,
+          authUrl: res.authUrl,
+          loopbackPort: res.loopbackPort,
+          status: "waiting",
+          stepLabel: "Aguardando autorização no navegador...",
+          manualInput: "",
+          showManual: false,
+        },
+      }));
+      try {
+        window.open(res.authUrl, "_blank", "noopener,noreferrer");
+      } catch {}
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : String(err));
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  const cancelarOnboarding = async (cli: string, sessionId: string) => {
+    try {
+      await cancelOnboarding(sessionId);
+    } catch {}
+    setOnboardSessions((prev) => ({ ...prev, [cli]: null }));
+  };
+
+  const enviarCallbackManual = async (cli: string, sessionId: string, urlOrCode: string) => {
+    if (!urlOrCode.trim()) return;
+    setOnboardSessions((prev) => {
+      const cur = prev[cli];
+      if (!cur) return prev;
+      return {
+        ...prev,
+        [cli]: { ...cur, submittingManual: true, stepLabel: "Processando código de autorização..." },
+      };
+    });
+    try {
+      const res = await submitManualOnboardingCallback(sessionId, urlOrCode.trim());
+      if (res.ok) {
+        setOnboardSessions((prev) => {
+          const cur = prev[cli];
+          if (!cur) return prev;
+          return {
+            ...prev,
+            [cli]: {
+              ...cur,
+              status: "success",
+              account: res.account,
+              submittingManual: false,
+            },
+          };
+        });
+        await recarregar();
+        onMudou();
+        setTimeout(() => {
+          setOnboardSessions((prev) => ({ ...prev, [cli]: null }));
+        }, 2500);
+      }
+    } catch (err: any) {
+      setOnboardSessions((prev) => {
+        const cur = prev[cli];
+        if (!cur) return prev;
+        return {
+          ...prev,
+          [cli]: {
+            ...cur,
+            submittingManual: false,
+            error: err.message || "Falha ao validar autorização manual",
+          },
+        };
+      });
+    }
+  };
 
   const guardado = async (fn: () => Promise<void>) => {
     setOcupado(true);
@@ -85,7 +269,7 @@ export function Config({ onFechar, onMudou }: { onFechar: () => void; onMudou: (
         <div className="campo-bloco">
           <span className="rotulo">Permissões de ferramentas e comandos</span>
           <p className="dica">
-            Quando ativado, qualquer LLM aberta roda com auto-aprovação (<code>--dangerously-skip-permissions</code> no Claude e Antigravity, <code>--ask-for-approval never</code> no Codex e <code>-y</code> no Gemini) para você não precisar ficar confirmando cada comando no terminal.
+            Quando ativado, qualquer LLM aberta roda com auto-aprovação (<code>--dangerously-skip-permissions</code> no Claude e Antigravity, <code>--ask-for-approval never</code> no Codex) para você não precisar ficar confirmando cada comando no terminal.
           </p>
           <label className="ressalva" style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", marginTop: "6px" }}>
             <input
@@ -270,113 +454,248 @@ export function Config({ onFechar, onMudou }: { onFechar: () => void; onMudou: (
                         ))}
                       </div>
 
-                      {novaConta[p.id] ? (
-                        <div className="form-inline" style={{ marginTop: "6px" }}>
-                          <span style={{ fontSize: "12px", color: "var(--ink-2)", fontWeight: 500 }}>
-                            Adicionar nova conta ao pool de {p.id}
-                          </span>
-                          <input
-                            className="campo"
-                            placeholder="ID único (ex: codex-5, gemini-5)"
-                            value={novaConta[p.id]?.id ?? ""}
-                            onChange={(e) =>
-                              setNovaConta((st) => ({
-                                ...st,
-                                [p.id]: { ...(st[p.id] || { id: "", label: "", envKey: "", envVal: "" }), id: e.target.value },
-                              }))
-                            }
-                          />
-                          <input
-                            className="campo"
-                            placeholder="Rótulo / Email da conta (ex: contato@exemplo.com)"
-                            value={novaConta[p.id]?.label ?? ""}
-                            onChange={(e) =>
-                              setNovaConta((st) => ({
-                                ...st,
-                                [p.id]: { ...(st[p.id] || { id: "", label: "", envKey: "", envVal: "" }), label: e.target.value },
-                              }))
-                            }
-                          />
-                          <div style={{ display: "flex", gap: "6px" }}>
-                            <input
-                              className="campo"
-                              placeholder={p.id === "codex" ? "CODEX_HOME" : p.id === "gemini" ? "GEMINI_CLI_HOME" : p.id === "grok" ? "GROK_HOME" : "VARIAVEL_ENV"}
-                              value={novaConta[p.id]?.envKey ?? ""}
-                              onChange={(e) =>
-                                setNovaConta((st) => ({
-                                  ...st,
-                                  [p.id]: { ...(st[p.id] || { id: "", label: "", envKey: "", envVal: "" }), envKey: e.target.value },
-                                }))
-                              }
-                            />
-                            <input
-                              className="campo"
-                              placeholder="Caminho do diretório (ex: ~/.codex-acc5)"
-                              value={novaConta[p.id]?.envVal ?? ""}
-                              onChange={(e) =>
-                                setNovaConta((st) => ({
-                                  ...st,
-                                  [p.id]: { ...(st[p.id] || { id: "", label: "", envKey: "", envVal: "" }), envVal: e.target.value },
-                                }))
-                              }
-                            />
+                      {/* Sessão de Onboarding Plug-and-Play Ativa */}
+                      {onboardSessions[p.id] && (
+                        <div
+                          className={`onboard-card${
+                            onboardSessions[p.id]?.status === "success"
+                              ? " sucesso"
+                              : onboardSessions[p.id]?.status === "error"
+                              ? " erro"
+                              : ""
+                          }`}
+                        >
+                          <div className="onboard-topo">
+                            <span
+                              className={`onboard-status ${
+                                onboardSessions[p.id]?.status === "waiting"
+                                  ? "esperando"
+                                  : onboardSessions[p.id]?.status === "configuring"
+                                  ? "configurando"
+                                  : onboardSessions[p.id]?.status === "success"
+                                  ? "sucesso"
+                                  : "erro"
+                              }`}
+                            >
+                              {(onboardSessions[p.id]?.status === "waiting" ||
+                                onboardSessions[p.id]?.status === "configuring") && (
+                                <span className="onboard-pulse" />
+                              )}
+                              {onboardSessions[p.id]?.status === "waiting" && "Aguardando login no navegador..."}
+                              {onboardSessions[p.id]?.status === "configuring" &&
+                                (onboardSessions[p.id]?.stepLabel || "Configurando perfil isolado e trocando tokens...")}
+                              {onboardSessions[p.id]?.status === "success" &&
+                                `Conta adicionada com sucesso! (${onboardSessions[p.id]?.account?.label || "Google"})`}
+                              {onboardSessions[p.id]?.status === "error" &&
+                                (onboardSessions[p.id]?.error || "Falha na autenticação")}
+                            </span>
+                            <span className="onboard-detalhe">
+                              Túnel Reverso: 127.0.0.1:{onboardSessions[p.id]?.loopbackPort}
+                            </span>
                           </div>
-                          <div className="form-acoes">
+
+                          <p className="onboard-desc">
+                            {onboardSessions[p.id]?.status === "waiting" &&
+                              "Uma nova guia foi aberta no navegador para login na Conta Google. Após autorizar, sua conta é conectada e isolada automaticamente no pool."}
+                            {onboardSessions[p.id]?.status === "configuring" &&
+                              "Credenciais recebidas via túnel local. Criando ambiente seguro e sincronizando com o Antigravity..."}
+                            {onboardSessions[p.id]?.status === "success" &&
+                              "Perfil configurado em diretório exclusivo. O Cockpit já atualizou as contas disponíveis."}
+                            {onboardSessions[p.id]?.status === "error" &&
+                              "Ocorreu um erro durante a autorização ou o tempo limite de 5 minutos expirou."}
+                          </p>
+
+                          <div className="onboard-acoes">
+                            {onboardSessions[p.id]?.status === "waiting" && (
+                              <>
+                                <button
+                                  className="btn quiet"
+                                  style={{ fontSize: "11px" }}
+                                  onClick={() => {
+                                    try {
+                                      window.open(onboardSessions[p.id]!.authUrl, "_blank", "noopener,noreferrer");
+                                    } catch {}
+                                  }}
+                                >
+                                  Abrir navegador novamente
+                                </button>
+                                <button
+                                  className="onboard-manual-toggle"
+                                  onClick={() =>
+                                    setOnboardSessions((prev) => {
+                                      const cur = prev[p.id];
+                                      if (!cur) return prev;
+                                      return { ...prev, [p.id]: { ...cur, showManual: !cur.showManual } };
+                                    })
+                                  }
+                                >
+                                  {onboardSessions[p.id]?.showManual
+                                    ? "Ocultar modo manual ▲"
+                                    : "Está em VPS ou o redirecionamento falhou? Cole a URL ▼"}
+                                </button>
+                              </>
+                            )}
+
+                            <span className="spacer" />
+
                             <button
                               className="btn quiet"
-                              onClick={() => setNovaConta((st) => ({ ...st, [p.id]: null }))}
+                              style={{ fontSize: "11px" }}
+                              onClick={() => cancelarOnboarding(p.id, onboardSessions[p.id]!.sessionId)}
                             >
-                              Cancelar
-                            </button>
-                            <button
-                              className="btn solid"
-                              disabled={
-                                ocupado ||
-                                !novaConta[p.id]?.id.trim() ||
-                                !novaConta[p.id]?.label.trim()
-                              }
-                              onClick={() =>
-                                guardado(async () => {
-                                  const item = novaConta[p.id]!;
-                                  const env: Record<string, string> = {};
-                                  const defaultKey = p.id === "codex" ? "CODEX_HOME" : p.id === "gemini" ? "GEMINI_CLI_HOME" : p.id === "grok" ? "GROK_HOME" : "CLI_HOME";
-                                  const k = item.envKey.trim() || defaultKey;
-                                  if (item.envVal.trim()) {
-                                    env[k] = item.envVal.trim();
-                                  }
-                                  await addAccountToPool(p.id, {
-                                    id: item.id.trim(),
-                                    label: item.label.trim(),
-                                    env: Object.keys(env).length > 0 ? env : undefined,
-                                  });
-                                  setNovaConta((st) => ({ ...st, [p.id]: null }));
-                                })
-                              }
-                            >
-                              Salvar conta
+                              {onboardSessions[p.id]?.status === "success" ? "Fechar" : "Cancelar"}
                             </button>
                           </div>
+
+                          {onboardSessions[p.id]?.showManual && onboardSessions[p.id]?.status === "waiting" && (
+                            <div className="onboard-manual-caixa">
+                              <span style={{ fontSize: "11px", color: "var(--ink-2)" }}>
+                                Cole a URL final da barra de endereços (ou o código de autorização):
+                              </span>
+                              <div className="onboard-manual-linha">
+                                <input
+                                  className="campo"
+                                  style={{ fontSize: "11px", flex: 1 }}
+                                  placeholder="http://127.0.0.1:.../callback?code=... ou código 4/..."
+                                  value={onboardSessions[p.id]?.manualInput ?? ""}
+                                  onChange={(e) =>
+                                    setOnboardSessions((prev) => {
+                                      const cur = prev[p.id];
+                                      if (!cur) return prev;
+                                      return { ...prev, [p.id]: { ...cur, manualInput: e.target.value } };
+                                    })
+                                  }
+                                />
+                                <button
+                                  className="btn solid"
+                                  disabled={
+                                    onboardSessions[p.id]?.submittingManual ||
+                                    !onboardSessions[p.id]?.manualInput?.trim()
+                                  }
+                                  style={{ fontSize: "11px" }}
+                                  onClick={() =>
+                                    enviarCallbackManual(
+                                      p.id,
+                                      onboardSessions[p.id]!.sessionId,
+                                      onboardSessions[p.id]!.manualInput!
+                                    )
+                                  }
+                                >
+                                  {onboardSessions[p.id]?.submittingManual ? "Verificando..." : "Confirmar"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      ) : (
-                        <button
-                          className="btn quiet"
-                          style={{ alignSelf: "flex-start", fontSize: "12px" }}
-                          onClick={() => {
-                            const defaultKey = p.id === "codex" ? "CODEX_HOME" : p.id === "gemini" ? "GEMINI_CLI_HOME" : p.id === "grok" ? "GROK_HOME" : "CLI_HOME";
-                            const nextNum = (p.pool?.contas.length ?? 0) + 1;
-                            setNovaConta((st) => ({
-                              ...st,
-                              [p.id]: {
-                                id: `${p.id}-${nextNum}`,
-                                label: `Conta ${nextNum}`,
-                                envKey: defaultKey,
-                                envVal: `~/.${p.id}-acc${nextNum}`,
-                              },
-                            }));
-                          }}
-                        >
-                          + Adicionar conta ao pool
-                        </button>
+                      )}
+
+                      {!onboardSessions[p.id] && (
+                        p.id === "agy" ? (
+                          <button
+                            className="btn solid"
+                            disabled={ocupado}
+                            style={{ alignSelf: "flex-start", fontSize: "12px", marginTop: "4px" }}
+                            onClick={() => iniciarOnboardingAgy(p.id)}
+                          >
+                            + Adicionar conta ao pool (Login Google)
+                          </button>
+                        ) : (
+                          novaConta[p.id] ? (
+                            <div className="form-inline" style={{ marginTop: "6px" }}>
+                              <span style={{ fontSize: "12px", color: "var(--ink-2)", fontWeight: 500 }}>
+                                Adicionar nova conta ao pool de {p.id.toUpperCase()}
+                              </span>
+                              <input
+                                className="campo"
+                                placeholder="Rótulo / Nome da conta (ex: Conta Extra)"
+                                value={novaConta[p.id]?.label ?? ""}
+                                onChange={(e) =>
+                                  setNovaConta((st) => ({
+                                    ...st,
+                                    [p.id]: { ...(st[p.id] || { id: "", label: "", envKey: "", envVal: "" }), label: e.target.value },
+                                  }))
+                                }
+                              />
+                              {novaConta[p.id]?.envKey && (
+                                <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "11px", color: "var(--ink-3)" }}>
+                                  <span>
+                                    Pasta isolada (<code>{novaConta[p.id]?.envKey}</code>)
+                                  </span>
+                                  <input
+                                    className="campo"
+                                    style={{ fontSize: "11px" }}
+                                    value={novaConta[p.id]?.envVal ?? ""}
+                                    onChange={(e) =>
+                                      setNovaConta((st) => ({
+                                        ...st,
+                                        [p.id]: {
+                                          ...(st[p.id] || { id: "", label: "", envKey: "", envVal: "" }),
+                                          envVal: e.target.value,
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </label>
+                              )}
+                              <div className="form-acoes">
+                                <button
+                                  className="btn quiet"
+                                  onClick={() => setNovaConta((st) => ({ ...st, [p.id]: null }))}
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  className="btn solid"
+                                  disabled={ocupado || !novaConta[p.id]?.label.trim()}
+                                  onClick={() =>
+                                    guardado(async () => {
+                                      const item = novaConta[p.id]!;
+                                      const env: Record<string, string> = {};
+                                      if (item.envKey && item.envVal.trim()) {
+                                        env[item.envKey] = item.envVal.trim();
+                                      }
+                                      await addAccountToPool(p.id, {
+                                        id: item.id.trim(),
+                                        label: item.label.trim(),
+                                        env: Object.keys(env).length > 0 ? env : undefined,
+                                      });
+                                      setNovaConta((st) => ({ ...st, [p.id]: null }));
+                                    })
+                                  }
+                                >
+                                  Salvar conta
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              className="btn quiet"
+                              style={{ alignSelf: "flex-start", fontSize: "12px" }}
+                              onClick={() => {
+                                const used = new Set((p.pool?.contas ?? []).map((c) => c.id));
+                                let nextNum = 1;
+                                for (const c of p.pool?.contas ?? []) {
+                                  const m = new RegExp(`^${p.id}-(\\d+)$`).exec(c.id);
+                                  if (m) nextNum = Math.max(nextNum, parseInt(m[1], 10) + 1);
+                                }
+                                while (used.has(`${p.id}-${nextNum}`)) nextNum++;
+                                const defaultKey =
+                                  p.id === "codex" ? "CODEX_HOME" : p.id === "grok" ? "GROK_HOME" : "CLI_HOME";
+                                setNovaConta((st) => ({
+                                  ...st,
+                                  [p.id]: {
+                                    id: `${p.id}-${nextNum}`,
+                                    label: `Conta ${nextNum}`,
+                                    envKey: defaultKey,
+                                    envVal: `~/.${p.id}-acc${nextNum}`,
+                                  },
+                                }));
+                              }}
+                            >
+                              + Adicionar conta ao pool
+                            </button>
+                          )
+                        )
                       )}
                     </div>
                   )}

@@ -648,6 +648,42 @@ export const addAccountToPool = (cli: string, account: { id: string; label?: str
 export const removeAccountFromPool = (cli: string, accountId: string) =>
   del(`/api/account-pools/account?cli=${encodeURIComponent(cli)}&accountId=${encodeURIComponent(accountId)}`).then(json<{ ok: boolean; pool: AccountPoolView }>);
 
+// automated onboarding (Google OAuth / Loopback & Reverse Tunnel)
+export interface OnboardSessionStartResult {
+  ok: boolean;
+  sessionId: string;
+  authUrl: string;
+  loopbackPort: number;
+  expiresAt: number;
+}
+
+export interface OnboardSessionStatusResult {
+  ok: boolean;
+  sessionId: string;
+  status: "waiting" | "configuring" | "success" | "cancelled" | "expired" | "error";
+  error?: string | null;
+  account?: {
+    id: string;
+    label: string;
+    profileDir: string;
+    env: Record<string, string>;
+  } | null;
+}
+
+export const startOnboarding = (cli = "agy") =>
+  post("/api/account-pools/onboard", { cli }).then(json<OnboardSessionStartResult>);
+
+export const getOnboardingStatus = (sessionId: string) =>
+  fetch(`/api/account-pools/onboard/${encodeURIComponent(sessionId)}`).then(json<OnboardSessionStatusResult>);
+
+export const cancelOnboarding = (sessionId: string) =>
+  del(`/api/account-pools/onboard/${encodeURIComponent(sessionId)}`).then(json<{ ok: boolean; message: string }>);
+
+export const submitManualOnboardingCallback = (sessionId: string, urlOrCode: string) =>
+  post(`/api/account-pools/onboard/${encodeURIComponent(sessionId)}/callback`, { url: urlOrCode }).then(
+    json<{ ok: boolean; account: { id: string; label: string; profileDir: string; env: Record<string, string> } }>
+  );
+
 
 export const testarPonte = (id: string, modelo?: string) =>
   post(`/api/pontes/${id}/testar`, { modelo }).then(json<TestePonte>);

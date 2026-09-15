@@ -24,7 +24,41 @@
       "command": "claude"
     },
     "agy": {
-      "command": "agy"
+      "command": "agy",
+      "pool": [
+        {
+          "id": "agy-1",
+          "label": "Conta 1 (Principal)",
+          "env": {
+            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_1",
+            "HOME": "~/.gemini/antigravity-cli/profiles/conta_1"
+          }
+        },
+        {
+          "id": "agy-2",
+          "label": "Conta 2",
+          "env": {
+            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_2",
+            "HOME": "~/.gemini/antigravity-cli/profiles/conta_2"
+          }
+        },
+        {
+          "id": "agy-3",
+          "label": "Conta 3",
+          "env": {
+            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_3",
+            "HOME": "~/.gemini/antigravity-cli/profiles/conta_3"
+          }
+        },
+        {
+          "id": "agy-4",
+          "label": "Conta 4",
+          "env": {
+            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_4",
+            "HOME": "~/.gemini/antigravity-cli/profiles/conta_4"
+          }
+        }
+      ]
     },
     "bash": {
       "command": "/bin/bash",
@@ -66,39 +100,6 @@
           "label": "adv.barbaralacerda@gmail.com",
           "env": {
             "CODEX_HOME": "/home/jj/.codex-acc4"
-          }
-        }
-      ]
-    },
-    "gemini": {
-      "command": "gemini",
-      "pool": [
-        {
-          "id": "gemini-1",
-          "label": "Gemini Conta 1",
-          "env": {
-            "GEMINI_CLI_HOME": "/home/jj/.gemini-1"
-          }
-        },
-        {
-          "id": "gemini-2",
-          "label": "Gemini Conta 2",
-          "env": {
-            "GEMINI_CLI_HOME": "/home/jj/.gemini-2"
-          }
-        },
-        {
-          "id": "gemini-3",
-          "label": "Gemini Conta 3",
-          "env": {
-            "GEMINI_CLI_HOME": "/home/jj/.gemini-3"
-          }
-        },
-        {
-          "id": "gemini-4",
-          "label": "Gemini Conta 4",
-          "env": {
-            "GEMINI_CLI_HOME": "/home/jj/.gemini-4"
           }
         }
       ]
@@ -182,12 +183,6 @@
     "grok": [
       "grok-4.6",
       "grok-4.5"
-    ],
-    "gemini": [
-      "gemini-2.5-flash",
-      "gemini-2.5-pro",
-      "gemini-3.1-pro-high",
-      "gemini-3.8-flash-high"
     ]
   },
   "agents": {
@@ -307,6 +302,13 @@
       "effort": "medium",
       "papel": "Você é o GRÁTIS, rodando um modelo de custo zero pelo OpenRouter. Serve para trabalho volumoso, rascunho, busca em código e primeira versão — o que não vale gastar cota de assinatura. Você é menor que os outros agentes desta missão: prefira passos curtos, confirme o que leu antes de mudar, e devolva a tarefa dizendo o porquê quando ela exigir arquitetura, decisão ambígua ou bug difícil.",
       "papel_id": "executar"
+    },
+    "gemini": {
+      "label": "GEMINI",
+      "cor": "#7d8894",
+      "cli": "agy",
+      "model": "gemini-3.8-flash-high",
+      "papel": "Você roda pelo CLI agy. Faça o que for pedido no seu painel."
     }
   },
   "squads": {

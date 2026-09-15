@@ -191,18 +191,98 @@ PASS: 40 verificações, nenhuma falha (2 puladas por ausência do Playwright).
 
 ---
 
-## 6. Prontidão para o Victory Audit
+## 6. Marcos M7, M8 e M9: Gestão de Provedores, Pool AGY e Onboarding Plug-and-Play
 
-- **Marcos M1, M2, M3, M4, M5 e M6**: **100% Concluídos, Aprovados e Validados**.
-- Todos os requisitos de R1 a R13 e Critérios de Aceitação de `ORIGINAL_REQUEST.md` e `PROJECT.md` foram rigorosamente cumpridos.
-- Pronto para a Auditoria de Vitória Final (`victory_auditor`).
+**Data do Checkpoint M7–M9:** 2026-09-15 01:45 BRT  
+**Status da Suíte de Testes:** **49/49 verificações PASS (100% de aprovação)**, `tsc` código 0, `build` código 0.
+
+### 6.1 Marco M7 — Pool AGY e Limpeza de Configuração Gemini
+- **Remoção de CLI fictício**: Remoção completa do bloco `clis.gemini` com pastas artificiais de `cockpit.json`. Agentes que usam a família Gemini (Flash, Artista) agora utilizam diretamente o Antigravity CLI (`agy`).
+- **Isolamento de Contas no Pool AGY**: O pool de 4 contas reais (`agy-1` a `agy-4`) foi posicionado sob `clis.agy.pool` com diretórios de perfil dedicados (`~/.gemini/antigravity-cli/profiles/conta_1` a `conta_4`) sob permissões seguras `0700`.
+- **PTY Spawner e Settings**: `servidor/sessions/pty-manager.ts` e `servidor/providers/agy.ts` agora expandem e injetam variáveis de ambiente (`JETSKI_APP_DATA_DIR` e `HOME`) e persistem o modelo em `settings.json` específico de cada conta isolada.
+- **Validação Adversarial M7**: `scripts/check-m7-adversarial-2.ts` aprovado sem colisões em concorrência.
+
+### 6.2 Marco M8 — Onboarding OAuth, Servidor Loopback e Túnel Reverso (Estilo OmniRoute)
+- **Serviço de Onboarding**: `servidor/providers/agy-onboarding.ts` implementado com servidor loopback HTTP dinâmico ouvindo estritamente em `127.0.0.1:0`. Suporta redirecionamento local e túneis reversos (SSH / OmniRoute).
+- **Ciclo OAuth Google**: Geração de URL de autorização Google, captura do callback (`/callback`), proteção CSRF (`state`), troca de tokens (`oauth2.googleapis.com/token`) e obtenção de email via UserInfo.
+- **Persistência Segura e Sem Restarts**: O token e perfil são salvos em `~/.gemini/antigravity-cli/profiles/conta_<N>` com permissões `0600`/`0700` e a conta é registrada dinamicamente em `cockpit.json` e no `accountPool` em memória sem necessidade de reiniciar o servidor.
+- **Liberação Graciosa de Recursos**: Fechamento de sockets ativos e servidor loopback imediatamente após o término com zero vazamento de portas ou descritores.
+- **Validação Adversarial M8**: `scripts/check-onboarding-loopback.ts` e `scripts/check-m8-adversarial-2.ts` aprovados com 100% de sucesso.
+
+### 6.3 Marco M9 — Experiência do Usuário Plug-and-Play no Cockpit ("Dentro do Preto")
+- **Eliminação de Variáveis Técnicas**: Remoção de inputs técnicos de variáveis de ambiente (`JETSKI_APP_DATA_DIR`, `CODEX_HOME`, caminhos manuais e IDs) dos formulários da interface comum (`web/Config.tsx`).
+- **Fluxo 1-Clique com Túnel Reverso**: Botão "+ Adicionar conta ao pool (Login Google)" inicia o processo de onboarding, exibe o cartão com animação pulsante, status em tempo real, porta do túnel reverso e abre o navegador automaticamente.
+- **Fallback para VPS / Headless**: Suporte a colar URL de callback ou código de autorização caso o ambiente seja headless ou não tenha navegador gráfico local.
+- **Eventos em Tempo Real e Badges Dinâmicos**: WebSockets (`onboarding:step` e `pool:updated`) e rotas REST no `servidor/routes/account-pools-router.ts` atualizam instantaneamente os badges de contas ativas/livres.
+- **Validação M9 & E2E**: `scripts/check-m9-ui.ts` e `scripts/qa-account-pool-e2e.mjs` aprovados com 100% de sucesso.
 
 ---
 
-## 7. Regras Absolutas Preservadas
+## 7. Status Consolidado Geral da Suíte de Testes (M1 a M9)
+
+Comando executado: `node scripts/testar.mjs`
+```
+ok      tipos (tsc) (2.1s)
+ok      build (vite) (2.0s)
+ok      check-account-pool.ts (0.1s)
+ok      check-auto-aprovar.ts (0.2s)
+ok      check-clean-shell.ts (0.2s)
+ok      check-codex-launch.ts (0.2s)
+ok      check-codex-quota.ts (1.1s)
+ok      check-codex-trust.mjs (0.1s)
+ok      check-connections.ts (4.1s)
+ok      check-continuity.ts (0.1s)
+ok      check-cotas.ts (0.2s)
+ok      check-decoupled-pty.ts (0.8s)
+ok      check-e2e.mjs (0.1s)
+PULADO  check-edicao.mjs — precisa do Playwright
+ok      check-failover.mjs (1.7s)
+ok      check-harness.ts (0.2s)
+ok      check-m2-stress.ts (4.3s)
+ok      check-m3-adversarial-2.ts (0.3s)
+ok      check-m3-adversarial.ts (4.1s)
+ok      check-m4-adversarial-2.ts (3.3s)
+ok      check-m4-adversarial.ts (1.3s)
+ok      check-m5-adversarial-2.ts (0.2s)
+ok      check-m5-adversarial.ts (0.6s)
+ok      check-m5-ui.ts (0.2s)
+ok      check-m6-adversarial-2.ts (1.4s)
+ok      check-m6-adversarial.ts (1.7s)
+ok      check-m6-hardening.ts (1.1s)
+ok      check-m7-adversarial-2.ts (1.8s)
+ok      check-m8-adversarial-2.ts (0.9s)
+ok      check-m9-ui.ts (0.5s)
+ok      check-maestro-coordination.ts (0.4s)
+ok      check-media.ts (0.2s)
+ok      check-mission-modes.ts (0.1s)
+ok      check-onboarding-loopback.ts (0.7s)
+ok      check-openrouter.ts (0.3s)
+ok      check-pane-dispatch.ts (0.2s)
+ok      check-pane-kill-cleanup.ts (0.2s)
+ok      check-pane-states.ts (0.1s)
+ok      check-persistence.ts (0.2s)
+ok      check-politica-ia.ts (0.2s)
+ok      check-ponte.mjs (3.4s)
+ok      check-security-approval.ts (0.2s)
+ok      check-security-audit.ts (0.2s)
+ok      check-security-permissions.ts (0.2s)
+ok      check-security-sanitizer.ts (0.2s)
+ok      check-stress-m1.ts (4.7s)
+ok      check-stress-m2.ts (1.2s)
+ok      check-stress-m3.ts (6.8s)
+ok      check-strict-harness.ts (0.3s)
+ok      check-tasks.ts (0.4s)
+PULADO  check-ui.mjs — precisa do Playwright
+
+PASS: 49 verificações, nenhuma falha (2 puladas por ausência do Playwright).
+```
+
+---
+
+## 8. Regras Absolutas Preservadas
 
 - **Zero commits git realizados**: `git add` / `git commit` não foram executados.
 - **Zero descartes de código**: Nenhuma modificação pré-existente foi perdida (`git reset --hard` proibido).
-- **Zero processos órfãos**: Todos os subagentes e processos em segundo plano foram pausados e encerrados com segurança.
-- **Integridade total**: Todos os arquivos, testes, estruturas modulares e planos estão persistidos.
+- **Zero processos órfãos**: Todos os subagentes e servidores de teste foram encerrados com segurança.
+- **Integridade total**: Todos os arquivos, testes e módulos permanecem funcionais e prontos para uso.
 

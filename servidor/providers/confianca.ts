@@ -46,17 +46,38 @@ function confiarClaude(pasta: string): void {
   writeFileSync(CLAUDE_JSON, JSON.stringify(c, null, 2));
 }
 
-/** A Antigravity guarda uma lista, com barras invertidas do Windows. */
+/** Caminhos de settings.json do AGY: global + cada perfil isolado do pool. */
+function caminhosSettingsAgy(): string[] {
+  const caminhos = new Set<string>([AGY_JSON]);
+  for (const dir of accountPool.getAllEnvDirs("JETSKI_APP_DATA_DIR")) {
+    caminhos.add(join(dir, "settings.json"));
+    caminhos.add(join(dir, ".gemini", "antigravity-cli", "settings.json"));
+  }
+  for (const dir of accountPool.getAllEnvDirs("HOME")) {
+    caminhos.add(join(dir, "settings.json"));
+    caminhos.add(join(dir, ".gemini", "antigravity-cli", "settings.json"));
+  }
+  return Array.from(caminhos);
+}
+
+/** A Antigravity guarda trustedWorkspaces no settings do app_data_dir ativo. */
 function confiarAgy(pasta: string): void {
-  type Json = { trustedWorkspaces?: string[] };
-  const c = lerJson<Json>(AGY_JSON, {});
-  if (!c) return;
+  type Json = { trustedWorkspaces?: string[]; [key: string]: unknown };
   const chave = resolve(pasta);
-  c.trustedWorkspaces ??= [];
-  if (c.trustedWorkspaces.includes(chave)) return;
-  c.trustedWorkspaces.push(chave);
-  mkdirSync(dirname(AGY_JSON), { recursive: true });
-  writeFileSync(AGY_JSON, JSON.stringify(c, null, 2));
+
+  for (const settingsPath of caminhosSettingsAgy()) {
+    const c = lerJson<Json>(settingsPath, {});
+    if (!c) continue;
+    c.trustedWorkspaces ??= [];
+    if (c.trustedWorkspaces.includes(chave)) continue;
+    c.trustedWorkspaces.push(chave);
+    try {
+      mkdirSync(dirname(settingsPath), { recursive: true });
+      writeFileSync(settingsPath, JSON.stringify(c, null, 2));
+    } catch {
+      // perfil inacessível: tenta os demais
+    }
+  }
 }
 
 /** Grava confiança em um arquivo config.toml do Codex */
@@ -126,6 +147,6 @@ function confiarCodex(pasta: string): void {
 
 export function confiar(cli: string, pasta: string): void {
   if (cli === "claude") confiarClaude(pasta);
-  else if (cli === "agy" || cli === "gemini") confiarAgy(pasta);
+  else if (cli === "agy") confiarAgy(pasta);
   else if (cli === "codex") confiarCodex(pasta);
 }

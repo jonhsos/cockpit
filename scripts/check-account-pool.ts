@@ -8,14 +8,14 @@ const ok = (cond: boolean, msg: string) => {
 
 console.log("=== POOL DE CONTAS — INICIALIZAÇÃO E CARGA ===");
 ok(accountPool.hasPool("codex"), "Pool do codex inicializado a partir do config");
-ok(accountPool.hasPool("gemini"), "Pool do gemini inicializado a partir do config");
+ok(accountPool.hasPool("agy"), "Pool do agy inicializado a partir do config");
 ok(accountPool.hasPool("grok"), "Pool do grok inicializado a partir do config");
 
 const contasCodex = accountPool.getAccounts("codex");
 ok(contasCodex.length >= 4, `Codex tem ${contasCodex.length} contas configuradas (>= 4)`);
 
-const contasGemini = accountPool.getAccounts("gemini");
-ok(contasGemini.length >= 4, `Gemini tem ${contasGemini.length} contas configuradas (>= 4)`);
+const contasAgy = accountPool.getAccounts("agy");
+ok(contasAgy.length >= 4, `AGY tem ${contasAgy.length} contas configuradas (>= 4)`);
 
 console.log("\n=== CONCORRÊNCIA — DISTRIBUIÇÃO SIMULTÂNEA (LEAST-LOADED / LRU) ===");
 // Acquire 4 panes concurrently
@@ -80,8 +80,41 @@ ok(viewAfterReset.emCooldown === 0, "Cooldown resetado com sucesso, zero contas 
 
 console.log("\n=== EXPANSÃO DE DIRETÓRIOS DE AMBIENTE ===");
 const codexDirs = accountPool.getAllEnvDirs("CODEX_HOME");
-ok(codexDirs.length >= 4, `getAllEnvDirs retornou ${codexDirs.length} pastas expandidas`);
-ok(codexDirs.every(d => !d.startsWith("~") && !d.startsWith("$HOME")), "Nenhum diretório contém ~ ou $HOME não expandido");
+ok(codexDirs.length >= 4, `getAllEnvDirs(CODEX_HOME) retornou ${codexDirs.length} pastas expandidas`);
+ok(codexDirs.every(d => !d.startsWith("~") && !d.startsWith("$HOME")), "Nenhum diretório CODEX_HOME contém ~ ou $HOME não expandido");
+
+const agyJetskiDirs = accountPool.getAllEnvDirs("JETSKI_APP_DATA_DIR");
+ok(agyJetskiDirs.length >= 4, `getAllEnvDirs(JETSKI_APP_DATA_DIR) retornou ${agyJetskiDirs.length} pastas expandidas`);
+ok(agyJetskiDirs.every(d => !d.startsWith("~") && !d.startsWith("$HOME")), "Nenhum diretório JETSKI_APP_DATA_DIR contém ~ ou $HOME");
+
+const agyHomeDirs = accountPool.getAllEnvDirs("HOME");
+ok(agyHomeDirs.length >= 4, `getAllEnvDirs(HOME) retornou ${agyHomeDirs.length} pastas expandidas`);
+ok(agyHomeDirs.every(d => !d.startsWith("~") && !d.startsWith("$HOME")), "Nenhum diretório HOME contém ~ ou $HOME");
+
+console.log("\n=== CONCORRÊNCIA AGY — DISTRIBUIÇÃO SIMULTÂNEA DAS 4 CONTAS ===");
+const agy1 = accountPool.acquire("agy", "pane-agy-1");
+const agy2 = accountPool.acquire("agy", "pane-agy-2");
+const agy3 = accountPool.acquire("agy", "pane-agy-3");
+const agy4 = accountPool.acquire("agy", "pane-agy-4");
+
+ok(agy1 !== null && agy2 !== null && agy3 !== null && agy4 !== null, "Todas as 4 contas do AGY foram adquiridas");
+const allocatedAgyIds = new Set([agy1?.id, agy2?.id, agy3?.id, agy4?.id]);
+ok(allocatedAgyIds.size === 4, `4 painéis simultâneos receberam 4 contas distintas do AGY: ${Array.from(allocatedAgyIds).join(", ")}`);
+ok(Boolean(agy1?.env?.JETSKI_APP_DATA_DIR), "Conta AGY 1 possui JETSKI_APP_DATA_DIR");
+ok(Boolean(agy1?.env?.HOME), "Conta AGY 1 possui HOME");
+ok(!agy1?.env?.JETSKI_APP_DATA_DIR?.startsWith("~"), "JETSKI_APP_DATA_DIR expandido sem ~");
+ok(!agy1?.env?.HOME?.startsWith("~"), "HOME expandido sem ~");
+
+// Teste de rotação e circuit breaker no AGY
+accountPool.markLimited("agy", agy1!.id, 60_000, "ResourceExhausted / Quota Limit");
+const nextAgy = accountPool.nextAvailable("agy", agy1!.id);
+ok(nextAgy !== null && nextAgy.id !== agy1?.id, `Failover AGY encontrou próxima conta saudável no mesmo pool: ${nextAgy?.id}`);
+accountPool.resetLimit("agy", agy1!.id);
+
+accountPool.release("pane-agy-1");
+accountPool.release("pane-agy-2");
+accountPool.release("pane-agy-3");
+accountPool.release("pane-agy-4");
 
 // Final cleanup
 accountPool.release("pane-5");
