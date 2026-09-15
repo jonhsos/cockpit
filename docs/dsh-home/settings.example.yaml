@@ -1,0 +1,10 @@
+# Exemplo mínimo para ~/.cockpit/dsh-home/settings.yaml (trilha PR-S2).
+# Copie para o DSH_HOME isolado do Cockpit — NÃO use ~/.dsh do dsh web.
+#
+# Catálogo pi-ai (não inventar provider): deepseek, kimi-coding, moonshotai,
+# xai, openrouter, anthropic, openai, google, …
+# Rotas/credenciais reais entram pela UI Settings → Models (profile web)
+# ou por entradas válidas no namespace llm-pi-ai.providers.
+
+llm-pi-ai:
+  providers: {}

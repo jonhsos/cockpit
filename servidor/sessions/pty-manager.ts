@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { execFile, execFileSync } from "node:child_process";
 
-import { config, type AgentSpec } from "../config.ts";
+import { config, backendDo, type AgentSpec } from "../config.ts";
 import { CASA } from "../state.ts";
 import { confiar } from "../confianca.ts";
 import { definirModelo } from "../agy.ts";
@@ -14,6 +14,7 @@ import { providerDisponivel } from "../providers.ts";
 import { argsDaPonte, envDaPonte, pontede } from "../ponte.ts";
 import { getDefaultPaneStore } from "../persistence/index.ts";
 import { accountPool } from "../providers/account-pool.ts";
+import { getDshManager } from "./dsh-backend/dsh-manager.ts";
 
 import {
   type PaneState,
@@ -619,6 +620,45 @@ export class PtyManager {
     this.ptys.set(paneId, entry);
     this.savePaneToDisk(state);
 
+    // Seam DSH: depois de harness/pool/papel/env/PaneState, antes do spawn PTY.
+    // cockpit.json continua pty implícito até PR-4; só entra aqui com backend:"dsh".
+    if (!isBash && backendDo(state.cli) === "dsh") {
+      const dsh = getDshManager();
+      const emit = (data: string) => {
+        entry.state.bytesOut += data.length;
+        entry.state.atualizadoEm = Date.now();
+        entry.lastData = Date.now();
+        if (entry.onOutput) entry.onOutput(data);
+        for (const listener of this.globalOutputListeners) listener(paneId, data);
+      };
+      void dsh
+        .spawn({
+          paneId,
+          state,
+          cwd: opts.cwd,
+          tarefa: opts.tarefa,
+          env,
+          model: state.model,
+          onOutput: emit,
+          onExit: (code) => {
+            accountPool.release(paneId);
+            entry.state.status = "dead";
+            entry.state.exitCode = code;
+            this.savePaneToDisk(entry.state);
+            if (entry.onExit) entry.onExit(code);
+            for (const listener of this.globalExitListeners) listener(paneId, code);
+          },
+        })
+        .catch((err) => {
+          accountPool.release(paneId);
+          state.status = "failed";
+          state.blockedReason = err instanceof Error ? err.message : String(err);
+          this.savePaneToDisk(state);
+          if (onExit) onExit(1);
+        });
+      return state;
+    }
+
     // Forward spawn request to decoupled PTY host daemon
     this.client
       .connect()
@@ -660,6 +700,10 @@ export class PtyManager {
     const entry = this.ptys.get(paneId);
     if (!entry || entry.state.status === "dead") return;
     entry.state.bytesIn += data.length;
+    if (getDshManager().has(paneId)) {
+      getDshManager().write(paneId, data);
+      return;
+    }
     this.client.input(paneId, data).catch(() => {
       entry.state.status = "dead";
     });
@@ -668,6 +712,10 @@ export class PtyManager {
   public resizePty(paneId: string, cols: number, rows: number): void {
     const entry = this.ptys.get(paneId);
     if (!entry || entry.state.status === "dead") return;
+    if (getDshManager().has(paneId)) {
+      getDshManager().resize(paneId, cols, rows);
+      return;
+    }
     this.client.resize(paneId, cols, rows).catch(() => {
       entry.state.status = "dead";
     });
@@ -694,6 +742,13 @@ export class PtyManager {
     accountPool.release(paneId);
     const entry = this.ptys.get(paneId);
     if (!entry) return;
+    if (getDshManager().has(paneId)) {
+      void getDshManager().kill(paneId, 0);
+      entry.state.status = "dead";
+      this.ptys.delete(paneId);
+      this.savePaneToDisk(entry.state);
+      return;
+    }
     entry.state.status = "dead";
     this.ptys.delete(paneId);
     this.savePaneToDisk(entry.state);
@@ -704,6 +759,13 @@ export class PtyManager {
     accountPool.release(paneId);
     const entry = this.ptys.get(paneId);
     if (!entry) return;
+    if (getDshManager().has(paneId)) {
+      await getDshManager().kill(paneId, 0);
+      entry.state.status = "dead";
+      this.ptys.delete(paneId);
+      this.savePaneToDisk(entry.state);
+      return;
+    }
     entry.state.status = "dead";
     this.ptys.delete(paneId);
     this.savePaneToDisk(entry.state);
@@ -711,6 +773,9 @@ export class PtyManager {
   }
 
   public async replayPane(paneId: string): Promise<string> {
+    if (getDshManager().has(paneId)) {
+      return getDshManager().getTranscript(paneId);
+    }
     return await this.client.replay(paneId);
   }
 
