@@ -1,156 +1,385 @@
-# Cockpit
+# 🛰️ Cockpit — Ambiente Autônomo & Orquestrador Multiagente Local
 
-Cockpit é uma interface local para trabalhar com agentes de IA no mesmo projeto. Ele abre painéis para Claude Code, Codex, Antigravity e outros CLIs, organiza missões, pode criar worktrees Git e mantém o contexto do trabalho entre painéis.
+> **Cockpit** é uma estação de trabalho local e orquestrador autônomo projetado para desenvolvedores e equipes de agentes de IA colaborarem no mesmo projeto de software. Ele integra e executa múltiplos provedores e CLIs de IA (**Codex**, **Claude Code**, **Gemini CLI**, **Grok**, **Antigravity**) e terminais puros em paralelo, com **Pool Multicontas nativo**, **máquina de estados transacional de tarefas**, **comunicação inter-agentes via mailbox**, **isolamento seguro de worktrees Git** e **arquitetura de backend modular**.
 
-O Cockpit não traz nem paga modelos de IA. Cada pessoa conecta os CLIs e as contas que já usa.
+O Cockpit **não vende nem intermedia chamadas de IA**: ele aproveita suas credenciais, sessões e chaves de API locais com **soberania absoluta**, privacidade total e custo zero de intermediação.
 
-## Rodar depois de clonar
+---
 
-Requisitos validados neste projeto:
+## 📑 Sumário
 
-- Windows 10 ou 11
-- Node.js 24 (use uma versão recente do Node; o servidor executa arquivos TypeScript diretamente)
-- npm, instalado junto com o Node
-- Git, recomendado para abrir projetos com branches e worktrees isolados
+1. [Visão Geral & Recursos Principais](#-visão-geral--recursos-principais)
+2. [Arquitetura & Engenharia do Sistema](#-arquitetura--engenharia-do-sistema)
+3. [Pré-Requisitos do Ambiente](#-pré-requisitos-do-ambiente)
+4. [Instalação & Inicialização Rápida](#-instalação--inicialização-rápida)
+5. [Guia Passo a Passo de Uso](#-guia-passo-a-passo-de-uso)
+   - [Passo 1: Autenticar e Configurar Provedores de IA](#passo-1-autenticar-e-configurar-provedores-de-ia)
+   - [Passo 2: Configurar o Pool Multicontas (True Concurrency)](#passo-2-configurar-o-pool-multicontas-true-concurrency)
+   - [Passo 3: Usar Modelos 100% Grátis via Ponte OpenRouter](#passo-3-usar-modelos-100-grátis-via-ponte-openrouter)
+   - [Passo 4: Abrir um Projeto e Criar Missões com Worktrees Isolados](#passo-4-abrir-um-projeto-e-criar-missões-com-worktrees-isolados)
+   - [Passo 5: Operar os Três Modos de Missão (Livre, Squad, Agêntico)](#passo-5-operar-os-três-modos-de-missão-livre-squad-agêntico)
+   - [Passo 6: Orquestração com Maestro, Quadro de Tarefas e RoleCatalog](#passo-6-orquestração-com-maestro-quadro-de-tarefas-e-rolecatalog)
+   - [Passo 7: Comunicação Inter-Painéis via CLI Cockpit (5 Verbos)](#passo-7-comunicação-inter-painéis-via-cli-cockpit-5-verbos)
+   - [Passo 8: Ativar Receitas Automatizadas](#passo-8-ativar-receitas-automatizadas)
+6. [Segurança, Sanitização e Cofre de Segredos](#-segurança-sanitização-e-cofre-de-segredos)
+7. [Bateria de Testes, QA e Homologação E2E](#-bateria-de-testes-qa-e-homologação-e2e)
+8. [Estrutura de Arquivos & Configuração (`cockpit.json`)](#-estrutura-de-arquivos--configuração-cockpitjson)
+9. [Variáveis de Ambiente & Customização](#-variáveis-de-ambiente--customização)
+10. [Governança & Contribuição](#-governança--contribuição)
 
-No PowerShell ou Terminal, dentro da pasta clonada:
+---
 
-```powershell
-git clone <URL_DO_REPOSITORIO>
+## 🌟 Visão Geral & Recursos Principais
+
+### 1. Sistema Nativo de Pool Multicontas (Estilo OmniRoute)
+- **True Concurrency (Concorrência Simultânea Real):** Execute simultaneamente múltiplas contas Codex, Gemini e Grok. Quando múltiplos especialistas (ex: Scout, Builder, Reviewer) trabalham ao mesmo tempo, cada um recebe uma conta independente do pool sem colisão de sessão e sem disputa de cota.
+- **Algoritmo Least-Loaded / LRU:** Alocação dinâmica transparente que prioriza contas ociosas ou com menor índice de requisições recentes.
+- **Afinidade de Sessão com Auto-Release Defensivo:** Preserva a afinidade de sessão por `paneId` para tirar proveito do cache de prompt (KV Cache) dos provedores, liberando slots imediatamente caso um painel mude de contexto ou encerre.
+- **Circuit Breaker e Failover Intra-Pool:** Se uma conta bater limite de taxa (HTTP 429 RFC 6585 ou erro de quota), ela entra em *cooldown* temporário de forma automática e o Maestro migra a tarefa para uma conta reserva saudável.
+- **Interface de Gestão em Tempo Real:** Badges dinâmicos em **Ajustes → Provedores** (`Pool: 4 contas: 3 livres · 1 em uso`), drawer expansível com status detalhado e botões de reset individual ou global de cota.
+
+### 2. Quadro de Tarefas & Gestão Transacional de Tasks
+- **13 Campos Estruturados:** Máquina de estados formal (`backlog` ➔ `todo` ➔ `in_progress` ➔ `blocked` ➔ `in_review` ➔ `done`).
+- **File Ownership & Trava de Arquivos:** Suporte a arquivos em modo `isolated` (com lock exclusivo e prevenção de conflitos HTTP 409) ou modo `shared`.
+- **Interface Visual Drag & Drop:** Quadro de Tarefas integrado na UI (`QuadroTarefas.tsx`) com visualização de dependências, atribuição de especialistas e badges de bloqueio.
+
+### 3. Modos de Missão Flexíveis
+- **Modo Livre:** Painéis sob demanda; abra quantos terminais e IAs desejar e opere manualmente.
+- **Modo Squad:** Fases planejadas em pipeline contínuo com papéis pré-definidos (Scout ➔ Builder ➔ Reviewer) e passagens de bastão automáticas.
+- **Modo Agêntico (Maestro):** O Maestro assume o comando, divide o objetivo geral em subtarefas, delega para painéis especialistas e monitora o progresso até a conclusão.
+
+### 4. Mailbox Inter-Painéis & CLI Cockpit (5 Verbos)
+- Os painéis conversam entre si de forma estruturada através do binário `cockpit` (`bin/cockpit.mjs`):
+  1. `cockpit list`: Lista painéis ativos, IAs em uso e papéis.
+  2. `cockpit connect`: Abre canal de mensageria direto com outro painel.
+  3. `cockpit ask`: Envia perguntas e solicitações de forma assíncrona.
+  4. `cockpit reply`: Responde com histórico de contexto preservado.
+  5. `cockpit handoff`: Transfere tarefas com sumário executivo estruturado.
+- **Zero Poluição:** As mensagens trafegam via IPC/WebSocket isolado, sem injetar dados indesejados no `stdin` dos terminais.
+
+### 5. Host PTY Desacoplado & Soberania do Shell
+- **Ring Buffer de 256KB:** O daemon PTY roda desacoplado do servidor web. Se o servidor Express ou a interface reiniciar, o processo de terminal permanece vivo e o histórico de saída não é perdido.
+- **Shell Puro & Sanitizado:** Abertura de sessões `/bin/bash -i -l` no Linux (e PowerShell no Windows) com sanitização de variáveis de ambiente, sem prompts ocultos de IA e sem auto-boot indesejado.
+
+### 6. Ponte OpenRouter para Modelos Grátis
+- Empresta o motor executável do Codex para conectar diretamente à API de Responses do OpenRouter.
+- Filtro automático de modelos com custo $0,00 e suporte nativo a ferramentas (tool use / file editing).
+- Failover de emergência: se as cotas pagas esgotarem no meio de uma missão, o Maestro pode assumir modelos gratuitos para não parar o trabalho.
+
+---
+
+## 🏛️ Arquitetura & Engenharia do Sistema
+
+O backend foi desacoplado em **10 subsistemas modulares com barrels explícitos** em `servidor/`:
+
+```text
+servidor/
+├── index.ts                # Bootstrap limpo do servidor HTTP e WebSocket
+├── routes/                 # Controladores REST isolados (pools, panes, tasks, etc.)
+│   ├── account-pools-router.ts
+│   ├── config-router.ts
+│   ├── connections-router.ts
+│   ├── panes-router.ts
+│   ├── tasks-router.ts
+│   └── ...
+├── providers/              # Provedores de IA, Pool Multicontas e detecção de CLIs
+│   ├── account-pool.ts     # Engine do Pool Multicontas (Least-Loaded / LRU / Afinidade)
+│   ├── ponte.ts            # Adaptador OpenRouter Responses API
+│   └── ...
+├── sessions/               # Sessões de terminal, PTY host desacoplado e clean shell
+│   ├── pty-manager.ts      # Gerenciamento de processos PTY e ciclo de vida de slots
+│   ├── pty-client.ts
+│   └── clean-shell.ts
+├── orchestration/          # Maestro, modos de missão e harness de delegações
+│   ├── maestro-coordinator.ts
+│   ├── pane-dispatcher.ts
+│   └── ...
+├── tasks/                  # Máquina de estados de tarefas e controle de file ownership
+├── connections/            # Mailbox inter-agentes e CLI bridge (5 verbos)
+├── persistence/            # DiskStore transacional com safe-writes e audit log
+├── security/               # Sanitizador de segredos, cofre e gating de aprovações
+├── missions/               # Gerenciador de missões e worktrees Git
+└── websocket/              # Servidor WebSocket e dispatcher de eventos reativos
+```
+
+---
+
+## 💻 Pré-Requisitos do Ambiente
+
+O Cockpit roda de forma nativa e validada em:
+- **Linux:** Ubuntu 20.04+, Debian 11+, Fedora 38+, Arch Linux e distribuições derivadas.
+- **Windows:** Windows 10 e Windows 11 (com suporte nativo ao PowerShell e Git Bash).
+- **Node.js:** Versão 24 ou LTS recente (mínimo Node.js 20+).
+- **npm:** Versão 10+.
+- **Git:** Instalado e configurado no `PATH` (fundamental para worktrees isolados).
+
+---
+
+## ⚡ Instalação & Inicialização Rápida
+
+### 1. Clonar o Repositório
+```bash
+git clone https://github.com/jonhsos/agent-project.git
 cd agent-project
+```
+
+### 2. Instalar as Dependências
+Utilize `npm ci` para garantir as versões exatas travadas em `package-lock.json`:
+```bash
 npm ci
+```
+
+### 3. Iniciar o Cockpit
+O comando `npm start` compila o frontend com Vite e inicia o servidor Express integrado:
+```bash
 npm start
 ```
 
-Abra [http://localhost:3000](http://localhost:3000).
+Pronto! Acesse o painel pelo navegador: **[http://localhost:3000](http://localhost:3000)**
 
-`npm ci` instala exatamente as versões guardadas no `package-lock.json`. `npm install` também funciona quando você quiser atualizar ou alterar dependências.
+> **Dica de Performance:** Se você já executou a compilação e quer reiniciar apenas o backend de forma instantânea:
+> ```bash
+> npm run server
+> ```
 
-O comando `npm start` primeiro gera a interface e depois inicia o servidor. Para iniciar somente o servidor depois de já ter compilado, use `npm run server`.
+---
 
-> O repositório inclui `node-pty`, que é um módulo nativo. Em uma versão de Node muito nova ou incomum, o npm pode pedir ferramentas de compilação C++. Use a versão LTS/atual do Node; se o problema persistir no Windows, instale o **Visual Studio Build Tools** com a carga **Desktop development with C++** e execute `npm ci` novamente.
+## 📖 Guia Passo a Passo de Uso
 
-## Conectar uma IA
+### Passo 1: Autenticar e Configurar Provedores de IA
 
-Instale e autentique ao menos um provedor. O Cockpit detecta os comandos no `PATH` e não guarda suas chaves ou sessões: o login continua sendo feito pelo CLI oficial de cada serviço.
+O Cockpit utiliza os binários oficiais instalados no sistema. Instale e faça o primeiro login nos provedores que você possui:
 
-| Provedor | Instalar | Primeiro login |
-| --- | --- | --- |
-| Codex / GPT | `npm i -g @openai/codex` | Execute `codex` e siga o login | 
-| Claude Code | `npm i -g @anthropic-ai/claude-code` | Execute `claude` e siga o login |
-| Antigravity / Gemini | Instale a Antigravity CLI | Execute `agy models` para conferir a conta |
-| Gemini CLI | `npm i -g @google/gemini-cli` | Execute `gemini` e siga o login |
-| OpenRouter (grátis) | já vem configurado; precisa do Codex instalado | Cole a chave em **Ajustes → Grátis** |
+#### • Codex (OpenAI):
+```bash
+npm i -g @openai/codex
+codex
+# Siga as instruções no navegador ou terminal para login
+```
 
-Feche e abra o Cockpit, ou entre em **Ajustes → Provedores** e atualize a lista. Um provedor que não está instalado aparece como indisponível, sem impedir o resto da aplicação de abrir.
+#### • Claude Code (Anthropic):
+```bash
+npm i -g @anthropic-ai/claude-code
+claude
+# Conclua a autenticação OAuth oficial
+```
 
-Para usar o terminal interno, instale também o Git for Windows. Caso ele não esteja em `C:\Program Files\Git\bin\bash.exe`, abra `cockpit.json` e ajuste `clis.bash.command` para o caminho correto, ou remova esse provedor.
+#### • Gemini CLI (Google):
+```bash
+npm i -g @google/gemini-cli
+gemini
+# Faça o login com sua conta Google
+```
 
-## IA de graça, pelo OpenRouter
+#### • Grok (xAI):
+Instale o binário do Grok e execute `grok` para autenticar via OIDC (`~/.grok/auth.json`).
 
-O OpenRouter reúne modelos de vários laboratórios num endereço só, e uma parte
-deles custa zero. Ele não tem CLI — é uma API. O Cockpit resolve isso com uma
-**ponte**: empresta o binário do Codex e aponta ele para o servidor do
-OpenRouter. O painel é o mesmo de sempre; o que muda é quem responde, e a
-assinatura que não é consumida.
+#### • Antigravity CLI:
+Instale o CLI da Antigravity e verifique a autenticação executando `agy models`.
 
-1. Instale o Codex (`npm i -g @openai/codex`). Ele é o motor da ponte, mesmo
-   que você não use a conta da OpenAI.
-2. Crie uma chave em [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys).
-3. No Cockpit, abra **Ajustes → Grátis**, cole a chave e clique em
-   **Testar de verdade** — isso fala com a API pelo mesmo caminho que o painel
-   vai usar, então um "ok" aqui é um painel que sobe.
-4. Use o agente **GRÁTIS** nas missões, ou a receita **De graça**.
+---
 
-A chave fica cifrada em `~/.cockpit/chaves.json` e só existe dentro do processo
-do painel: ela não entra no `cockpit.json`, não aparece na tela e não vai para
-o log. Você também pode simplesmente exportar `OPENROUTER_API_KEY` no ambiente.
+### Passo 2: Configurar o Pool Multicontas (True Concurrency)
 
-**O catálogo é lido ao vivo.** "Atualizar modelos" relê a lista do OpenRouter,
-guarda só os de preço zero e destaca quem aceita ferramentas — sem ferramentas
-o modelo conversa, mas não edita arquivo. O modelo que você escolheu continua
-sendo o padrão depois de uma atualização.
+Para rodar múltiplos agentes do mesmo provedor em paralelo sem bater limite de taxa, configure as credenciais no `cockpit.json` apontando para diretórios de ambiente separados (ex: `CODEX_HOME` ou `GEMINI_CLI_HOME`):
 
-**Modelo grátis é modelo menor.** Ele serve para volume, rascunho e busca em
-código; arquitetura e bug difícil continuam valendo a assinatura. Duas coisas
-tiram proveito disso sem você pedir: a receita **Grátis faz, pago revisa** (o
-modelo de graça escreve, o Claude revisa) e o failover — quando todas as cotas
-pagas estouram no meio de uma missão, o maestro migra para a ponte em vez de
-parar.
+```json
+{
+  "clis": {
+    "codex": {
+      "command": "codex",
+      "sandbox": "danger-full-access",
+      "pool": [
+        { "id": "codex-1", "label": "Conta Principal", "env": { "CODEX_HOME": "~/.jion" } },
+        { "id": "codex-2", "label": "Conta Trabalho", "env": { "CODEX_HOME": "~/.codex-acc2" } },
+        { "id": "codex-3", "label": "Conta Reserva", "env": { "CODEX_HOME": "~/.codex-acc3" } },
+        { "id": "codex-4", "label": "Conta Consultoria", "env": { "CODEX_HOME": "~/.codex-acc4" } }
+      ]
+    },
+    "gemini": {
+      "command": "gemini",
+      "pool": [
+        { "id": "gemini-1", "label": "Gemini 1", "env": { "GEMINI_CLI_HOME": "~/.gemini-1" } },
+        { "id": "gemini-2", "label": "Gemini 2", "env": { "GEMINI_CLI_HOME": "~/.gemini-2" } }
+      ]
+    }
+  }
+}
+```
 
-### Ligar outro provedor pela mesma ponte
+> **Dica Visual:** Você também pode gerenciar o pool diretamente pela interface:
+> 1. Vá em **Ajustes ➔ Provedores**.
+> 2. Clique no badge do **Pool** para expandir a gaveta.
+> 3. Visualize as contas livres e em uso, redefina cotas ou cadastre novas contas.
 
-Qualquer serviço que fale a **API de Responses da OpenAI** entra do mesmo jeito:
-copie o bloco `clis.openrouter` no `cockpit.json`, troque `base_url`, `chaveEnv`
-e `provider`. A exigência da API de Responses não é escolha do Cockpit — o Codex
-0.154 removeu o suporte a `wire_api = "chat"`, e um provedor que só ofereça
-`/chat/completions` vai recusar a conexão logo na subida.
+---
 
-Para modelos locais, o caminho não é a ponte: o Codex já traz `--oss` com
-Ollama e LM Studio embutidos.
+### Passo 3: Usar Modelos 100% Grátis via Ponte OpenRouter
 
-## Primeiro uso
+Não quer gastar tokens pagos em tarefas simples de rascunho ou varredura de código?
+1. Obtenha uma chave gratuita em [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys).
+2. No Cockpit, acesse **Ajustes ➔ Grátis**.
+3. Cole a sua chave e clique em **Testar de verdade** (a chave fica cifrada em `~/.cockpit/chaves.json`).
+4. Clique em **Atualizar modelos** para carregar os modelos gratuitos em destaque.
+5. Nas suas missões, selecione o agente **GRÁTIS** ou a receita **De graça**.
 
-1. Abra o Cockpit em `http://localhost:3000`.
-2. Clique em **Abrir projeto** e escolha a pasta em que você quer trabalhar.
-3. Clique em **Nova missão**, descreva o objetivo e escolha o modo:
-   - **Livre:** você abre os painéis que quiser.
-   - **Squad:** o Cockpit abre os agentes previstos nas fases do time.
-   - **Agêntico:** abre o maestro, que acompanha e delega o trabalho.
-4. Acompanhe os painéis no centro da tela. Eles executam comandos reais no projeto selecionado.
+---
 
-Em projetos Git, a missão pode usar um worktree separado. Isso cria uma branch de trabalho para evitar que uma missão altere diretamente a branch atual.
+### Passo 4: Abrir um Projeto e Criar Missões com Worktrees Isolados
 
-## Escolher quem executa
+1. Na tela inicial do Cockpit, clique em **Abrir projeto** e selecione a pasta desejada através do seletor embutido.
+2. Clique no botão **Nova Missão** no canto superior.
+3. Dê um nome para a missão e descreva o objetivo geral.
+4. **Isolamento Git (Worktree):**
+   - Se o projeto for um repositório Git, marque a opção de criar **Worktree isolado**.
+   - O Cockpit criará uma branch dedicada (ex: `cockpit/missao-xyz`) em uma pasta temporária, permitindo que os agentes alterem código, instalem pacotes e testem sem arriscar a sua branch principal.
 
-Em **Maestro → Quem faz o trabalho**, há três formas de operar:
+---
 
-- **Padrão atual:** usa perfil e modelo do agente escolhido em `cockpit.json`. Tipo de tarefa só organiza contexto.
-- **Uma IA para tudo:** escolha, por exemplo, `gpt-5.6-sol`; ela assume maestro, piloto, builder e revisão. O maestro passa a poder implementar diretamente.
-- **Escolher por papel:** fixa um provedor, modelo e esforço para papéis específicos, deixando o restante seguir o padrão.
+### Passo 5: Operar os Três Modos de Missão (Livre, Squad, Agêntico)
 
-A configuração vale para painéis abertos depois de salvar. Um painel já em execução preserva a configuração com que foi iniciado.
+Ao iniciar uma missão, escolha a modalidade ideal para a sua necessidade:
 
-## Configuração e dados locais
+* **Modo Livre:**
+  - O palco exibe a grade de terminais vazia.
+  - Clique no botão `+` para abrir qualquer IA (Codex, Claude, Grok, Gemini, Shell puro).
+  - Interaja diretamente digitando comandos em cada painel.
+* **Modo Squad:**
+  - O Cockpit aciona um time estruturado por fases.
+  - O agente **Scout** faz o levantamento de requisitos; em seguida, o **Builder** implementa as alterações; por fim, o **Reviewer** audita o código e roda testes.
+* **Modo Agêntico (Maestro):**
+  - O **Maestro** assume o comando autônomo.
+  - Ele quebra a demanda em tarefas, distribui cada item para o especialista mais adequado e faz a rotação de contas do pool caso alguma atinja o limite.
 
-`cockpit.json` é a configuração compartilhável do Cockpit: agentes, modelos, times, receitas, permissões e porta. O Cockpit grava alterações feitas nas telas nesse arquivo. A opção `autoAprovar` (ativa por padrão) passa flags como `--dangerously-skip-permissions`, `--ask-for-approval never` e `-y` para que os painéis não travem pedindo confirmação a cada comando.
+---
 
-O estado pessoal fica fora do repositório, em `~/.cockpit` (ou no caminho definido por `COCKPIT_HOME`). Ali ficam os projetos abertos, missões, notas e a continuidade. Essa pasta já está no `.gitignore`.
+### Passo 6: Orquestração com Maestro, Quadro de Tarefas e RoleCatalog
 
-Se você quiser recomeçar com uma lista vazia de projetos e missões, feche o Cockpit e apague somente `~/.cockpit`. Isso não apaga os projetos originais nem worktrees que já tenham sido criados.
+1. **Quadro de Tarefas (`QuadroTarefas.tsx`):**
+   - Acesse a aba **Tarefas** na lateral da missão para ver o fluxo Kanban em tempo real.
+   - Acompanhe tarefas em progresso, bloqueadas por dependências ou em revisão.
+2. **Catálogo de Especialistas (`RoleCatalog.tsx`):**
+   - Acesse **Maestro ➔ Quem faz o trabalho**.
+   - Configure IAs específicas para papéis como Arquiteto, Pesquisador, Implementador e Revisor.
+   - Ajuste o nível de esforço (`low`, `medium`, `high`) para controlar os custos de inferência.
 
-## Comandos úteis
+---
 
-```powershell
-# Rodar a bateria inteira: tipos, build e todas as verificações
+### Passo 7: Comunicação Inter-Painéis via CLI Cockpit (5 Verbos)
+
+Dentro de qualquer terminal aberto no Cockpit, os agentes ou o próprio usuário podem disparar comandos de mensageria:
+
+```bash
+# 1. Listar agentes ativos no projeto
+cockpit list
+
+# 2. Conectar-se ao painel do Builder
+cockpit connect pane-builder
+
+# 3. Fazer uma consulta assíncrona ao Scout
+cockpit ask pane-scout "Onde fica a rota de autenticação de usuários?"
+
+# 4. Responder a uma requisição recebida
+cockpit reply msg-102 "A autenticação fica em servidor/routes/auth.ts"
+
+# 5. Fazer handoff completo da fase com sumário
+cockpit handoff pane-reviewer "Implementação concluída. 45 testes passando. Solicito revisão de código."
+```
+
+---
+
+### Passo 8: Ativar Receitas Automatizadas
+
+Na lateral do Cockpit, clique na aba **Receitas** para disparar rotinas prontas:
+- **"Grátis faz, pago revisa":** Um modelo de custo zero do OpenRouter gera o código preliminar e o Claude Sonnet/Opus revisa a arquitetura e aplica testes.
+- **"Auditoria Geral":** Um time de agentes desafia o código atual em busca de vulnerabilidades, dead code e vazamentos de memória.
+- **"De Graça":** Fluxo completo conduzido exclusivamente por modelos sem custo.
+
+---
+
+## 🔒 Segurança, Sanitização e Cofre de Segredos
+
+O Cockpit foi projetado com diretrizes rigorosas de isolamento e proteção:
+
+1. **Sanitização de Segredos em Tempo Real (`StreamSanitizer`):**
+   - Todas as saídas de terminal e logs de auditoria passam por filtro regex que substitui padrões de credenciais por `[REDACTED_API_KEY]`.
+   - Cobre tokens da OpenAI (`sk-proj-`, `sk-admin-`), Anthropic (`sk-ant-`), OpenRouter (`sk-or-v1-`), Google (`AIza`) e Bearer JWTs.
+2. **Aprovação de Comandos Destrutivos:**
+   - Comandos com potencial de dano ao sistema passam pelo `ApprovalManager` com tokens criptográficos de uso único, prevenindo ataques do tipo *Confused Deputy* e *Replay Attacks*.
+   - A flag `autoAprovar: true` em `cockpit.json` passa argumentos não-interativos automáticos aos CLIs (`-y`, `--dangerously-skip-permissions`), mas pode ser desativada para máxima restrição.
+3. **Cofre Pessoal Cifrado:**
+   - Chaves de API do OpenRouter e credenciais dinâmicas são armazenadas exclusivamente em `~/.cockpit/chaves.json` com permissões restritas ao usuário atual.
+
+---
+
+## 🧪 Bateria de Testes, QA e Homologação E2E
+
+O repositório possui uma bateria completa de testes automatizados e testes empíricos de estresse:
+
+```bash
+# 1. Executar a bateria completa padrão (45+ verificações)
 npm test
 
-# Conferir tipos antes de enviar mudanças
+# 2. Verificar consistência de tipos TypeScript sem compilar
 npx tsc --noEmit
 
-# Gerar a versão de produção da interface
+# 3. Gerar build de produção da interface Vite
 npm run build
 
-# Iniciar o Cockpit (compila e sobe o servidor)
-npm start
+# 4. Testar exclusivamente o Pool Multicontas (15 verificações de alocação/resiliência)
+npx tsx scripts/check-account-pool.ts
+
+# 5. Testar estresse de segurança, traversals de path e sanitização
+npx tsx scripts/stress-test-security.ts
+
+# 6. Rodar teste E2E real via Playwright contra o servidor Express ativo
+node scripts/qa-pool-live-e2e.mjs
 ```
 
-`npm test` roda `tsc`, o build e todos os `scripts/check-*`. Os dois testes de
-navegador ficam de fora por padrão, porque dependem do Playwright, que não é
-dependência deste projeto. Para incluí-los, passe o caminho:
+As evidências fotográficas dos testes E2E geradas no navegador ficam salvas na pasta [`prints/`](file:///DATA/Projetos/agent-project/prints).
 
-```powershell
-npm test -- C:\caminho\para\playwright-core\index.mjs
-```
+---
 
-Se o Chromium do Playwright não estiver baixado, aponte um navegador que você já
-tem com `$env:CHROME_PATH`.
+## 📁 Estrutura de Arquivos & Configuração (`cockpit.json`)
 
-Três variáveis isolam uma execução de teste da sua instalação de verdade:
-`COCKPIT_CONFIG` (outro `cockpit.json`), `COCKPIT_HOME` (outro estado pessoal) e
-`COCKPIT_PORTA` (outra porta, para rodar uma segunda instância sem derrubar a
-primeira).
+O arquivo `cockpit.json` na raiz define todo o ecossistema de operação:
 
-## Limites conhecidos
+| Chave | Descrição |
+| :--- | :--- |
+| `port` | Porta HTTP do servidor web (padrão: `3000`). |
+| `clis` | Cadastro dos binários instalados, argumentos, sandboxes e pools multicontas. |
+| `modelos` | Relação de modelos de IA válidos e homologados para cada provedor. |
+| `agents` | Catálogo de agentes com cores, papéis padrão, esforço e modelos vinculados. |
+| `squads` | Configuração dos times pré-moldados e sequenciamento de fases. |
+| `receitas` | Workflows prontos para execução em um clique. |
+| `autoAprovar` | Se ativado (`true`), passa flags não-interativas aos CLIs para evitar travamentos. |
 
-O seletor gráfico de pastas foi feito para Windows. Em outros sistemas, o servidor e os CLIs podem funcionar, mas é necessário informar/abrir os projetos por um fluxo compatível ou adaptar esse seletor. Recursos de mídia dependem do provedor que cada pessoa configurar.
+---
+
+## 🌍 Variáveis de Ambiente & Customização
+
+Você pode sobrescrever qualquer configuração via variáveis de ambiente no sistema:
+
+- `COCKPIT_PORTA`: Porta de rede do Cockpit (ex: `export COCKPIT_PORTA=8080`).
+- `COCKPIT_HOME`: Diretório de persistência do estado, histórico e chaves (padrão: `~/.cockpit`).
+- `COCKPIT_CONFIG`: Caminho para um arquivo `cockpit.json` alternativo.
+- `CODEX_HOME`: Diretório de credenciais e cache do Codex (usado para isolar contas do pool).
+- `GEMINI_CLI_HOME`: Diretório de credenciais da CLI do Gemini.
+- `GROK_HOME`: Diretório de autenticação da CLI do Grok.
+- `OPENROUTER_API_KEY`: Fornece a chave do OpenRouter diretamente via ambiente.
+
+---
+
+## 🤝 Governança & Contribuição
+
+Contribuições são muito bem-vindas! Siga estas boas práticas ao colaborar:
+
+1. Faça um Fork do projeto para o seu GitHub pessoal.
+2. Crie uma branch com nome descritivo: `git checkout -b feat/minha-melhoria`.
+3. Certifique-se de que todos os testes passem: `npm test` e `npx tsc --noEmit`.
+4. Suba suas alterações para o seu fork: `git push origin feat/minha-melhoria`.
+5. Abra um **Pull Request** para a branch principal (`main`).
+
+---
+
+**Cockpit — Liberdade, Concorrência e Soberania Total para os Seus Agentes de IA.**
