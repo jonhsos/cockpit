@@ -17,6 +17,8 @@ import { escolherPasta } from "./pasta.ts";
 import { NavegadorPastas } from "./NavegadorPastas.tsx";
 import { NovaMissao, type Plano } from "./NovaMissao.tsx";
 import { Ajustes } from "./Ajustes.tsx";
+import { RoleCatalog } from "./RoleCatalog.tsx";
+import { QuadroTarefas } from "./QuadroTarefas.tsx";
 import {
   closeProject,
   deleteMission,
@@ -28,11 +30,19 @@ import {
   fetchPanes,
   fetchProjects,
   fetchTree,
+  fetchConnections,
+  createConnection,
+  deleteConnection,
+  fetchTasks,
+  fetchPontes,
   postAvancarFase,
   postMission,
   postNota,
+  postPapelPainel,
   postProject,
   postSquad,
+  renomearMissao,
+  mudarModo,
   prepararGit,
   saveFile,
   type AgentSpec,
@@ -42,10 +52,13 @@ import {
   type PaneState,
   type Project,
   type Provider,
+  type StatusPonte,
   type Receita,
   type SquadSpec,
   type TipoTarefa,
   type Usage,
+  type Connection,
+  type Task,
 } from "./api.ts";
 
 const Editor = lazy(() => import("./Editor.tsx").then((module) => ({ default: module.Editor })));
@@ -69,6 +82,7 @@ export function App() {
   const [squads, setSquads] = useState<Record<string, SquadSpec>>({});
   const [tarefas, setTarefas] = useState<Record<string, TipoTarefa>>({});
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [pontes, setPontes] = useState<StatusPonte[]>([]);
   const [receitas, setReceitas] = useState<Record<string, Receita>>({});
   const [criandoMissao, setCriandoMissao] = useState(false);
   const [verConfig, setVerConfig] = useState(false);
@@ -80,12 +94,44 @@ export function App() {
   const [panes, setPanes] = useState<PaneState[]>([]);
   const [usos, setUsos] = useState<Record<string, Usage>>({});
   const [memoria, setMemoria] = useState<Nota[]>([]);
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [paneParaEncerrar, setPaneParaEncerrar] = useState<string | null>(null);
+  const [renomeandoAtiva, setRenomeandoAtiva] = useState(false);
+  const [novoNomeMissao, setNovoNomeMissao] = useState("");
+  const [confirmacaoDestrutiva, setConfirmacaoDestrutiva] = useState<{
+    titulo: string;
+    mensagem: string;
+    onConfirmar: () => void;
+  } | null>(null);
+
   const [agent, setAgent] = useState("maestro");
   const [tipoManual, setTipoManual] = useState("");
+  const [cliManual, setCliManual] = useState("");
+  const [tarefaManual, setTarefaManual] = useState("");
   const [aviso, setAviso] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [verConsumo, setVerConsumo] = useState(false);
   const [escolhendo, setEscolhendo] = useState(false);
+  // Perfis de provedor (OPUS, FLASH, GRÁTIS) não são papéis. Papel é algo
+  // que usuário nomeia; onde ele roda é escolha separada, feita abaixo.
+  const papeis = Object.entries(agents).filter(([id]) => !["shell", "flash", "opus46", "gratis"].includes(id));
+
+  // Escolha de provedor do SHELL vale somente para esta abertura. Sem limpar
+  // aqui, cancelar depois de escolher Codex deixava a escolha escondida para
+  // próxima abertura e o suposto terminal vazio iniciava uma IA.
+  const abrirEscolhaAgente = () => {
+    setCliManual("bash");
+    setTarefaManual("");
+    setTipoManual("");
+    setVerAgentes(true);
+  };
+  const fecharEscolhaAgente = () => {
+    setCliManual("");
+    setTarefaManual("");
+    setTipoManual("");
+    setVerAgentes(false);
+  };
 
   const [tree, setTree] = useState<No[]>([]);
   const [arquivo, setArquivo] = useState<string | null>(null);
@@ -160,6 +206,7 @@ export function App() {
       setReceitas(c.receitas ?? {});
       setAgent((a) => (c.agents[a] ? a : (Object.keys(c.agents)[0] ?? a)));
     });
+    void fetchPontes().then((r) => setPontes(r.pontes)).catch(() => {});
     const recarregarPaineis = () =>
       fetchPanes().then(({ panes: lista }) => {
         setPanes(lista);
@@ -195,6 +242,17 @@ export function App() {
           break;
         case "exit":
           setPanes((prev) => prev.filter((p) => p.paneId !== msg.paneId));
+          setConnections((prev) =>
+            prev.filter((c) => c.sourcePaneId !== msg.paneId && c.targetPaneId !== msg.paneId)
+          );
+          if (activeIdRef.current) {
+            void fetchConnections(activeIdRef.current).then((res) => {
+              if (res.ok && res.connections) setConnections(res.connections);
+            }).catch(() => {});
+            void fetchTasks(activeIdRef.current).then((res) => {
+              if (res.ok && res.tasks) setTasks(res.tasks);
+            }).catch(() => {});
+          }
           void recarregarMissoes(projectIdRef.current);
           break;
         case "pulse":
@@ -229,6 +287,39 @@ export function App() {
             });
           }
           break;
+        case "task:created":
+        case "task:updated":
+        case "task:status_changed":
+        case "task:deleted":
+        case "task:assigned":
+        case "task:evidence_added":
+          if (activeIdRef.current) {
+            void fetchTasks(activeIdRef.current).then((res) => {
+              if (res.ok && res.tasks) setTasks(res.tasks);
+            });
+          }
+          break;
+        case "inbox:message":
+          if (activeIdRef.current) {
+            void fetchConnections(activeIdRef.current).then((res) => {
+              if (res.ok && res.connections) setConnections(res.connections);
+            });
+          }
+          break;
+        case "mission:updated":
+        case "mission:mode_changed":
+          void recarregarMissoes(projectIdRef.current);
+          break;
+        case "connection:updated":
+          if (activeIdRef.current) {
+            void fetchConnections(activeIdRef.current).then((res) => {
+              if (res.ok && res.connections) setConnections(res.connections);
+            }).catch(() => {});
+          }
+          break;
+        case "maestro:reactivated":
+          setAviso(`Especialistas (${msg.especialistas}) concluíram suas tarefas. Maestro foi reativado para consolidação.`);
+          break;
       }
     });
 
@@ -237,6 +328,21 @@ export function App() {
       soltarReconexao();
     };
   }, [recarregarProjetos, recarregarMissoes, recarregarArvore]);
+
+  // Carrega conexões e tarefas quando a missão ativa muda
+  useEffect(() => {
+    if (!activeId) {
+      setConnections([]);
+      setTasks([]);
+      return;
+    }
+    void fetchConnections(activeId).then((res) => {
+      if (res.ok && res.connections) setConnections(res.connections);
+    }).catch(() => {});
+    void fetchTasks(activeId).then((res) => {
+      if (res.ok && res.tasks) setTasks(res.tasks);
+    }).catch(() => {});
+  }, [activeId]);
 
   useEffect(() => {
     setMissions([]);
@@ -407,6 +513,16 @@ export function App() {
     />
   ) : null;
 
+  const paginaTarefas = (
+    <QuadroTarefas
+      missionId={active?.id ?? null}
+      missionNome={active?.nome}
+      panes={panes}
+      agents={agents}
+      onSelectPane={abrirPainel}
+    />
+  );
+
   /** Ferramentas do rodapé da lateral: fora da tela principal, perto do resto. */
   const ferramentas = (
     <>
@@ -443,11 +559,13 @@ export function App() {
           onSelectMission={(id) => trocar(() => { setActiveId(id); setLateralAberta(false); })}
           onSelectPane={abrirPainel}
           onNovaMissao={() => setCriandoMissao(true)}
-          onAddAgente={(id) => trocar(() => { setActiveId(id); setVerAgentes(true); })}
+          onAddAgente={(id) => trocar(() => { setActiveId(id); abrirEscolhaAgente(); })}
+          onRenomearMissao={(id, nome) => guarded(async () => { await renomearMissao(id, nome); await recarregarMissoes(projectId); })}
           aberta={lateralAberta}
           onFechar={() => setLateralAberta(false)}
           pagina={paginaLateral}
           onPagina={setPaginaLateral}
+          tarefas={paginaTarefas}
           arquivos={paginaArquivos}
           rodape={ferramentas}
         />
@@ -456,13 +574,163 @@ export function App() {
           {/* No celular a lateral é gaveta e precisa de uma porta. No desktop
               ela está sempre aberta, e este botão não existe. */}
           <button className="icon-btn abrir-lateral" aria-label="Abrir lateral" onClick={() => setLateralAberta(true)}><Icon name="grid" size={17} /></button>
+
+          {active && (
+            <div className="stage-topbar">
+              <div className="stage-mission-info">
+                {renomeandoAtiva ? (
+                  <form
+                    className="mission-rename-inline"
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const nome = novoNomeMissao.trim();
+                      if (nome) {
+                        await renomearMissao(active.id, nome);
+                        await recarregarMissoes(projectId);
+                        setRenomeandoAtiva(false);
+                      }
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      className="campo mini"
+                      value={novoNomeMissao}
+                      onChange={(e) => setNovoNomeMissao(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setRenomeandoAtiva(false);
+                      }}
+                      onBlur={async () => {
+                        const nome = novoNomeMissao.trim();
+                        if (nome && nome !== active.nome) {
+                          await renomearMissao(active.id, nome);
+                          await recarregarMissoes(projectId);
+                        }
+                        setRenomeandoAtiva(false);
+                      }}
+                    />
+                  </form>
+                ) : (
+                  <span
+                    className="stage-mission-title"
+                    title={`Missão: ${active.nome} (clique para renomear)`}
+                    onClick={() => {
+                      setNovoNomeMissao(active.nome);
+                      setRenomeandoAtiva(true);
+                    }}
+                  >
+                    <b className="stage-mission-nome-texto">{active.nome}</b> <span className="edit-icon-hint">✏️</span>
+                  </span>
+                )}
+                {active.branch && <span className="stage-mission-badge branch" title={`Branch: ${active.branch}`}>{active.branch}</span>}
+                <select
+                  className="stage-mission-badge mode stage-mode-select"
+                  value={active.modo ?? "livre"}
+                  title="Alterar modo de execução da missão"
+                  disabled={busy}
+                  onChange={(e) => {
+                    const novo = e.target.value;
+                    guarded(async () => {
+                      await mudarModo(active.id, novo);
+                      await recarregarMissoes(projectId);
+                    });
+                  }}
+                >
+                  <option value="livre">LIVRE</option>
+                  <option value="dirigido">DIRIGIDO</option>
+                  <option value="autonomo">AUTÔNOMO</option>
+                </select>
+              </div>
+              <div className="stage-topbar-actions">
+                <button
+                  type="button"
+                  className="btn mini"
+                  onClick={() => setVerMissao(true)}
+                  title="Ver detalhes da missão"
+                >
+                  Detalhes
+                </button>
+                <button
+                  type="button"
+                  className="btn mini solid"
+                  onClick={abrirEscolhaAgente}
+                  title="Adicionar agente ou terminal limpo"
+                >
+                  <Icon name="plus" size={12} /> Adicionar
+                </button>
+              </div>
+            </div>
+          )}
+
           {verMissao && active && <Modal title="Detalhes da missão" onClose={() => setVerMissao(false)}>
             <section className="mission-details">
-              <header className="panel-heading"><h2>{active.nome}</h2><button className="icon-btn" aria-label="Fechar detalhes da missão" onClick={() => setVerMissao(false)}><Icon name="close" /></button></header>
+              <header className="panel-heading">
+                {renomeandoAtiva ? (
+                  <form
+                    className="mission-rename-modal-form"
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const nome = novoNomeMissao.trim();
+                      if (nome) {
+                        await renomearMissao(active.id, nome);
+                        await recarregarMissoes(projectId);
+                        setRenomeandoAtiva(false);
+                      }
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      className="campo"
+                      value={novoNomeMissao}
+                      onChange={(e) => setNovoNomeMissao(e.target.value)}
+                      onBlur={async () => {
+                        const nome = novoNomeMissao.trim();
+                        if (nome && nome !== active.nome) {
+                          await renomearMissao(active.id, nome);
+                          await recarregarMissoes(projectId);
+                        }
+                        setRenomeandoAtiva(false);
+                      }}
+                    />
+                  </form>
+                ) : (
+                  <h2
+                    title="Clique para renomear missão"
+                    onClick={() => {
+                      setNovoNomeMissao(active.nome);
+                      setRenomeandoAtiva(true);
+                    }}
+                  >
+                    {active.nome} <span style={{ fontSize: 13, cursor: "pointer" }}>✏️</span>
+                  </h2>
+                )}
+                <button className="icon-btn" aria-label="Fechar detalhes da missão" onClick={() => setVerMissao(false)}><Icon name="close" /></button>
+              </header>
               <p className="mission-objective">{active.objetivo || "Esta missão ainda não tem um objetivo definido."}</p>
               <dl className="detail-list">
                 <div><dt>Projeto</dt><dd>{project?.nome}</dd></div>
                 <div><dt>Branch</dt><dd>{active.branch || "Pasta compartilhada"}</dd></div>
+                <div>
+                  <dt>Modo de execução</dt>
+                  <dd>
+                    <select
+                      className="campo"
+                      style={{ padding: "4px 8px", width: "auto", display: "inline-block" }}
+                      value={active.modo ?? "livre"}
+                      disabled={busy}
+                      onChange={(e) => {
+                        const novo = e.target.value;
+                        guarded(async () => {
+                          await mudarModo(active.id, novo);
+                          await recarregarMissoes(projectId);
+                        });
+                      }}
+                    >
+                      <option value="livre">Livre (controle 100% manual)</option>
+                      <option value="dirigido">Dirigido (delegações autorizadas)</option>
+                      <option value="autonomo">Autônomo (coordenação contínua)</option>
+                    </select>
+                  </dd>
+                </div>
                 <div><dt>Arquivos alterados</dt><dd>{active.git.dirty}</dd></div>
                 <div><dt>Elenco</dt><dd>{active.elenco?.clis.map(cli => `${cli}${active.elenco?.soVisual?.includes(cli) ? " (só imagens)" : ""}`).join(" · ") || "Catálogo de agentes"}</dd></div>
               </dl>
@@ -494,26 +762,43 @@ export function App() {
             </section>
           </Modal>}
 
-          {verAgentes && active && <Modal title="Adicionar agente" onClose={() => setVerAgentes(false)}>
-            <section className="agent-picker-panel">
-              <header className="panel-heading"><div><h2>Quem entra na missão?</h2><p>Escolha um agente para trabalhar com você.</p></div><button className="icon-btn" aria-label="Fechar seleção de agente" onClick={() => setVerAgentes(false)}><Icon name="close" /></button></header>
-              <div className="agent-catalog">
-                {Object.entries(agents).map(([id, a]) => <button className={`agent-choice${agent === id ? " selected" : ""}`} aria-pressed={agent === id} key={id} onClick={() => setAgent(id)} style={{ "--identity": a.cor } as CSSProperties}>
-                  {/* O mesmo bicho que você vai ver na lateral e no terminal:
-                      forma pelo id, cor da identidade dele. */}
-                  <Mascote semente={id} cor={a.cor} estado="neutro" tamanho={42} />
-                  <span><b>{a.label}</b><small>{a.papel || a.cli}</small></span>
-                </button>)}
-              </div>
-              <details className="advanced-options"><summary>Tipo de tarefa e modelo</summary>
-                <label className="campo-bloco">Tipo de tarefa<select className="campo" aria-label="Tipo de tarefa" value={tipoManual} onChange={e => setTipoManual(e.target.value)}>
-                  <option value="">Padrão do agente</option>{Object.entries(tarefas).map(([id, t]) => <option value={id} key={id}>{t.label}{t.model ? ` · ${t.model}` : ""}</option>)}
-                </select></label>
-                <p className="dica">{agents[agent]?.model ?? agents[agent]?.cli} {agents[agent]?.effort ? `· ${agents[agent].effort}` : ""}. O elenco da missão mantém prioridade.</p>
-              </details>
-              <footer className="panel-actions"><button className="btn quiet" onClick={() => setVerAgentes(false)}>Cancelar</button><button className="btn solid" disabled={connection !== "connected" || !agents[agent]} onClick={() => { send({ type: "spawn", agent, missionId: active.id, tipo: tipoManual || undefined }); setVerAgentes(false); }}>Abrir {agents[agent]?.label ?? "agente"}</button></footer>
-            </section>
-          </Modal>}
+          {verAgentes && active && (
+            <Modal title="Adicionar Agente ou Terminal" onClose={fecharEscolhaAgente}>
+              <section className="agent-picker-panel">
+                <header className="panel-heading">
+                  <div>
+                    <h2>Catálogo de Papéis & Executores</h2>
+                    <p>Você define papel, executor e modelo em etapas independentes com soberania total.</p>
+                  </div>
+                  <button className="icon-btn" aria-label="Fechar catálogo" onClick={fecharEscolhaAgente}>
+                    <Icon name="close" />
+                  </button>
+                </header>
+                <RoleCatalog
+                  providers={providers}
+                  pontes={pontes}
+                  elenco={active.elenco}
+                  defaultRole="builder"
+                  defaultRunner="bash"
+                  onCancel={fecharEscolhaAgente}
+                  onLaunch={(params) => {
+                    send({
+                      type: "spawn",
+                      agent: params.role,
+                      missionId: active.id,
+                      cli: params.runner,
+                      model: params.model,
+                      effort: params.effort || undefined,
+                      tarefa: params.tarefa,
+                      role: params.role,
+                      runner: params.runner,
+                    });
+                    fecharEscolhaAgente();
+                  }}
+                />
+              </section>
+            </Modal>
+          )}
 
           {verAtividade && <Modal title="Atividade" onClose={() => setVerAtividade(false)}>
             <section className="activity-panel"><header className="panel-heading"><h2>Atividade</h2><button className="icon-btn" aria-label="Fechar atividade" onClick={() => setVerAtividade(false)}><Icon name="close" /></button></header>
@@ -761,16 +1046,67 @@ export function App() {
               ) : visible.length === 0 ? (
                 <div className="partida">
                   <h2>Traga o primeiro agente.</h2>
-                  <button className="botao-grande" disabled={connection !== "connected" || !agents[agent]} onClick={() => send({ type: "spawn", agent, missionId: active.id, tipo: tipoManual || undefined })}><Icon name="plus" size={16} /> Abrir {agents[agent]?.label ?? "agente"}<Icon name="arrow" size={16} /></button>
+                  <button className="botao-grande" disabled={connection !== "connected"} onClick={abrirEscolhaAgente}><Icon name="plus" size={16} /> Adicionar agente <Icon name="arrow" size={16} /></button>
                   <p className="rodape-partida">
                     O <strong>maestro</strong> divide o trabalho e chama os especialistas sozinho.
                     Um especialista você comanda direto.
                   </p>
                 </div>
               ) : null}
-              <PaneGrid panes={panes} missionId={active?.id ?? null} agents={agents} usos={usos}
-                colunas={colunas} selectedId={selecionado}
-                onClose={paneId => send({ type: "kill", paneId })} />
+              <PaneGrid
+                panes={panes}
+                missionId={active?.id ?? null}
+                agents={agents}
+                usos={usos}
+                colunas={colunas}
+                selectedId={selecionado}
+                connections={connections}
+                tasks={tasks}
+                onMudarPapel={(paneId, maestro) => {
+                  guarded(async () => {
+                    await postPapelPainel(paneId, { maestro });
+                  });
+                }}
+                onDefinirAgente={(paneId, agent) => {
+                  guarded(async () => {
+                    await postPapelPainel(paneId, { maestro: false, agent });
+                  });
+                }}
+                onRenomearLabel={(paneId, novoLabel) => {
+                  guarded(async () => {
+                    const p = panes.find((x) => x.paneId === paneId);
+                    await postPapelPainel(paneId, {
+                      label: novoLabel,
+                      maestro: p?.maestro ?? false,
+                    });
+                  });
+                }}
+                onReclassificarPapel={(paneId, novoPapel) => {
+                  guarded(async () => {
+                    await postPapelPainel(paneId, {
+                      agent: novoPapel,
+                      maestro: novoPapel === "maestro",
+                    });
+                  });
+                }}
+                onClose={(paneId) => setPaneParaEncerrar(paneId)}
+                onConectar={(origemId, destinoId) => {
+                  if (!active?.id) return;
+                  guarded(async () => {
+                    await createConnection(active.id, origemId, destinoId);
+                    const res = await fetchConnections(active.id);
+                    if (res.ok && res.connections) setConnections(res.connections);
+                  });
+                }}
+                onDesconectar={(connId) => {
+                  if (!active?.id) return;
+                  guarded(async () => {
+                    await deleteConnection(active.id, connId);
+                    const res = await fetchConnections(active.id);
+                    if (res.ok && res.connections) setConnections(res.connections);
+                  });
+                }}
+              />
 
             </div>
 
@@ -800,6 +1136,93 @@ export function App() {
               </Suspense>
             )}
           </div>
+
+          {/* Modal de confirmação para encerrar painel (ação destrutiva) */}
+          {paneParaEncerrar && (
+            <Modal title="Encerrar Terminal" onClose={() => setPaneParaEncerrar(null)}>
+              <div className="confirm-dialog-content">
+                <header className="panel-heading">
+                  <h2>Encerrar painel de terminal?</h2>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label="Cancelar"
+                    onClick={() => setPaneParaEncerrar(null)}
+                  >
+                    <Icon name="close" />
+                  </button>
+                </header>
+                <p>
+                  Tem certeza que deseja encerrar o painel{" "}
+                  <strong>
+                    {panes.find((p) => p.paneId === paneParaEncerrar)?.label ?? paneParaEncerrar}
+                  </strong>
+                  ?
+                </p>
+                <p className="dica">
+                  O processo PTY em execução será encerrado e o terminal desacoplado.
+                </p>
+                <footer className="panel-actions">
+                  <button
+                    type="button"
+                    className="btn quiet"
+                    onClick={() => setPaneParaEncerrar(null)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn perigo"
+                    onClick={() => {
+                      send({ type: "kill", paneId: paneParaEncerrar });
+                      setPaneParaEncerrar(null);
+                    }}
+                  >
+                    Encerrar Painel
+                  </button>
+                </footer>
+              </div>
+            </Modal>
+          )}
+
+          {/* Modal de confirmação para outras ações destrutivas */}
+          {confirmacaoDestrutiva && (
+            <Modal title={confirmacaoDestrutiva.titulo} onClose={() => setConfirmacaoDestrutiva(null)}>
+              <div className="confirm-dialog-content">
+                <header className="panel-heading">
+                  <h2>{confirmacaoDestrutiva.titulo}</h2>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label="Cancelar"
+                    onClick={() => setConfirmacaoDestrutiva(null)}
+                  >
+                    <Icon name="close" />
+                  </button>
+                </header>
+                <p>{confirmacaoDestrutiva.mensagem}</p>
+                <footer className="panel-actions">
+                  <button
+                    type="button"
+                    className="btn quiet"
+                    onClick={() => setConfirmacaoDestrutiva(null)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn perigo"
+                    onClick={() => {
+                      confirmacaoDestrutiva.onConfirmar();
+                      setConfirmacaoDestrutiva(null);
+                    }}
+                  >
+                    Confirmar Ação
+                  </button>
+                </footer>
+              </div>
+            </Modal>
+          )}
         </main>
       </div>
     </div>

@@ -1,16 +1,37 @@
-import type { PaneState, Usage } from "./api.ts";
+import type {
+  PaneState,
+  Usage,
+  Task,
+  TaskStatus,
+  TaskEvidence,
+  MailboxMessage,
+} from "./api.ts";
 
 export type ServerMessage =
   | { type: "error"; message: string }
-  | { type: "maestro" }
+  | { type: "maestro"; [key: string]: unknown }
   | { type: "panes"; panes: PaneState[] }
   | { type: "spawned"; pane: PaneState }
   | { type: "output"; paneId: string; data: string }
   | { type: "exit"; paneId: string; code: number }
-  | { type: "pulse"; pulsos: { paneId: string; status: PaneState["status"]; atividade: number[] }[] }
+  | { type: "pulse"; pulsos: { paneId: string; status: PaneState["status"]; atividade: number[]; blockedReason?: string | null }[] }
   | { type: "usage"; usos: { paneId: string; usage: Usage }[] }
   | { type: "memoria"; projectId: string }
-  | { type: "fs-change"; path: string; base: string };
+  | { type: "fs-change"; path: string; base: string }
+  | { type: "task:created"; task: Task }
+  | { type: "task:updated"; task: Task }
+  | { type: "task:status_changed"; taskId: string; status: TaskStatus }
+  | { type: "task:deleted"; taskId: string; missionId?: string }
+  | { type: "task:assigned"; taskId: string; paneId: string | null; responsavel?: string; papel?: string }
+  | { type: "task:evidence_added"; taskId: string; evidence: TaskEvidence }
+  | { type: "fs:collision_warning"; [key: string]: unknown }
+  | { type: "inbox:message"; targetPane: string; message: MailboxMessage }
+  | { type: "mission:mode_changed"; missionId: string; modo: string }
+  | { type: "mission:updated"; missionId: string; nome?: string }
+  | { type: "connection:updated"; missionId?: string }
+  | { type: "pool:updated"; [key: string]: unknown }
+  | { type: "pool:rotated"; cli: string; from: string; to: string; paneId: string; detail?: string }
+  | { type: "maestro:reactivated"; missionId: string; especialistas: string };
 
 type OutputHandler = (data: string) => void;
 

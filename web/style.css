@@ -914,7 +914,7 @@ button, select, input, textarea { font: inherit; color: inherit; }
   font-size: var(--t-base);
 }
 
-/* Tipo da tarefa no painel: mostra por que aquele modelo foi escolhido. */
+/* Tipo da tarefa no painel: mostra contexto de trabalho. */
 .tipo-chip {
   flex: none;
   padding: 0 5px;
@@ -980,6 +980,134 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .prov-teste.ok { color: var(--ok); }
 .prov-teste.falhou { color: var(--alerta); }
 
+.prov-item-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.badge-pool {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(0, 180, 255, 0.12);
+  color: var(--neon, #00b4ff);
+  border: 1px solid rgba(0, 180, 255, 0.25);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.badge-pool.tem-cooldown {
+  background: rgba(226, 112, 58, 0.15);
+  color: var(--alerta, #e2703a);
+  border-color: rgba(226, 112, 58, 0.3);
+}
+
+.prov-pool-drawer {
+  margin: 0 0 4px 18px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--fio);
+  border-radius: var(--raio);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prov-pool-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.prov-pool-topo b {
+  font-size: var(--t-mini);
+  color: var(--ink-2);
+}
+
+.lista-contas-pool {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.conta-pool-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: var(--fundo-card, rgba(0, 0, 0, 0.25));
+  border: 1px solid var(--fio);
+  font-size: var(--t-mini);
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.conta-pool-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.conta-pool-principal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.conta-pool-detalhes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-4);
+  font-size: 11px;
+  font-family: var(--fonte-mono);
+}
+
+.conta-pool-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.conta-pool-tag.livre {
+  background: rgba(79, 178, 134, 0.15);
+  color: #4fb286;
+  border: 1px solid rgba(79, 178, 134, 0.3);
+}
+
+.conta-pool-tag.ocupada {
+  background: rgba(0, 180, 255, 0.15);
+  color: #00b4ff;
+  border: 1px solid rgba(0, 180, 255, 0.3);
+}
+
+.conta-pool-tag.cooldown {
+  background: rgba(226, 112, 58, 0.15);
+  color: #e2703a;
+  border: 1px solid rgba(226, 112, 58, 0.3);
+}
+
+.conta-pool-acoes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .form-inline { display: flex; flex-direction: column; gap: 5px; max-width: 460px; }
 .form-acoes { display: flex; justify-content: flex-end; gap: var(--gap); }
 
@@ -997,8 +1125,8 @@ button, select, input, textarea { font: inherit; color: inherit; }
 /* Independent windows leave the terminal workspace at its original size. */
 .modal-window {
   width: min(800px, calc(100vw - 32px));
-  max-width: none;
-  max-height: calc(100dvh - 48px);
+  max-width: calc(100vw - 32px);
+  max-height: min(780px, calc(100dvh - 36px));
   padding: 0;
   margin: auto;
   border: 1px solid var(--fio);
@@ -1007,21 +1135,30 @@ button, select, input, textarea { font: inherit; color: inherit; }
   color: var(--ink);
   box-shadow: 0 24px 90px #000b;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 .modal-window::backdrop { background: #000b; }
+.modal-window > * {
+  min-height: 0;
+  max-height: 100%;
+}
 .modal-window > .wizard,
 .modal-window > .config,
 .modal-window > .consumo {
-  max-height: calc(100dvh - 50px);
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
   border-bottom: 0;
 }
 .modal-window .wizard-topo,
 .modal-window .consumo-head { flex-shrink: 0; }
 @media (max-width: 600px) {
-  .modal-window { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); }
+  .modal-window { width: calc(100vw - 16px); max-width: calc(100vw - 16px); max-height: calc(100dvh - 20px); border-radius: 16px; }
   .modal-window > .wizard,
   .modal-window > .config,
-  .modal-window > .consumo { max-height: calc(100dvh - 26px); }
+  .modal-window > .consumo { max-height: 100%; }
 }
 
 
@@ -1203,6 +1340,11 @@ svg { flex-shrink: 0; vertical-align: middle; }
   .work.dividido { flex-direction: column; }
   .work.dividido .panes-wrap { flex: 1 1 50%; }
   .editor { flex: 1 1 50%; border-left: 0; border-top: 1px solid var(--fio); }
+}
+
+@media (max-width: 900px) {
+  .panes { grid-template-columns: 1fr !important; }
+  .panes > .pane { grid-column: auto !important; }
 }
 
 @media (max-width: 760px) {
@@ -1408,7 +1550,7 @@ svg { flex-shrink: 0; vertical-align: middle; }
   font-family: var(--fonte-mono);
   font-size: 10px;
 }
-/* O tipo é a peça que decide modelo e esforço: é a que merece a cor. */
+/* Tipo identifica contexto de trabalho no painel. */
 .receita-pecas .peca-tipo { background: var(--neon-fundo); color: var(--neon); }
 .receita .apagar { opacity: 0; }
 .receita:hover .apagar, .receita:focus-within .apagar { opacity: 1; }

@@ -21,7 +21,19 @@ import { type CSSProperties } from "react";
  * estado nenhum, e não pode fingir que está trabalhando. Acordado e sem
  * opinião é o retrato honesto disso.
  */
-export type EstadoMascote = "run" | "idle" | "dead" | "off" | "neutro";
+export type EstadoMascote =
+  | "run"
+  | "idle"
+  | "dead"
+  | "off"
+  | "neutro"
+  | "starting"
+  | "waiting-user"
+  | "working"
+  | "blocked"
+  | "review"
+  | "completed"
+  | "failed";
 
 const FORMAS = ["circulo", "seixo", "squircle", "capsula", "hexagono", "gota"] as const;
 
@@ -50,10 +62,21 @@ export function Mascote({ semente, cor, estado, tamanho = 22, titulo }: {
   titulo?: string;
 }) {
   const corpo = CORPOS[forma(semente)];
+  const normEstado =
+    estado === "working" || estado === "run" || estado === "starting" || estado === "review"
+      ? "run"
+      : estado === "waiting-user" || estado === "idle" || estado === "completed"
+      ? "idle"
+      : estado === "dead" || estado === "failed"
+      ? "dead"
+      : estado === "blocked"
+      ? "idle"
+      : estado;
+
   // Encerrado e sem conexão não têm cor de identidade: um agente morto não
   // pode parecer vivo só porque a cor dele é bonita.
-  const apagado = estado === "dead" || estado === "off";
-  const olhosFechados = estado === "idle";
+  const apagado = normEstado === "dead" || normEstado === "off";
+  const olhosFechados = normEstado === "idle";
 
   return (
     <svg
