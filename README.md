@@ -71,7 +71,9 @@ O papel não é o modelo. **Construtor** pode ser executado por Claude, Codex, G
   - `agy` — Antigravity/Gemini;
   - `grok` — CLI do Grok;
   - `bash` — shell local;
-  - DSH — apenas para os perfis configurados com backend `dsh`.
+  - **DSH (DeepSeek Harness) instalado localmente** — obrigatório apenas para os perfis configurados com backend `dsh`.
+
+> **DSH não acompanha o Cockpit:** `npm ci` instala somente as dependências deste repositório. Para usar Claude ou DeepSeek pelo backend `dsh`, você precisa instalar ou clonar o DeepSeek Harness na sua máquina, manter o checkout acessível e configurar `DSH_REPO_PATH`, `DSH_BIN` e um `DSH_HOME` isolado. Se você usar somente executores `pty` — por exemplo Bash, Codex, Agy ou Grok — o DSH não é necessário.
 
 O Cockpit não instala nem autentica automaticamente todos esses programas. Ele pode auxiliar no onboarding de algumas contas e registrar comandos de instalação de provedores, mas a disponibilidade final depende da sua máquina, da sua conta e das credenciais do respectivo CLI.
 
@@ -167,6 +169,8 @@ npm start
 - `instrucoesGerais`: texto incluído no contexto inicial dos agentes; use para fatos estáveis da máquina e regras do projeto, nunca para guardar segredos.
 
 ## Configuração do DSH
+
+Antes de configurar esta seção, instale ou clone o **DeepSeek Harness** na máquina em que o Cockpit será executado. O Cockpit espera um checkout local do DSH; ele não baixa, compila nem distribui o DSH automaticamente. Depois informe onde ele está com `DSH_REPO_PATH` ou aponte diretamente para seu entrypoint com `DSH_BIN`.
 
 O DSH tem dois usos diferentes e não deve compartilhar o mesmo home nos dois modos:
 
