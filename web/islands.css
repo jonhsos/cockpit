@@ -14,7 +14,7 @@ button, summary { -webkit-tap-highlight-color: transparent; }
 .shell { display: flex; flex: 1; min-height: 0; min-width: 0; position: relative; }
 
 /* ---------- lateral ---------- */
-.sidebar { display: flex; flex-direction: column; width: 272px; flex: none; min-height: 0; background: var(--preto); transition: width 180ms ease; position: relative; }
+.sidebar { display: flex; flex-direction: column; width: 272px; flex: none; min-height: 0; background: var(--preto); position: relative; }
 .sidebar-top { display: flex; align-items: center; gap: 4px; min-height: 56px; padding: 8px 8px 8px 14px; flex: none; }
 .brand-button { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; padding: 6px 0; border: 0; background: none; color: var(--ink); cursor: pointer; text-align: left; }
 .brand-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; background: var(--barra); border: 1px solid var(--fio); flex: none; }
@@ -821,6 +821,9 @@ select.stage-mode-select:hover { border-color: #58a6ff; }
   flex: 1 1 auto;
   min-height: 0;
   gap: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 .catalog-step .step-header { flex: none; }
 .catalog-step .step-header h3 { margin: 0 0 4px; font-size: 16px; color: var(--ink); }
@@ -887,6 +890,10 @@ select.stage-mode-select:hover { border-color: #58a6ff; }
   padding: 10px 0 0;
   border-top: 1px solid var(--fio);
   background: var(--carta);
+  position: sticky;
+  bottom: 0;
+  padding-bottom: max(2px, env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 12px var(--carta);
   z-index: 5;
   flex: none;
 }
@@ -1035,6 +1042,7 @@ select.stage-mode-select:hover { border-color: #58a6ff; }
 .auth-account-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; border-top: 1px solid #d2992230; }
 .auth-account-row > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .auth-account-row code { overflow: hidden; color: #c9b98a; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.auth-help { margin: -2px 0 0; color: #c9b98a; font-size: 11px; line-height: 1.4; }
 
 .mission-wizard {
   display: flex;
@@ -1336,12 +1344,16 @@ select.stage-mode-select:hover { border-color: #58a6ff; }
     padding: 6px 8px;
     gap: 4px;
     overflow-x: auto;
+    flex-wrap: nowrap;
     scrollbar-width: none;
   }
   .catalog-breadcrumbs .crumb { font-size: 11px; padding: 2px 5px; white-space: nowrap; }
   .role-catalog-layout { grid-template-columns: 1fr; }
   .role-contract-card { max-height: 220px; }
   .role-grid, .runner-grid { grid-template-columns: 1fr; }
+  .catalog-step { padding-right: 0; }
+  .catalog-actions { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+  .catalog-actions .btn { flex: 1 1 150px; min-height: 40px; }
   .custom-role-grid, .custom-role-contract-fields, .mission-brief-grid { grid-template-columns: 1fr; }
   .mission-wizard .wizard-topo { padding: 14px; }
   .mission-wizard .wizard-corpo { padding: 14px; gap: 12px; }

@@ -1,4 +1,4 @@
-import { accountPool } from "../servidor/providers/account-pool.ts";
+import { accountPool, argumentosDeLogin } from "../servidor/providers/account-pool.ts";
 
 let falhas = 0;
 const ok = (cond: boolean, msg: string) => {
@@ -7,6 +7,8 @@ const ok = (cond: boolean, msg: string) => {
 };
 
 console.log("=== POOL DE CONTAS — INICIALIZAÇÃO E CARGA ===");
+ok(JSON.stringify(argumentosDeLogin("codex")) === JSON.stringify(["login", "--device-auth"]), "Codex usa login por dispositivo");
+ok(JSON.stringify(argumentosDeLogin("agy")) === JSON.stringify(["login"]), "Outros CLIs mantêm o login padrão");
 ok(accountPool.hasPool("codex"), "Pool do codex inicializado a partir do config");
 ok(accountPool.hasPool("agy"), "Pool do agy inicializado a partir do config");
 ok(accountPool.hasPool("grok"), "Pool do grok inicializado a partir do config");

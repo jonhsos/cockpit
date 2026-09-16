@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { RouterContext } from "./types.ts";
-import { accountPool } from "../providers/account-pool.ts";
+import { accountPool, argumentosDeLogin } from "../providers/account-pool.ts";
 import { AgyOnboardingService } from "../providers/agy-onboarding.ts";
 import { getMission, listMissions, listProjects } from "../state.ts";
 import { listPanes } from "../pty.ts";
@@ -264,7 +264,7 @@ export function createAccountPoolsRouter(ctx: RouterContext): Router {
         {
           runner: cli,
           backend: "pty",
-          loginArgs: ["login"],
+          loginArgs: argumentosDeLogin(cli),
         },
         [],
         false,

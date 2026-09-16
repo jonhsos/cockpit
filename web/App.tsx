@@ -30,6 +30,7 @@ import {
   fetchMissions,
   fetchPanes,
   fetchProjects,
+  fetchProviders,
   fetchTree,
   fetchConnections,
   createConnection,
@@ -204,6 +205,10 @@ export function App() {
     if (projectIdRef.current === pid && activeIdRef.current === missionId) setTree(result.tree);
   }, []);
 
+  const recarregarProvedores = useCallback(() => {
+    void fetchProviders().then(({ providers: lista }) => setProviders(lista)).catch(() => {});
+  }, []);
+
   useEffect(() => {
     void fetchConfig().then((c) => {
       setAgents(c.agents);
@@ -237,6 +242,10 @@ export function App() {
         case "error": setAviso(msg.message); break;
         case "maestro":
           void fetchConfig().then(c => { setAgents(c.agents); setProviders(c.providers ?? []); });
+          break;
+        case "pool:updated":
+        case "pool:rotated":
+          recarregarProvedores();
           break;
         case "panes":
           setPanes(msg.panes);

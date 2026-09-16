@@ -10,7 +10,7 @@ import { CASA } from "../state.ts";
 import { confiar } from "../confianca.ts";
 import { definirModelo } from "../agy.ts";
 import { resolverHarness, type Pedido } from "../harness.ts";
-import { promptInternoDoPapel, type RoleContractInput } from "../orchestration/roles.ts";
+import { promptInicialDoPapel, type RoleContractInput } from "../orchestration/roles.ts";
 import { pathComExecutaveisLocais, providerDisponivel, resolverExecutavel } from "../providers.ts";
 import { argsDaPonte, envDaPonte, pontede } from "../ponte.ts";
 import { dshApiDoCli, envDaDshApi } from "../providers/dsh-api.ts";
@@ -189,7 +189,7 @@ export class PtyManager {
   private isConnecting: boolean = false;
   private initialized: boolean = false;
   private globalOutputListeners = new Set<(paneId: string, data: string) => void>();
-  private globalExitListeners = new Set<(paneId: string, code: number) => void>();
+  private globalExitListeners = new Set<(paneId: string, code: number, pane?: PaneState) => void>();
   /** Reaps DSH iniciados por killPty síncrono — flushDshKills() espera todos. */
   private pendingDshKills: Promise<void>[] = [];
 
@@ -211,14 +211,14 @@ export class PtyManager {
     return () => this.globalOutputListeners.delete(listener);
   }
 
-  public onExit(listener: (paneId: string, code: number) => void): () => void {
+  public onExit(listener: (paneId: string, code: number, pane?: PaneState) => void): () => void {
     this.globalExitListeners.add(listener);
     return () => this.globalExitListeners.delete(listener);
   }
 
   public setGlobalHandlers(
     onOutput: (paneId: string, data: string) => void,
-    onExit: (paneId: string, code: number) => void,
+    onExit: (paneId: string, code: number, pane?: PaneState) => void,
   ): void {
     this.globalOutputListeners.add(onOutput);
     this.globalExitListeners.add(onExit);
@@ -250,8 +250,9 @@ export class PtyManager {
     });
 
     this.client.on("exit", (paneId: string, code: number, status: PaneStatus) => {
-      accountPool.release(paneId);
       const entry = this.ptys.get(paneId);
+      const exitedPane = entry?.state;
+      accountPool.release(paneId);
       if (entry) {
         try {
           transitionPane(entry.state, status, { exitCode: code });
@@ -265,7 +266,7 @@ export class PtyManager {
       }
       for (const listener of this.globalExitListeners) {
         try {
-          listener(paneId, code);
+          listener(paneId, code, exitedPane);
         } catch (err) {
           console.error(`[PtyManager] error in global exit listener:`, err);
         }
@@ -475,14 +476,14 @@ export class PtyManager {
       }
       assertExecutorDisponivel(bundle.cli, opts.backend);
       const spec: AgentSpec = { ...perfil, cli: bundle.cli, model: bundle.model, effort: bundle.effort };
-      const promptInterno = promptInternoDoPapel({
+      const promptInicial = promptInicialDoPapel({
         role: opts.role,
         agent: opts.agent,
         objetivo: opts.objetivo,
         tarefa: opts.tarefa,
         custom: opts.roleDefinition,
       });
-      dshInitialPrompt = promptInterno;
+      dshInitialPrompt = promptInicial;
       effectiveBackend = opts.backend ? parseCliBackend(opts.backend) : backendDo(spec.cli);
       if (effectiveBackend !== "dsh") {
         allocatedAccount = accountPool.acquire(spec.cli, paneId, opts.preferredAccountId);
@@ -557,8 +558,6 @@ export class PtyManager {
         if (spec.model) args.push("--model", spec.model);
         if (spec.effort) args.push("--effort", spec.effort);
       }
-
-      let promptInicial = promptInterno;
 
       if (familia === "codex") {
         args.push(...argsDaPonte(spec.cli));
@@ -696,7 +695,7 @@ export class PtyManager {
             entry.state.exitCode = code;
             this.savePaneToDisk(entry.state);
             if (entry.onExit) entry.onExit(code);
-            for (const listener of this.globalExitListeners) listener(paneId, code);
+            for (const listener of this.globalExitListeners) listener(paneId, code, entry.state);
           },
         })
         .catch((err) => {

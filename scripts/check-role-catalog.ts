@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { CATALOG_ROLES, PRIMARY_ROLES } from "../web/tipos.ts";
-import { promptInternoDoPapel, roleContractFor } from "../servidor/orchestration/roles.ts";
+import { promptInicialDoPapel, promptInternoDoPapel, roleContractFor } from "../servidor/orchestration/roles.ts";
 
 const expected = [
   ["maestro", "Orquestrador", ["Orquestrador", "Planejador"]],
@@ -34,6 +34,15 @@ for (const [id, label] of expected) {
   assert.match(prompt, new RegExp(`IDENTIDADE: Você atua oficialmente como ${label}\\.`));
   assert.match(prompt, /CAPACIDADES INCORPORADAS:/);
   assert.match(prompt, /CONTRATO INTERNO DO PAPEL/);
+  assert.equal(
+    promptInicialDoPapel({ role: id, objetivo: "objetivo de teste" }),
+    undefined,
+    `${label} não deve consumir prompt ao abrir sem tarefa explícita`,
+  );
+  assert.match(
+    promptInicialDoPapel({ role: id, objetivo: "objetivo de teste", tarefa: "tarefa de teste" }) ?? "",
+    /CONTRATO INTERNO DO PAPEL/,
+  );
 }
 
 const catalogSource = readFileSync("web/RoleCatalog.tsx", "utf8");

@@ -172,6 +172,11 @@ export function contaAutenticada(cli: string, env: Record<string, string>): bool
   return true;
 }
 
+export function argumentosDeLogin(cli: string): string[] {
+  const familia = config?.clis?.[cli]?.familia ?? cli;
+  return familia === "codex" ? ["login", "--device-auth"] : ["login"];
+}
+
 export class AccountPoolManager {
   private pools = new Map<string, Map<string, AccountRuntime>>();
   private paneToAccount = new Map<string, { cli: string; accountId: string }>();

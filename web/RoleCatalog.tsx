@@ -13,7 +13,8 @@ import {
   roleDefinitionFor,
   type RoleContractPayload,
 } from "./role-contract.ts";
-import { type Provider, type StatusPonte, type Elenco, openLoginTerminal } from "./api.ts";
+import { fetchAccountPools, openLoginTerminal, type AccountPoolView, type Provider, type StatusPonte, type Elenco } from "./api.ts";
+import { onMessage } from "./socket.ts";
 
 export interface RoleCatalogProps {
   onLaunch: (params: {
@@ -84,6 +85,7 @@ export function RoleCatalog({
   const [tarefa, setTarefa] = useState("");
   const [preferredAccountId, setPreferredAccountId] = useState("");
   const [accountPinned, setAccountPinned] = useState(false);
+  const [poolAtualizado, setPoolAtualizado] = useState<AccountPoolView | null>(null);
   const [loginMsg, setLoginMsg] = useState<string | null>(null);
   const [customRoles, setCustomRoles] = useState<RoleDefinition[]>([]);
   const [criandoCustom, setCriandoCustom] = useState(false);
@@ -127,7 +129,9 @@ export function RoleCatalog({
   }, [pontes, selectedProvider, selectedRunner]);
   const availableEfforts = selectedProvider?.efforts?.length ? selectedProvider.efforts : FALLBACK_EFFORTS;
   const poolDoCockpitAtivo = selectedBackend === "pty";
-  const contasPool = poolDoCockpitAtivo ? selectedProvider?.pool?.contas ?? [] : [];
+  const contasPool = poolDoCockpitAtivo
+    ? poolAtualizado?.contas ?? selectedProvider?.pool?.contas ?? []
+    : [];
   const contasElegiveis = contasPool.filter((account) => account.status === "livre" && account.authenticated !== false);
   const contasNaoAutenticadas = contasPool.filter((account) => account.authenticated === false);
   const aiDisponivel = (runner: RunnerId) => {
@@ -140,6 +144,30 @@ export function RoleCatalog({
     const provider = providers.find((item) => item.id === selectedRunner);
     setSelectedBackend(provider?.backend ?? (selectedRunner === "codex" || selectedRunner === "claude" ? "dsh" : "pty"));
   }, [providers, selectedRunner]);
+
+  useEffect(() => {
+    let ativo = true;
+    const recarregarPool = () => {
+      if (!poolDoCockpitAtivo || selectedRunner === "bash") {
+        setPoolAtualizado(null);
+        return;
+      }
+      void fetchAccountPools()
+        .then(({ pools }) => {
+          if (ativo) setPoolAtualizado(pools[selectedRunner] ?? null);
+        })
+        .catch(() => {});
+    };
+
+    recarregarPool();
+    const removerListener = onMessage((message) => {
+      if (message.type === "pool:updated" || message.type === "pool:rotated") recarregarPool();
+    });
+    return () => {
+      ativo = false;
+      removerListener();
+    };
+  }, [poolDoCockpitAtivo, selectedRunner]);
 
   useEffect(() => {
     if (selectedRunner === "bash") {
@@ -306,10 +334,11 @@ export function RoleCatalog({
           <label className="campo-bloco"><span className="rotulo">Modelo <em>opcional; vazio usa o padrão real do executor</em></span><select className="campo" value={selectedModel} onChange={(event) => { setSelectedModel(event.target.value); setCustomModel(""); }}><option value="">Padrão do executor</option>{availableModels.map((model) => <option key={model} value={model}>{model}</option>)}</select></label>
           <label className="campo-bloco"><span className="rotulo">Ou informar um modelo</span><input className="campo" value={customModel} onChange={(event) => setCustomModel(event.target.value)} placeholder="somente se o executor aceitar" maxLength={160} /></label>
           <label className="campo-bloco"><span className="rotulo">Esforço</span><select className="campo" value={selectedEffort} onChange={(event) => setSelectedEffort(event.target.value)}><option value="">Padrão do provedor</option>{availableEfforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></label>
-          {contasNaoAutenticadas.length > 0 && <div className="aviso-contas-auth"><div className="auth-warning-heading"><b>Autenticação pendente</b><span>{loginMsg}</span></div>{contasNaoAutenticadas.map((account) => <div className="auth-account-row" key={account.id}><span><b>{account.label || account.id}</b><code>{account.id}</code></span><button type="button" className="btn mini" onClick={async () => { setLoginMsg(`Abrindo login para ${account.label || account.id}…`); try { const result = await openLoginTerminal(selectedRunner, account.id, missionId); if (!result.ok) throw new Error(result.error || "falha ao abrir"); setLoginMsg("Terminal de login aberto"); } catch (error) { setLoginMsg(error instanceof Error ? error.message : String(error)); } }}>Fazer login</button></div>)}</div>}
+          {contasNaoAutenticadas.length > 0 && <div className="aviso-contas-auth"><div className="auth-warning-heading"><b>Autenticação pendente</b><span aria-live="polite">{loginMsg}</span></div>{selectedRunner === "codex" && <p className="auth-help">O login do Codex usa autenticação por dispositivo e grava a sessão na pasta desta conta.</p>}{contasNaoAutenticadas.map((account) => <div className="auth-account-row" key={account.id}><span><b>{account.label || account.id}</b><code>{account.id}</code></span><button type="button" className="btn mini" onClick={async () => { setLoginMsg(`Abrindo login para ${account.label || account.id}…`); try { const result = await openLoginTerminal(selectedRunner, account.id, missionId); if (!result.ok) throw new Error(result.error || "falha ao abrir"); setLoginMsg("Terminal de login aberto; conclua a autenticação nele"); } catch (error) { setLoginMsg(error instanceof Error ? error.message : String(error)); } }}>Fazer login</button></div>)}</div>}
           {contasElegiveis.length > 0 && <><label className="campo-bloco"><span className="rotulo">Conta do pool</span><select className="campo" value={preferredAccountId} onChange={(event) => { setPreferredAccountId(event.target.value); if (!event.target.value) setAccountPinned(false); }}><option value="">Automático (pool escolhe)</option>{contasElegiveis.map((account) => <option key={account.id} value={account.id}>{account.label || account.id}</option>)}</select></label><label className={`account-pin${preferredAccountId ? "" : " disabled"}`}><input type="checkbox" checked={accountPinned} disabled={!preferredAccountId} onChange={(event) => setAccountPinned(event.target.checked)} /><span><b>Fixar conta</b><small>Não fazer rotação automática se a cota acabar.</small></span></label></>}
           <label className="campo-bloco"><span className="rotulo">Tarefa inicial <em>opcional</em></span><textarea className="campo area" rows={3} value={tarefa} onChange={(event) => setTarefa(event.target.value)} placeholder={`O que ${currentRole.label} deve fazer primeiro?`} maxLength={64000} /></label>
-          <div className="final-contract-note"><Icon name="agent" size={17} /><span><b>Contrato protegido</b><small>Se a tarefa pedir algo fora do papel, o agente deve explicar o conflito e escalar — não improvisar.</small></span></div>
+          <p className="dica">Sem tarefa inicial, o painel apenas abre e aguarda sua instrução — nenhum prompt ou rodada de LLM é enviado no boot.</p>
+          <div className="final-contract-note"><Icon name="agent" size={17} /><span><b>Contrato protegido</b><small>Ao enviar uma tarefa, o contrato do papel acompanha a instrução; se ela pedir algo fora do papel, o agente deve explicar o conflito e escalar — não improvisar.</small></span></div>
           <footer className="catalog-actions"><button type="button" className="btn quiet" onClick={() => setEtapa(2)}>Voltar ao executor</button><button type="button" className="btn solid" onClick={handleFinish}>Abrir {currentRole.label}</button></footer>
         </section>
       )}

@@ -47,7 +47,7 @@ export function onPtyOutput(listener: (paneId: string, data: string) => void): (
 /**
  * Attaches a global listener for exit events from any active pane.
  */
-export function onPtyExit(listener: (paneId: string, code: number) => void): () => void {
+export function onPtyExit(listener: (paneId: string, code: number, pane?: PaneState) => void): () => void {
   return manager.onExit(listener);
 }
 

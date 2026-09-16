@@ -275,3 +275,14 @@ export function promptInternoDoPapel(options: {
     "Ao terminar, responda com: estado, trabalho realizado, evidências, arquivos afetados (se houver), riscos e próximo passo.",
   ].join("\n");
 }
+
+export function promptInicialDoPapel(options: {
+  role?: string;
+  agent?: string;
+  objetivo?: string;
+  tarefa?: string;
+  custom?: RoleContractInput;
+}): string | undefined {
+  if (!options.tarefa?.trim()) return undefined;
+  return promptInternoDoPapel(options);
+}

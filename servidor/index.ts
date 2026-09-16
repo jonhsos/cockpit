@@ -12,6 +12,8 @@ import { getTaskManager, getFileOwnershipManager } from "./tasks/index.ts";
 import { getMissionModeManager, getPaneDispatcher, MaestroCoordinator } from "./orchestration/index.ts";
 import { createWebSocketServer } from "./websocket/index.ts";
 import { createApiRouter, type RouterContext } from "./routes/index.ts";
+import { accountPool } from "./providers/account-pool.ts";
+import type { PaneState } from "./sessions/pane-state.ts";
 
 const porta = Number(process.env.COCKPIT_PORTA) || config.port;
 const app = express();
@@ -45,12 +47,12 @@ const coordinator = new MaestroCoordinator({
 let broadcast: (msg: unknown) => void = () => {};
 
 const cleanedPanes = new Set<string>();
-const cleanupPane = (paneId: string, code = 0) => {
+const cleanupPane = (paneId: string, code = 0, exitedPane?: PaneState) => {
   const isFirst = !cleanedPanes.has(paneId);
   cleanedPanes.add(paneId);
   setTimeout(() => cleanedPanes.delete(paneId), 5000);
 
-  const pane = getPane(paneId);
+  const pane = exitedPane ?? getPane(paneId);
   if (pane?.maestro && pane.missionId) {
     coordinator.clearDelegations(pane.missionId);
   }
@@ -69,6 +71,9 @@ const cleanupPane = (paneId: string, code = 0) => {
   if (isFirst) {
     broadcast({ type: "panes", panes: listPanes() });
     broadcast({ type: "connection:updated" });
+    if (pane?.accountId) {
+      broadcast({ type: "pool:updated", pools: accountPool.getView() });
+    }
   }
 };
 
@@ -105,8 +110,8 @@ ptyManager.onOutput((paneId, data) => {
   }
 });
 
-ptyManager.onExit((paneId, code) => {
-  cleanupPane(paneId, code);
+ptyManager.onExit((paneId, code, pane) => {
+  cleanupPane(paneId, code, pane);
 });
 
 const avisarMudanca = (path: string, base: string) => broadcast({ type: "fs-change", path, base });
