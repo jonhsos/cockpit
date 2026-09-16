@@ -30,6 +30,33 @@ export type PonteSpec = {
   nota?: string;
 };
 
+/**
+ * Uma rota de API usada diretamente pelo cérebro do DSH. Diferente de uma
+ * ponte, ela não tenta transformar a API em CLI: o Harness fala com ela pelo
+ * protocolo que o próprio DSH suporta.
+ */
+export type DshApiSpec = {
+  /** Chave da rota no catálogo do DSH, por exemplo `deepseek-official`. */
+  provider: string;
+  label: string;
+  /** Nome da variável entregue somente ao processo DSH do painel. */
+  chaveEnv: string;
+  /** Omitido para uma rota nativa do catálogo do DSH. */
+  api?: "openai-completions" | "openai-responses" | "anthropic-messages";
+  /** Omitido para usar a URL oficial conhecida pelo DSH. */
+  baseURL?: string;
+  chaveUrl?: string;
+  /** Último catálogo confirmado pelo DSH ou pelo endpoint da API. */
+  modelos?: DshApiModel[];
+};
+
+export type DshApiModel = {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+};
+
 export type ContaPoolSpec = {
   id: string;
   label?: string;
@@ -55,6 +82,7 @@ export type CliSpec = {
    */
   familia?: string;
   ponte?: PonteSpec;
+  dshApi?: DshApiSpec;
   env?: Record<string, string>;
   sandbox?: string;
   /** Pool de contas para concorrência e failover transparente */
@@ -185,6 +213,12 @@ export type CockpitConfig = {
   confiarNasPastasQueEuAbrir?: boolean;
   /** Auto-aprova comandos e ferramentas nos CLIs (--dangerously-skip-permissions, --ask-for-approval never, etc.). */
   autoAprovar?: boolean;
+  workspace?: {
+    modo?: "pasta-real";
+    worktreesAutomaticos?: boolean;
+    umaMissaoEscritoraPorProjeto?: boolean;
+    bloquearPastasCockpitWorktrees?: boolean;
+  };
   /** Idioma do ditado: portuguese, english, spanish… */
   vozIdioma?: string;
   /** Colado no prompt de todo agente: fatos desta máquina. */
@@ -246,6 +280,13 @@ const ARQUIVO = process.env.COCKPIT_CONFIG ?? fileURLToPath(new URL("../cockpit.
 export const ler = (): CockpitConfig => {
   const cfg = JSON.parse(readFileSync(ARQUIVO, "utf8")) as CockpitConfig;
   if (cfg.maestroAutoSwitch === undefined) cfg.maestroAutoSwitch = false;
+  cfg.workspace = {
+    modo: "pasta-real",
+    worktreesAutomaticos: false,
+    umaMissaoEscritoraPorProjeto: true,
+    bloquearPastasCockpitWorktrees: true,
+    ...cfg.workspace,
+  };
   if (cfg.clis) {
     for (const [id, cli] of Object.entries(cfg.clis)) {
       if (cli && typeof cli === "object" && cli.backend !== undefined) {
@@ -272,4 +313,3 @@ export function recarregarConfig(): void {
   for (const k of Object.keys(alvo)) delete alvo[k];
   Object.assign(alvo, novo);
 }
-

@@ -67,7 +67,7 @@ try {
       comando: 'codex',
       disponivel: true,
       caminho: '/usr/bin/codex',
-      modelos: ['JACK', 'gpt-6-astra', 'gpt-5.6-sol'],
+      modelos: ['gpt-5.6-luna', 'gpt-6-astra', 'gpt-5.6-sol'],
       agentes: ['maestro'],
       pool: codexPool
     },
@@ -117,7 +117,7 @@ try {
       if (path === '/api/pontes') return route.fulfill({ json: { pontes: [] } });
       if (path === '/api/maestro' || path === '/api/maestro/refresh') return route.fulfill({
         json: {
-          agent: { label: 'MAESTRO', cli: 'codex', model: 'JACK', effort: 'high' },
+          agent: { label: 'MAESTRO', cli: 'codex', model: 'gpt-5.6-luna', effort: 'high' },
           auto: true,
           providers: providersMock,
           limits: {}

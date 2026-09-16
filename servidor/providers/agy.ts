@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { resolverExecutavel } from "./providers.ts";
 
 /**
  * A Antigravity ignora --model em sessão interativa e lê o modelo de
@@ -19,7 +20,9 @@ function carregarModelos(): Map<string, string> {
   if (mapa) return mapa;
   mapa = new Map();
   try {
-    const saida = execFileSync("agy", ["models"], {
+    const executavel = resolverExecutavel("agy");
+    if (!executavel) return mapa;
+    const saida = execFileSync(executavel, ["models"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 30_000,

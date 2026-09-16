@@ -50,6 +50,7 @@ export interface PaneState {
   accountLabel?: string | null;
   /** Se true, cota blocked não rotaciona para outra conta do pool */
   accountPinned?: boolean;
+  backend?: "pty" | "dsh";
   status: PaneStatus;
   blockedReason?: string | null;
   exitCode?: number | null;

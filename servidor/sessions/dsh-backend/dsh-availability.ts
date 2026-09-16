@@ -6,6 +6,12 @@ export const DEFAULT_DSH_REPO_PATH = "/DATA/Projetos/deepseek-harness";
 export const DEFAULT_DSH_BIN_RELATIVE = "apps/cli/lib/bin.js";
 export const PINNED_DSH_VERSION = "0.1.5-rc.2";
 
+export function getDshRepoPath(): string {
+  return process.env.DSH_REPO_PATH && process.env.DSH_REPO_PATH.trim().length > 0
+    ? resolve(process.env.DSH_REPO_PATH.trim())
+    : DEFAULT_DSH_REPO_PATH;
+}
+
 /**
  * Retorna o caminho do binário do DSH pinado no checkout local.
  * Pode ser configurado via DSH_BIN ou DSH_REPO_PATH.
@@ -14,9 +20,7 @@ export function getDshBinPath(): string {
   if (process.env.DSH_BIN && process.env.DSH_BIN.trim().length > 0) {
     return resolve(process.env.DSH_BIN.trim());
   }
-  const repo = process.env.DSH_REPO_PATH && process.env.DSH_REPO_PATH.trim().length > 0
-    ? resolve(process.env.DSH_REPO_PATH.trim())
-    : DEFAULT_DSH_REPO_PATH;
+  const repo = getDshRepoPath();
   return join(repo, DEFAULT_DSH_BIN_RELATIVE);
 }
 

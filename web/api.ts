@@ -81,6 +81,7 @@ export type PaneState = {
   accountId?: string | null;
   accountLabel?: string | null;
   accountPinned?: boolean;
+  backend?: "pty" | "dsh";
   status:
     | "starting"
     | "waiting-user"
@@ -137,6 +138,7 @@ export type AgentSpec = {
   model?: string;
   effort?: string;
   papel?: string;
+  papel_id?: string;
   maestro?: boolean;
 };
 
@@ -191,6 +193,7 @@ export type AccountPoolView = {
 export type Provider = {
   id: string;
   comando: string;
+  backend?: "pty" | "dsh";
   disponivel: boolean;
   caminho: string | null;
   modelos: string[];
@@ -200,8 +203,43 @@ export type Provider = {
   instalar?: string;
   /** Presente quando o provedor é uma API rodando pelo binário de outro CLI. */
   ponte?: { base: string; chaveEnv: string; chaveEm: string | null; gratis: boolean };
+  dshApi?: { label: string; provider: string; chaveEnv: string; chaveEm: string | null };
   /** Pool de contas multicontas configurado para este provedor */
   pool?: AccountPoolView;
+};
+
+export type DshApi = {
+  id: string;
+  label: string;
+  provider: string;
+  model: string | null;
+  modelos: DshApiModel[];
+  api: "openai-completions" | "openai-responses" | "anthropic-messages" | null;
+  baseURL: string | null;
+  chaveEnv: string;
+  chaveEm: string | null;
+  pronto: boolean;
+  falta: string | null;
+  chaveUrl: string | null;
+};
+
+export type DshApiModel = {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+};
+
+export type DshApiInput = {
+  id: string;
+  label: string;
+  provider: string;
+  model?: string;
+  chave: string;
+  api?: "openai-completions" | "openai-responses" | "anthropic-messages" | null;
+  baseURL?: string | null;
+  chaveUrl?: string | null;
+  modelos?: DshApiModel[];
 };
 
 /**
@@ -284,9 +322,6 @@ export const listarDiretorios = (path?: string) =>
     json<{ path: string; dirs: string[]; parent: string }>,
   );
 export const closeProject = (id: string) => del(`/api/projects/${id}`).then(json<{ ok: true }>);
-export const prepararGit = (id: string) =>
-  post(`/api/projects/${id}/git`, {}).then(json<{ ok: true; pronto: boolean }>);
-
 // provedores
 export const fetchProviders = (rescan = false) =>
   fetch(`/api/providers${rescan ? "?rescan=1" : ""}`).then(
@@ -715,3 +750,53 @@ export type Cota = {
 
 export const fetchCotas = (rescan = false) =>
   fetch(`/api/cotas${rescan ? "?rescan=1" : ""}`).then(json<{ cotas: Cota[] }>);
+
+export const postPanePrompt = async (paneId: string, prompt: string, timeoutMs = 15_000) => {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`/api/panes/${encodeURIComponent(paneId)}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt }),
+      signal: controller.signal,
+    });
+    return await json<{ ok: boolean }>(response);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("O servidor não confirmou o prompt em até 15 segundos");
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timer);
+  }
+};
+
+export const openLoginTerminal = (cli: string, accountId: string, missionId?: string) =>
+  post("/api/account-pools/login-terminal", { cli, accountId, missionId }).then(
+    json<{ ok: boolean; paneId?: string; pane?: PaneState; error?: string }>,
+  );
+
+export const salvarBackendProvider = (id: string, backend: "pty" | "dsh") =>
+  post(`/api/providers/${encodeURIComponent(id)}/backend`, { backend }).then(
+    json<{ ok: true; cli: string; backend: "pty" | "dsh" }>,
+  );
+
+export const fetchDshApis = () => fetch("/api/dsh-apis").then(json<{ apis: DshApi[] }>);
+
+export const descobrirModelosDshApi = (api: DshApiInput) =>
+  post("/api/dsh-apis/modelos", api).then(json<{ ok: true; modelos: DshApiModel[] }>);
+
+export const atualizarModelosDshApi = (id: string) =>
+  post(`/api/dsh-apis/${encodeURIComponent(id)}/modelos`, {}).then(
+    json<{ ok: true; api: DshApi; modelos: DshApiModel[] }>,
+  );
+
+export const salvarDshApi = (api: DshApiInput) =>
+  post("/api/dsh-apis", api).then(json<{ ok: true; api: DshApi }>);
+
+export const salvarChaveDshApi = (id: string, chave: string) =>
+  post(`/api/dsh-apis/${id}/chave`, { chave }).then(json<{ ok: true }>);
+
+export const removerDshApi = (id: string) =>
+  fetch(`/api/dsh-apis/${id}`, { method: "DELETE" }).then(json<{ ok: true }>);

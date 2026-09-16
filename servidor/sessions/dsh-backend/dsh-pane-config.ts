@@ -2,10 +2,12 @@
  * Config por pane para workers DSH (KD-C + KD-omniroute).
  * Não hardcodar nome de modelo — só `spec.model` / escolha do usuário.
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "../../config.ts";
+import { readCodexGatewayConfig, type CodexGatewayConfig } from "../../providers/codex-config.ts";
+import { dshApiDoCli } from "../../providers/dsh-api.ts";
 
 export type PaneDshRoute = {
   /** cli do pane: codex | claude (familia). */
@@ -17,6 +19,29 @@ export type PaneDshRoute = {
   sandbox?: string | null;
 };
 
+export type PaneDshRuntimeConfig = {
+  patchPath: string;
+  provider: string;
+  model: string;
+  credentialEnv: string;
+};
+
+const DSH_GATEWAY_PROVIDER = "cockpit-codex-gateway";
+
+function resolveCodexGateway(codexHome?: string | null): CodexGatewayConfig {
+  const configuredHome = resolveCodexHome(config.clis.codex?.env ?? {});
+  const candidates = [codexHome, configuredHome].filter(
+    (value, index, all): value is string => Boolean(value) && all.indexOf(value) === index,
+  );
+  for (const candidate of candidates) {
+    const gateway = readCodexGatewayConfig(candidate);
+    if (gateway) return gateway;
+  }
+  throw new Error(
+    "DSH requer um gateway OpenAI-compatible no config.toml do CODEX_HOME (model_provider, base_url, env_key e wire_api)",
+  );
+}
+
 /**
  * Mapeia sandbox/autoAprovar do Cockpit → permissionMode do subagent.
  * Escolha documentada: workspace-write + autoAprovar → `never` (Codex) /
@@ -24,7 +49,7 @@ export type PaneDshRoute = {
  */
 export function permissionModeFor(route: PaneDshRoute): string {
   const sandbox = route.sandbox ?? "workspace-write";
-  const familia = route.cli === "codex" || route.cli === "claude" ? route.cli : route.cli;
+  const familia = config.clis[route.cli]?.familia ?? route.cli;
 
   if (!route.autoAprovar) {
     return familia === "claude" ? "dontAsk" : "never";
@@ -48,8 +73,9 @@ export function resolveCodexHome(cliEnv: Record<string, string>): string | undef
  * aqui só overlay de env/permissionMode/model no provider.
  */
 export function writePaneCordisPatch(route: PaneDshRoute): string | null {
-  const isCodex = route.cli === "codex";
-  const isClaude = route.cli === "claude";
+  const familia = config.clis[route.cli]?.familia ?? route.cli;
+  const isCodex = familia === "codex";
+  const isClaude = familia === "claude";
   if (!isCodex && !isClaude) return null;
 
   const providerId = isCodex ? "subagent-codex" : "subagent-claude-code";
@@ -86,6 +112,57 @@ export function writePaneCordisPatch(route: PaneDshRoute): string | null {
   const path = join(dir, "pane.cordis.yml");
   writeFileSync(path, yaml.join("\n"), "utf8");
   return path;
+}
+
+/**
+ * Configura o LLM principal do DSH pela API escolhida no Cockpit. Sem uma API
+ * direta, preserva o gateway configurado para o Codex como compatibilidade.
+ */
+export function createPaneDshRuntimeConfig(route: PaneDshRoute): PaneDshRuntimeConfig | null {
+  const familia = config.clis[route.cli]?.familia ?? route.cli;
+  const isCodex = familia === "codex";
+  const isClaude = familia === "claude";
+  if (!isCodex && !isClaude) return null;
+
+  const directApi = dshApiDoCli(route.cli);
+  const gateway = directApi ? null : resolveCodexGateway(route.codexHome);
+  const model = route.model?.trim() || gateway?.model?.trim();
+  if (!model) {
+    throw new Error("DSH requer um modelo explícito no painel ou no config.toml do Codex");
+  }
+  const patchPath = writePaneCordisPatch(route);
+  if (!patchPath) return null;
+
+  const deepseekOfficial = directApi?.provider === "deepseek-official" && !directApi.api && !directApi.baseURL;
+  const providerPatch = deepseekOfficial ? [
+    `- id: llm-deepseek`,
+    `  config:`,
+    `    apiKeyEnv: ${JSON.stringify(directApi!.chaveEnv)}`,
+    `    models:`,
+    `      - id: ${JSON.stringify(model)}`,
+    `        name: ${JSON.stringify(model)}`,
+    "",
+  ].join("\n") : [
+    `- id: llm-pi-ai`,
+    `  config:`,
+    `    providers:`,
+    `      ${directApi?.provider ?? DSH_GATEWAY_PROVIDER}:`,
+    `        displayName: ${JSON.stringify(directApi?.label ?? `Cockpit via ${gateway!.provider}`)}`,
+    `        apiKeyEnv: ${JSON.stringify(directApi?.chaveEnv ?? gateway!.credentialEnv)}`,
+    ...(directApi?.api ? [`        api: ${directApi.api}`] : gateway ? [`        api: ${gateway.api}`] : []),
+    ...(directApi?.baseURL ? [`        baseURL: ${JSON.stringify(directApi.baseURL)}`] : gateway ? [`        baseURL: ${JSON.stringify(gateway.baseUrl)}`] : []),
+    `        models:`,
+    `          - id: ${JSON.stringify(model)}`,
+    `            name: ${JSON.stringify(model)}`,
+    "",
+  ].join("\n");
+  writeFileSync(patchPath, `${readFileSync(patchPath, "utf8")}\n${providerPatch}`, "utf8");
+  return {
+    patchPath,
+    provider: directApi?.provider ?? DSH_GATEWAY_PROVIDER,
+    model,
+    credentialEnv: directApi?.chaveEnv ?? gateway!.credentialEnv,
+  };
 }
 
 export function autoAprovarAtivo(): boolean {

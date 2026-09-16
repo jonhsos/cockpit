@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { config, salvarConfig, type ContaPoolSpec } from "../config.ts";
+import { readCodexGatewayConfig } from "./codex-config.ts";
 
 export interface AccountRuntime {
   id: string;
@@ -44,33 +45,130 @@ function expandPath(val: string): string {
     .replace(/^\$HOME(?=$|\/)/, home);
 }
 
-function expandEnv(env: Record<string, string>): Record<string, string> {
+function expandEnv(env: Record<string, string> = {}): Record<string, string> {
   const expanded: Record<string, string> = {};
+  if (!env || typeof env !== "object") return expanded;
   for (const [key, val] of Object.entries(env)) {
-    expanded[key] = expandPath(val);
+    if (typeof val === "string") {
+      expanded[key] = expandPath(val);
+    }
   }
   return expanded;
+}
+
+const PUBLIC_ACCOUNT_ENV_KEYS = new Set([
+  "HOME",
+  "CODEX_HOME",
+  "CLAUDE_CONFIG_DIR",
+  "JETSKI_APP_DATA_DIR",
+  "GROK_HOME",
+]);
+
+function publicAccountEnv(env: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(expandEnv(env)).filter(([key]) => PUBLIC_ACCOUNT_ENV_KEYS.has(key)),
+  );
 }
 
 /**
  * Heurística genérica por pastas do env da conta (não por produto na UI).
  * Sem sinal conhecido → true (não esconde conta sem motivo).
  */
-export function contaAutenticada(_cli: string, env: Record<string, string>): boolean {
+export function contaAutenticada(cli: string, env: Record<string, string>): boolean {
   const expanded = expandEnv(env);
-  const jetski = expanded.JETSKI_APP_DATA_DIR || expanded.HOME;
-  if (jetski && (expanded.JETSKI_APP_DATA_DIR || /antigravity-cli|profiles\/conta_/i.test(jetski))) {
+  const familia = config?.clis?.[cli]?.familia ?? cli;
+
+  if (familia === "agy") {
+    const jetski = expanded.JETSKI_APP_DATA_DIR || expanded.HOME;
+    if (jetski && (expanded.JETSKI_APP_DATA_DIR || /antigravity-cli|profiles\/conta_/i.test(jetski))) {
+      return (
+        existsSync(join(jetski, "antigravity-oauth-token")) ||
+        existsSync(join(jetski, ".gemini", "antigravity-cli", "antigravity-oauth-token"))
+      );
+    }
+    return false;
+  }
+
+  if (familia === "codex") {
+    if (expanded.OPENAI_API_KEY || expanded.CODEX_API_KEY) {
+      return true;
+    }
+    const codexHome = expanded.CODEX_HOME || (expanded.HOME ? join(expanded.HOME, ".codex") : null);
+    if (codexHome) {
+      if (existsSync(join(codexHome, "auth.json")) || existsSync(join(codexHome, ".credentials.json"))) {
+        return true;
+      }
+      try {
+        const gateway = readCodexGatewayConfig(codexHome);
+        return Boolean(gateway && (expanded[gateway.credentialEnv] || process.env[gateway.credentialEnv]));
+      } catch {
+        return false;
+      }
+    }
+    const globalHome = config?.clis?.codex?.env?.CODEX_HOME
+      ? expandPath(config.clis.codex.env.CODEX_HOME)
+      : join(homedir(), ".codex");
     return (
-      existsSync(join(jetski, "antigravity-oauth-token")) ||
-      existsSync(join(jetski, ".gemini", "antigravity-cli", "antigravity-oauth-token"))
+      existsSync(join(globalHome, "auth.json")) ||
+      existsSync(join(globalHome, ".credentials.json")) ||
+      Boolean(process.env.OPENAI_API_KEY)
     );
   }
-  if (expanded.CODEX_HOME) {
-    return existsSync(join(expanded.CODEX_HOME, "auth.json"));
+
+  if (familia === "claude") {
+    if (expanded.ANTHROPIC_API_KEY || expanded.CLAUDE_API_KEY) {
+      return true;
+    }
+    const configDirs = [
+      expanded.CLAUDE_CONFIG_DIR,
+      expanded.HOME ? join(expanded.HOME, ".config", "claude-code") : null,
+      expanded.HOME,
+    ].filter(Boolean) as string[];
+
+    if (configDirs.length > 0) {
+      for (const dir of configDirs) {
+        if (
+          existsSync(join(dir, "auth.json")) ||
+          existsSync(join(dir, ".credentials.json"))
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY) {
+      return true;
+    }
+    const globalConfigDir = config?.clis?.claude?.env?.CLAUDE_CONFIG_DIR
+      ? expandPath(config.clis.claude.env.CLAUDE_CONFIG_DIR)
+      : null;
+    if (globalConfigDir) {
+      return (
+        existsSync(join(globalConfigDir, "auth.json")) ||
+        existsSync(join(globalConfigDir, ".credentials.json"))
+      );
+    }
+    const homeDir = homedir();
+    return (
+      existsSync(join(homeDir, ".credentials.json")) ||
+      existsSync(join(homeDir, ".claude", "auth.json")) ||
+      existsSync(join(homeDir, ".config", "claude-code", "auth.json"))
+    );
   }
-  if (expanded.GROK_HOME) {
-    return existsSync(join(expanded.GROK_HOME, "auth.json"));
+
+  if (familia === "grok") {
+    if (expanded.XAI_API_KEY || expanded.GROK_API_KEY) {
+      return true;
+    }
+    if (expanded.GROK_HOME) {
+      return existsSync(join(expanded.GROK_HOME, "auth.json"));
+    }
+    return (
+      existsSync(join(homedir(), ".grok", "auth.json")) ||
+      Boolean(process.env.XAI_API_KEY || process.env.GROK_API_KEY)
+    );
   }
+
   return true;
 }
 
@@ -326,7 +424,7 @@ export class AccountPoolManager {
           painelId: firstPaneId,
           limitedUntil: isCooldown ? acc.limitedUntil! : undefined,
           lastLimitDetail: acc.lastLimitDetail ?? undefined,
-          env: { ...acc.env },
+          env: publicAccountEnv(acc.env),
           authenticated: contaAutenticada(cli, acc.env),
         });
       }

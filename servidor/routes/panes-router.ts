@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { RouterContext } from "./types.ts";
-import { getPane, listPanes, updatePane, replayPane } from "../pty.ts";
+import { getPane, listPanes, updatePane, replayPane, writePty, submitPrompt } from "../pty.ts";
+import { MAX_DSH_PROMPT_LENGTH } from "../sessions/dsh-backend/dsh-manager.ts";
 import { readUsage } from "../usage.ts";
 
 export function createPanesRouter(ctx: RouterContext): Router {
@@ -68,6 +69,34 @@ export function createPanesRouter(ctx: RouterContext): Router {
       res.json({ ok: true, pane: atualizado });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/panes/:paneId/prompt", async (req, res) => {
+    try {
+      const paneId = req.params.paneId;
+      const pane = getPane(paneId);
+      if (!pane) {
+        return res.status(404).json({ ok: false, error: "painel não encontrado" });
+      }
+      if (pane.backend !== "dsh") {
+        return res.status(409).json({ ok: false, error: "entrada estruturada é exclusiva de painéis DSH" });
+      }
+      const prompt = req.body?.prompt;
+      if (typeof prompt !== "string" || !prompt.trim()) {
+        return res.status(400).json({ ok: false, error: "campo 'prompt' é obrigatório e deve ser não-vazio" });
+      }
+      if (prompt.trim().length > MAX_DSH_PROMPT_LENGTH) {
+        return res.status(413).json({ ok: false, error: `prompt excede ${MAX_DSH_PROMPT_LENGTH} caracteres` });
+      }
+      if (pane.missionId) {
+        ctx.continuity?.record(pane.missionId, pane.paneId, "input", prompt);
+      }
+      const ok = await submitPrompt(paneId, prompt);
+      if (!ok) return res.status(409).json({ ok: false, error: "painel DSH indisponível" });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
     }
   });
 

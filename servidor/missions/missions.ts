@@ -1,4 +1,3 @@
-import { addWorktree, removeWorktree, temCommit } from "./git.ts";
 import type { Elenco } from "../config.ts";
 import {
   addMission,
@@ -14,9 +13,8 @@ export type { Mission };
 export { getMission, listMissions, persistir, getProject } from "../state.ts";
 
 /**
- * Com git e ao menos um commit, a missão ganha worktree e branch próprios.
- * Sem isso, ela roda na própria pasta do projeto — funciona igual, mas as
- * missões dividem os mesmos arquivos.
+ * Missões são organização lógica. Todos os agentes trabalham diretamente na
+ * pasta que o usuário abriu; Git não cria cópias nem troca branches sozinho.
  */
 export async function createMission(
   projectId: string,
@@ -40,11 +38,6 @@ export async function createMission(
     throw new Error(`a missão "${nome}" já existe em ${project.nome}`);
   }
 
-  if (project.git && (await temCommit(project.root))) {
-    const { worktree, branch } = await addWorktree(project.root, slugify(project.nome), nome);
-    return addMission({ projectId, nome, objetivo: objetivo.trim(), worktree, branch, isolada: true, ...extra });
-  }
-
   return addMission({
     projectId,
     nome,
@@ -62,21 +55,20 @@ export async function archiveMission(
 ): Promise<void> {
   const mission = getMission(missionId);
   if (!mission) throw new Error("missão não encontrada");
-  const project = getProject(mission.projectId);
-
   // Aguarda reap de panes DSH (KD-A) — kill síncrono fire-and-forget deixava zumbi.
   await Promise.all(mission.panes.map((paneId) => Promise.resolve(killPane(paneId))));
 
-  // Só existe pasta para apagar se ela foi criada por nós. Uma missão não
-  // isolada aponta para a pasta do projeto: arquivar nunca pode tocar nela.
-  if (
-    mission.isolada &&
-    mission.branch &&
-    project &&
-    mission.worktree !== project.root
-  ) {
-    await removeWorktree(project.root, mission.worktree, mission.branch);
-  }
-
   removeMission(missionId);
+}
+
+/**
+ * Missões novas usam a pasta real. Worktrees antigos continuam apontando para
+ * seu diretório até serem resgatados explicitamente, evitando perda de dados.
+ */
+export function cwdDaMissao(mission: Mission): string {
+  const project = getProject(mission.projectId);
+  if (!project) throw new Error("projeto não encontrado");
+  return mission.isolada && mission.worktree !== project.root
+    ? mission.worktree
+    : project.root;
 }

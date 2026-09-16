@@ -7,8 +7,8 @@ import { join } from "node:path";
  * Abre o seletor de pastas nativo do sistema operacional.
  *
  * O navegador não sabe o caminho real de uma pasta — o showDirectoryPicker dá
- * um handle, não um caminho, e o servidor precisa de caminho para criar
- * worktree e observar arquivos. Como o servidor roda na mesma máquina que a
+ * um handle, não um caminho, e o servidor precisa do caminho real para os
+ * agentes e o watcher. Como o servidor roda na mesma máquina que a
  * tela, ele mesmo abre o diálogo nativo.
  *
  * No Windows, usa PowerShell com System.Windows.Forms.

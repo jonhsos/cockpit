@@ -21,9 +21,9 @@ export type Mission = {
   objetivo: string;
   /** Pasta onde os agentes desta missão trabalham. */
   worktree: string;
-  /** null quando a missão não tem branch próprio. */
+  /** Legado: missões novas nunca criam branch automaticamente. */
   branch: string | null;
-  /** true = worktree separado; false = divide a pasta do projeto com as outras. */
+  /** Legado: true apenas para worktrees antigos ainda não migrados. */
   isolada: boolean;
   panes: string[];
   /** Skills que todo agente desta missão carrega, além das próprias. */

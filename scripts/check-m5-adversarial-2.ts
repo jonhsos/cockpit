@@ -394,7 +394,7 @@ async function main(): Promise<void> {
     );
   });
 
-  check("3.2 Isolated Mission deletion with branch/worktree in web/Workspace.tsx requires explicit confirmation", () => {
+  check("3.2 Legacy worktree mission archival requires confirmation and preserves files", () => {
     const workspaceSrc = readFileSync("web/Workspace.tsx", "utf8");
 
     // Verify confirmation state exists
@@ -403,8 +403,8 @@ async function main(): Promise<void> {
       "Workspace must have confirmando state for mission deletion"
     );
     assert.ok(
-      workspaceSrc.includes('m.isolada ? "apagar e descartar o branch" : "apagar"'),
-      "Workspace must explicitly warn if branch will be discarded"
+      workspaceSrc.includes('m.isolada ? "arquivar sem apagar o worktree" : "apagar"'),
+      "Workspace must explicitly state that a legacy worktree is preserved"
     );
     assert.ok(
       workspaceSrc.includes("onArquivarMissao(m.id)"),

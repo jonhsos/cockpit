@@ -27,8 +27,8 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { readFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { accountPool, AccountPoolManager } from "../servidor/providers/account-pool.ts";
 import { definirModelo } from "../servidor/providers/agy.ts";
@@ -58,11 +58,11 @@ console.log("===================================================================
 
 // Ensure clean initial state
 accountPool.resetLimit("agy");
-accountPool.release("pane-agy-1");
-accountPool.release("pane-agy-2");
-accountPool.release("pane-agy-3");
-accountPool.release("pane-agy-4");
-accountPool.release("pane-agy-5");
+const agyAccountIds = accountPool.getAccounts("agy").map((account) => account.id);
+const testedAccountIds = agyAccountIds.slice(0, 4);
+const [primaryAccountId, secondAccountId, thirdAccountId, survivorAccountId] = testedAccountIds;
+const healthyFailoverIds = testedAccountIds.slice(1);
+for (let index = 1; index <= 5; index++) accountPool.release(`pane-agy-${index}`);
 
 // ---------------------------------------------------------------------------
 // 1. POOL EXHAUSTION AND CONCURRENCY STRESS
@@ -100,7 +100,7 @@ check("Attempt 5th acquisition when all 4 accounts are active: clean handling (l
   // It must select the least-loaded account (all tied at 1) via LRU (the one used least recently, i.e. pane-stress-1's account).
   const a5 = accountPool.acquire("agy", "pane-stress-5");
   assert.ok(a5 !== null, "5th acquisition must succeed and return an account spec");
-  assert.ok(["agy-1", "agy-2", "agy-3", "agy-4"].includes(a5!.id), "5th acquisition must return a valid agy account");
+  assert.ok(testedAccountIds.includes(a5!.id), "5th acquisition must return a valid agy account");
 
   // Verify pane mapping
   const accRuntime = accountPool.getAccountForPane("pane-stress-5");
@@ -126,20 +126,19 @@ check("Releasing one pane from shared account keeps account active for remaining
 
 check("Attempt acquisition when ALL 4 accounts are exhausted via Cooldown: returns null cleanly without crash", () => {
   // Mark all 4 accounts in cooldown
-  accountPool.markLimited("agy", "agy-1", 60_000, "QuotaExceeded: 429");
-  accountPool.markLimited("agy", "agy-2", 60_000, "QuotaExceeded: 429");
-  accountPool.markLimited("agy", "agy-3", 60_000, "QuotaExceeded: 429");
-  accountPool.markLimited("agy", "agy-4", 60_000, "QuotaExceeded: 429");
+  for (const accountId of agyAccountIds) {
+    accountPool.markLimited("agy", accountId, 60_000, "QuotaExceeded: 429");
+  }
 
   const view = accountPool.getView("agy")["agy"];
-  assert.equal(view.emCooldown, 4, "All 4 accounts are in cooldown");
+  assert.equal(view.emCooldown, agyAccountIds.length, "All configured accounts are in cooldown");
 
   // Attempt 5th (or any) acquisition
   const exhaustedResult = accountPool.acquire("agy", "pane-exhausted");
   assert.equal(exhaustedResult, null, "Acquire must return null cleanly when all accounts are in cooldown");
 
   // nextAvailable must also return null cleanly
-  const nextWhenExhausted = accountPool.nextAvailable("agy", "agy-1");
+  const nextWhenExhausted = accountPool.nextAvailable("agy", primaryAccountId);
   assert.equal(nextWhenExhausted, null, "nextAvailable must return null cleanly when all accounts are in cooldown");
 
   // Release on unallocated pane is a clean no-op
@@ -167,67 +166,67 @@ check("Release all active stress panes resets active count to zero", () => {
 console.log("\n--- 2. Rate Limit, Cooldown & Failover ---");
 
 check("Mark account with rate limit updates cooldown status and details", () => {
-  accountPool.markLimited("agy", "agy-1", 120_000, "Google Cloud Quota Exceeded (429)");
+  accountPool.markLimited("agy", primaryAccountId, 120_000, "Google Cloud Quota Exceeded (429)");
 
   const view = accountPool.getView("agy")["agy"];
   assert.equal(view.emCooldown, 1, "Exactly 1 account in cooldown");
 
-  const agy1Item = view.contas.find((c) => c.id === "agy-1");
-  assert.ok(agy1Item !== undefined, "agy-1 found in view");
-  assert.equal(agy1Item?.status, "cooldown", "agy-1 status is cooldown");
+  const agy1Item = view.contas.find((c) => c.id === primaryAccountId);
+  assert.ok(agy1Item !== undefined, `${primaryAccountId} found in view`);
+  assert.equal(agy1Item?.status, "cooldown", `${primaryAccountId} status is cooldown`);
   assert.equal(agy1Item?.lastLimitDetail, "Google Cloud Quota Exceeded (429)", "Limit detail preserved");
   assert.ok(agy1Item?.limitedUntil && agy1Item.limitedUntil > Date.now(), "limitedUntil is in the future");
 });
 
 check("nextAvailable fails over to a healthy account and avoids rate-limited account", () => {
-  const next = accountPool.nextAvailable("agy", "agy-1");
+  const next = accountPool.nextAvailable("agy", primaryAccountId);
   assert.ok(next !== null, "Failover found a healthy account");
-  assert.notEqual(next?.id, "agy-1", "Failover must not select agy-1");
-  assert.ok(["agy-2", "agy-3", "agy-4"].includes(next!.id), "Failover chose one of the healthy accounts");
+  assert.notEqual(next?.id, primaryAccountId, `Failover must not select ${primaryAccountId}`);
+  assert.ok(healthyFailoverIds.includes(next!.id), "Failover chose one of the healthy accounts");
 });
 
 check("acquire rejects account in cooldown even when explicitly requested as preferredAccountId", () => {
-  const prefResult = accountPool.acquire("agy", "pane-pref-failover", "agy-1");
+  const prefResult = accountPool.acquire("agy", "pane-pref-failover", primaryAccountId);
   assert.ok(prefResult !== null, "Acquire returned an account");
-  assert.notEqual(prefResult?.id, "agy-1", "Preferred account in cooldown must be rejected");
-  assert.ok(["agy-2", "agy-3", "agy-4"].includes(prefResult!.id), "Acquire fell back to healthy account");
+  assert.notEqual(prefResult?.id, primaryAccountId, "Preferred account in cooldown must be rejected");
+  assert.ok(healthyFailoverIds.includes(prefResult!.id), "Acquire fell back to healthy account");
   accountPool.release("pane-pref-failover");
 });
 
 check("Cascading rate limits: failover selects the sole surviving healthy account", () => {
-  // Mark agy-2 and agy-3 also with rate limit; only agy-4 remains healthy
-  accountPool.markLimited("agy", "agy-2", 60_000, "Rate limit");
-  accountPool.markLimited("agy", "agy-3", 60_000, "Rate limit");
+  // Mark two more accounts with rate limit; only the fourth remains healthy.
+  accountPool.markLimited("agy", secondAccountId, 60_000, "Rate limit");
+  accountPool.markLimited("agy", thirdAccountId, 60_000, "Rate limit");
 
   const view = accountPool.getView("agy")["agy"];
   assert.equal(view.emCooldown, 3, "3 accounts in cooldown");
 
   const soleSurvivor = accountPool.acquire("agy", "pane-sole-survivor");
   assert.ok(soleSurvivor !== null, "Acquisition succeeded for sole healthy account");
-  assert.equal(soleSurvivor?.id, "agy-4", "Must acquire agy-4 as the only healthy candidate");
+  assert.equal(soleSurvivor?.id, survivorAccountId, `Must acquire ${survivorAccountId} as the only healthy candidate`);
   accountPool.release("pane-sole-survivor");
 
-  // nextAvailable from agy-1, agy-2, or agy-3 must all point to agy-4
-  assert.equal(accountPool.nextAvailable("agy", "agy-1")?.id, "agy-4");
-  assert.equal(accountPool.nextAvailable("agy", "agy-2")?.id, "agy-4");
-  assert.equal(accountPool.nextAvailable("agy", "agy-3")?.id, "agy-4");
+  // nextAvailable from each limited account must point to the sole survivor.
+  assert.equal(accountPool.nextAvailable("agy", primaryAccountId)?.id, survivorAccountId);
+  assert.equal(accountPool.nextAvailable("agy", secondAccountId)?.id, survivorAccountId);
+  assert.equal(accountPool.nextAvailable("agy", thirdAccountId)?.id, survivorAccountId);
 
-  // nextAvailable from agy-4 itself has no other healthy account -> returns null
-  assert.equal(accountPool.nextAvailable("agy", "agy-4"), null, "No other healthy account available");
+  // nextAvailable from the survivor itself has no other healthy account.
+  assert.equal(accountPool.nextAvailable("agy", survivorAccountId), null, "No other healthy account available");
 });
 
 check("Selective cooldown reset restores specific account while keeping others in cooldown", () => {
-  accountPool.resetLimit("agy", "agy-1");
+  accountPool.resetLimit("agy", primaryAccountId);
 
   const view = accountPool.getView("agy")["agy"];
-  assert.equal(view.emCooldown, 2, "agy-2 and agy-3 remain in cooldown, agy-1 restored");
+  assert.equal(view.emCooldown, 2, `${secondAccountId} and ${thirdAccountId} remain in cooldown`);
 
-  const agy1Item = view.contas.find((c) => c.id === "agy-1");
-  assert.equal(agy1Item?.status, "livre", "agy-1 is now livre");
+  const agy1Item = view.contas.find((c) => c.id === primaryAccountId);
+  assert.equal(agy1Item?.status, "livre", `${primaryAccountId} is now livre`);
 
   // Now agy-1 can be acquired again
-  const recovered = accountPool.acquire("agy", "pane-recovered", "agy-1");
-  assert.equal(recovered?.id, "agy-1", "agy-1 successfully acquired after reset");
+  const recovered = accountPool.acquire("agy", "pane-recovered", primaryAccountId);
+  assert.equal(recovered?.id, primaryAccountId, `${primaryAccountId} successfully acquired after reset`);
   accountPool.release("pane-recovered");
 });
 
@@ -358,27 +357,24 @@ check("Path boundary edge cases in expandEnv regex: bare ~, ~/, $HOME, $HOME/, a
 });
 
 check("definirModelo handles unexpanded ~ defense-in-depth and isolates settings across accounts", () => {
-  const home = homedir();
-  const dir1 = join(home, ".gemini", "antigravity-cli", "profiles", "conta_1");
-  const dir2 = join(home, ".gemini", "antigravity-cli", "profiles", "conta_2");
-  const dir3 = join(home, ".gemini", "antigravity-cli", "profiles", "conta_3");
-  const dir4 = join(home, ".gemini", "antigravity-cli", "profiles", "conta_4");
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "cockpit-agy-models-"));
+  const dirs = [1, 2, 3, 4].map((index) => join(fixtureRoot, `conta_${index}`));
+  const models = [
+    ["gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"],
+    ["claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)"],
+    ["gemini-3.1-pro-high", "Gemini 3.1 Pro (High)"],
+    ["claude-sonnet-4-6", "Claude Sonnet 4.6 (Thinking)"],
+  ] as const;
 
-  // Test with unexpanded tilde path directly into definirModelo
-  definirModelo("gemini-3.8-flash-high", "~/.gemini/antigravity-cli/profiles/conta_1");
-  definirModelo("claude-opus-4-6-thinking", dir2);
-  definirModelo("gemini-3.1-pro-high", dir3);
-  definirModelo("claude-sonnet-4-6", dir4);
-
-  const s1 = JSON.parse(readFileSync(join(dir1, "settings.json"), "utf8"));
-  const s2 = JSON.parse(readFileSync(join(dir2, "settings.json"), "utf8"));
-  const s3 = JSON.parse(readFileSync(join(dir3, "settings.json"), "utf8"));
-  const s4 = JSON.parse(readFileSync(join(dir4, "settings.json"), "utf8"));
-
-  assert.equal(s1.model, "Gemini 3.8 Flash (High)", "Account 1 has Gemini 3.8 Flash (High)");
-  assert.equal(s2.model, "Claude Opus 4.6 (Thinking)", "Account 2 has Claude Opus 4.6 (Thinking)");
-  assert.equal(s3.model, "Gemini 3.1 Pro (High)", "Account 3 has Gemini 3.1 Pro (High)");
-  assert.equal(s4.model, "Claude Sonnet 4.6 (Thinking)", "Account 4 has Claude Sonnet 4.6 (Thinking)");
+  try {
+    models.forEach(([modelId], index) => definirModelo(modelId, dirs[index]));
+    models.forEach(([, expected], index) => {
+      const settings = JSON.parse(readFileSync(join(dirs[index], "settings.json"), "utf8"));
+      assert.equal(settings.model, expected, `Temporary account ${index + 1} keeps its own model`);
+    });
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
 
   // Verify that no literal ~ directory was created in current working directory
   assert.equal(existsSync(join(process.cwd(), "~")), false, "No literal ~ directory created in cwd");

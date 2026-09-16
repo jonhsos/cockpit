@@ -5,7 +5,7 @@ const IGNORAR = /(^|[\\/])(node_modules|\.git|dist|\.cockpit)([\\/]|$)/;
 
 const watchers = new Map<string, FSWatcher>();
 
-/** Uma raiz observada por vez: o projeto e cada worktree de missão. */
+/** Uma raiz observada por vez. Missões novas compartilham a pasta real do projeto. */
 export function observar(base: string, onChange: (path: string, base: string) => void): void {
   if (watchers.has(base)) return;
   const watcher = chokidar.watch(base, {

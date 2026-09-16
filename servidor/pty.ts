@@ -75,6 +75,13 @@ export function writePty(paneId: string, data: string): void {
 }
 
 /**
+ * Submits structured prompt to DSH manager or target PTY.
+ */
+export async function submitPrompt(paneId: string, prompt: string): Promise<boolean> {
+  return await manager.submitPrompt(paneId, prompt);
+}
+
+/**
  * Resizes the master PTY window dimensions.
  */
 export function resizePty(paneId: string, cols: number, rows: number): void {

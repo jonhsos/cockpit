@@ -92,10 +92,21 @@ export function sanitizeCleanShellEnv(
   opts: CleanShellOptions,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...baseEnv };
+  const cliStateOverrides = new Set([
+    "CODEX_HOME",
+    "CLAUDE_CONFIG_DIR",
+    "DSH_HOME",
+    "JETSKI_APP_DATA_DIR",
+    "GROK_HOME",
+    "KIMI_CONFIG_DIR",
+  ]);
 
-  // Remove Claude Code and AI harness markers that alter child behavior, as well as npm lifecycle variables
+  // Remove agent-session state inherited from the process that launched Cockpit.
+  // A clean shell must use the user's normal CLI homes, not a Codex/DSH/account
+  // profile selected for the Cockpit server itself.
   for (const key of Object.keys(env)) {
     if (
+      cliStateOverrides.has(key) ||
       key.startsWith("CLAUDE_CODE_") ||
       key === "CLAUDECODE" ||
       key.startsWith("COCKPIT_MAESTRO_") ||

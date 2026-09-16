@@ -2,23 +2,26 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { execFile, execFileSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { execFile } from "node:child_process";
 
-import { config, backendDo, type AgentSpec } from "../config.ts";
+import { config, backendDo, parseCliBackend, type AgentSpec } from "../config.ts";
 import { CASA } from "../state.ts";
 import { confiar } from "../confianca.ts";
 import { definirModelo } from "../agy.ts";
 import { resolverHarness, type Pedido } from "../harness.ts";
-import { providerDisponivel } from "../providers.ts";
+import { promptInternoDoPapel, type RoleContractInput } from "../orchestration/roles.ts";
+import { pathComExecutaveisLocais, providerDisponivel, resolverExecutavel } from "../providers.ts";
 import { argsDaPonte, envDaPonte, pontede } from "../ponte.ts";
+import { dshApiDoCli, envDaDshApi } from "../providers/dsh-api.ts";
 import { getDefaultPaneStore } from "../persistence/index.ts";
 import { accountPool } from "../providers/account-pool.ts";
 import { getDshManager } from "./dsh-backend/dsh-manager.ts";
 import { checkDshAvailability } from "./dsh-backend/dsh-availability.ts";
 
-function assertExecutorDisponivel(cli: string): void {
-  if (backendDo(cli) === "dsh") {
+function assertExecutorDisponivel(cli: string, backendOverride?: string): void {
+  const backend = backendOverride ? parseCliBackend(backendOverride) : backendDo(cli);
+  if (backend === "dsh") {
     const dsh = checkDshAvailability();
     if (!dsh.available) {
       throw new Error(`Engine DSH indisponível: ${dsh.error ?? "bin/home"}`);
@@ -47,6 +50,7 @@ import {
   sanitizeCleanShellEnv,
   assertCleanShellInvariants,
   enforceBashPrecedence,
+  BASH_PATH,
 } from "./clean-shell.ts";
 import { PaneActivityTracker, DEFAULT_SPARKLINE_SLOTS, DEFAULT_IDLE_TIMEOUT_MS } from "./tracker.ts";
 import { PtyClient } from "./pty-client.ts";
@@ -71,11 +75,16 @@ export type SpawnOpts = {
   maestro?: boolean;
   porta: number;
   role?: string;
+  roleDefinition?: RoleContractInput;
   runner?: string;
   /** Conta preferida do pool (agy/codex/grok/…); omitido = LRU automático */
   preferredAccountId?: string;
   /** Se true, failover intra-pool não troca esta conta */
   accountPinned?: boolean;
+  /** Override de backend: força "dsh" ou "pty" independente do config global */
+  backend?: "pty" | "dsh";
+  /** Argumentos de login executados diretamente no CLI, sem shell. */
+  loginArgs?: string[];
 };
 
 export interface ManagerPaneEntry {
@@ -89,58 +98,39 @@ export interface ManagerPaneEntry {
 const MCP_SCRIPT = fileURLToPath(new URL("../mcp-maestro.ts", import.meta.url));
 const BRIDGE_SCRIPT = fileURLToPath(new URL("../maestro-cli.ts", import.meta.url));
 
-const executaveis = new Map<string, string | null>();
-
-function acharExe(comando: string): string | null {
-  if (!executaveis.has(comando)) {
-    let achado: string | null = null;
-    try {
-      const linhas = execFileSync("where", [comando], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-      }).split(/\r?\n/);
-      achado = linhas.find((l) => l.trim().toLowerCase().endsWith(".exe"))?.trim() ?? null;
-
-      if (!achado && comando.toLowerCase() === "codex") {
-        const shim = linhas.find((l) => l.trim().toLowerCase().endsWith("codex.cmd"))?.trim();
-        const plataforma = process.arch === "arm64" ? "codex-win32-arm64" : "codex-win32-x64";
-        const alvo = process.arch === "arm64" ? "aarch64-pc-windows-msvc" : "x86_64-pc-windows-msvc";
-        const nativo =
-          shim &&
-          join(
-            dirname(shim),
-            "node_modules",
-            "@openai",
-            "codex",
-            "node_modules",
-            "@openai",
-            plataforma,
-            "vendor",
-            alvo,
-            "bin",
-            "codex.exe",
-          );
-        if (nativo && existsSync(nativo)) achado = nativo;
-      }
-    } catch {
-      achado = null;
+function expandEnvPaths(env: Record<string, string>): Record<string, string> {
+  const home = homedir();
+  const expanded: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (typeof v === "string") {
+      expanded[k] = v.replace(/^~(?=$|\/)/, home).replace(/^\$HOME(?=$|\/)/, home);
     }
-    executaveis.set(comando, achado);
   }
-  return executaveis.get(comando) ?? null;
+  return expanded;
 }
 
 export function resolveCli(cli: string, extra: string[]): { file: string; args: string[] } {
   const spec = config.clis[cli] ?? { command: cli };
   const args = [...(spec.args ?? []), ...extra];
+  const executable = resolverExecutavel(spec.command);
+  if (executable) return { file: executable, args };
+  if (process.platform !== "win32" && /[\\/]/.test(spec.command)) return { file: spec.command, args };
   if (process.platform !== "win32") return { file: spec.command, args };
   if (/[\\/]/.test(spec.command) || spec.command.toLowerCase().endsWith(".exe")) {
     return { file: spec.command, args };
   }
-  const exe = acharExe(spec.command);
-  if (exe) return { file: exe, args };
   const comspec = process.env.ComSpec ?? "cmd.exe";
   return { file: comspec, args: ["/c", spec.command, ...args] };
+}
+
+function resolveCliWithoutShell(cli: string, extra: string[]): { file: string; args: string[] } {
+  const spec = config.clis[cli] ?? { command: cli };
+  const args = [...(spec.args ?? []), ...extra];
+  const executable = resolverExecutavel(spec.command);
+  if (!executable) {
+    throw new Error(`Executor de login "${spec.command}" não encontrado sem usar shell`);
+  }
+  return { file: executable, args };
 }
 
 export const familiaDo = (cli: string): string => config.clis[cli]?.familia ?? cli;
@@ -338,6 +328,9 @@ export class PtyManager {
     try {
       const surviving = await this.client.list();
       for (const pane of surviving) {
+        if (["dead", "completed", "failed"].includes(normalizePaneStatus(pane.status))) {
+          continue;
+        }
         let entry = this.ptys.get(pane.paneId);
         if (!entry) {
           entry = {
@@ -392,14 +385,52 @@ export class PtyManager {
 
     let file: string;
     let argv: string[];
-    let env: Record<string, string>;
+    let env: Record<string, string> = {};
     let bundle: { cli: string; model?: string; effort?: string } = { cli: "bash" };
     let sessionId: string | null = null;
     let maestro = opts.maestro ?? false;
     let allocatedAccount: { id: string; label: string; env: Record<string, string>; args: string[] } | null = null;
+    let dshInitialPrompt = opts.tarefa;
 
     let isBash = initialClean;
-    if (!isBash) {
+    if (opts.loginArgs) {
+      const cliTarget = opts.runner ?? opts.agent;
+      const requestedAccount = opts.preferredAccountId
+        ? accountPool.getAccounts(cliTarget).find((account) => account.id === opts.preferredAccountId)
+        : undefined;
+      if (requestedAccount && requestedAccount.activePanes.size > 0) {
+        throw new Error(`Conta "${requestedAccount.label}" está em uso; encerre o painel antes de autenticar novamente`);
+      }
+      if (requestedAccount?.limitedUntil && requestedAccount.limitedUntil > Date.now()) {
+        throw new Error(`Conta "${requestedAccount.label}" está em cooldown; aguarde ou resete a cota antes do login`);
+      }
+      allocatedAccount = accountPool.acquire(cliTarget, paneId, opts.preferredAccountId);
+      if (!allocatedAccount) {
+        throw new Error(`Conta "${opts.preferredAccountId ?? cliTarget}" indisponível para autenticação`);
+      }
+      const resolvedLogin = resolveCliWithoutShell(cliTarget, opts.loginArgs);
+      file = resolvedLogin.file;
+      argv = resolvedLogin.args;
+      const cliConfigEnv = config.clis[cliTarget]?.env ?? {};
+      const accountEnv = expandEnvPaths({ ...cliConfigEnv, ...(allocatedAccount?.env ?? {}) });
+      const currentPath = process.env.PATH ?? "";
+      const pathWithBin = pathComExecutaveisLocais(currentPath);
+      env = {
+        ...ambienteLimpo(),
+        ...accountEnv,
+        ...envDaPonte(cliTarget),
+        PATH: pathWithBin,
+        TERM: "xterm-256color",
+        SHELL: BASH_PATH,
+        COCKPIT_PORT: String(opts.porta),
+        COCKPIT_MISSION: opts.missionId ?? "",
+        COCKPIT_PROJECT: opts.projectId ?? "",
+        COCKPIT_PANE: paneId,
+        COCKPIT_AGENT: `Login (${cliTarget})`,
+      } as Record<string, string>;
+      bundle = { cli: cliTarget };
+      isBash = false;
+    } else if (!isBash) {
       bundle = resolverHarness({
         agent: opts.agent,
         runner: opts.runner,
@@ -412,11 +443,11 @@ export class PtyManager {
       if (bundle.cli === "bash") {
         isBash = true;
       } else {
-        assertExecutorDisponivel(bundle.cli);
+        assertExecutorDisponivel(bundle.cli, opts.backend);
       }
     }
 
-    if (isBash) {
+    if (isBash && !opts.loginArgs) {
       // R1: Sovereign Clean Shell
       const precedence = enforceBashPrecedence(opts.runner ?? opts.agent);
       const cmd = getCleanShellCommand();
@@ -434,14 +465,22 @@ export class PtyManager {
         cwd: opts.cwd,
       }) as Record<string, string>;
       bundle = { cli: "bash" };
-    } else {
+    } else if (!opts.loginArgs) {
       // LLM Specialist or Maestro
       const perfil = agentSpec(opts.agent);
       if (!bundle.model && !bundle.effort) {
         bundle = resolverHarness({ agent: opts.agent, runner: opts.runner, ...(opts.harness ?? {}) });
       }
-      assertExecutorDisponivel(bundle.cli);
+      assertExecutorDisponivel(bundle.cli, opts.backend);
       const spec: AgentSpec = { ...perfil, cli: bundle.cli, model: bundle.model, effort: bundle.effort };
+      const promptInterno = promptInternoDoPapel({
+        role: opts.role,
+        agent: opts.agent,
+        objetivo: opts.objetivo,
+        tarefa: opts.tarefa,
+        custom: opts.roleDefinition,
+      });
+      dshInitialPrompt = promptInterno;
       if (!isBash) {
         allocatedAccount = accountPool.acquire(spec.cli, paneId, opts.preferredAccountId);
       }
@@ -450,10 +489,14 @@ export class PtyManager {
       maestro = opts.maestro ?? spec.maestro === true;
 
       const ponte = pontede(spec.cli);
+      const dshApi = dshApiDoCli(spec.cli);
       if (ponte && !envDaPonte(spec.cli)[ponte.spec.chaveEnv]) {
         throw new Error(
           `${spec.cli} precisa de uma chave antes de abrir painel — ponha em Ajustes → Grátis, ou exporte ${ponte.spec.chaveEnv}`,
         );
+      }
+      if (dshApi && !envDaDshApi(spec.cli)[dshApi.chaveEnv]) {
+        throw new Error(`${spec.cli} precisa de uma chave antes de abrir painel — ponha em Ajustes → APIs DSH.`);
       }
 
       if (config.confiarNasPastasQueEuAbrir !== false) confiar(familiaDo(spec.cli), opts.cwd);
@@ -512,7 +555,7 @@ export class PtyManager {
         if (spec.effort) args.push("--effort", spec.effort);
       }
 
-      let promptInicial = opts.tarefa;
+      let promptInicial = promptInterno;
 
       if (familia === "codex") {
         args.push(...argsDaPonte(spec.cli));
@@ -531,9 +574,6 @@ export class PtyManager {
         }
         if (spec.model) args.push("--model", spec.model);
         if (spec.effort) args.push("-c", `model_reasoning_effort=${JSON.stringify(spec.effort)}`);
-        if (spec.papel) {
-          promptInicial = promptInicial ? `${spec.papel}\n\n${promptInicial}` : spec.papel;
-        }
         if (maestro && opts.missionId) {
           args.push("-c", `mcp_servers.cockpit.command=${JSON.stringify(process.execPath.replaceAll("\\", "/"))}`);
           args.push("-c", `mcp_servers.cockpit.args=${JSON.stringify([MCP_SCRIPT.replaceAll("\\", "/")])}`);
@@ -566,34 +606,15 @@ export class PtyManager {
       const resolved = resolveCli(spec.cli, args);
       file = resolved.file;
       argv = resolved.args;
-      const cliEnv = { ...(config.clis[spec.cli]?.env ?? {}), ...(allocatedAccount?.env ?? {}) };
-      if (cliEnv.CODEX_HOME) {
-        cliEnv.CODEX_HOME = cliEnv.CODEX_HOME
-          .replace(/^~(?=$|\/)/, homedir())
-          .replace(/^\$HOME(?=$|\/)/, homedir());
-      }
-      if (cliEnv.JETSKI_APP_DATA_DIR) {
-        cliEnv.JETSKI_APP_DATA_DIR = cliEnv.JETSKI_APP_DATA_DIR
-          .replace(/^~(?=$|\/)/, homedir())
-          .replace(/^\$HOME(?=$|\/)/, homedir());
-      }
-      if (cliEnv.HOME) {
-        cliEnv.HOME = cliEnv.HOME
-          .replace(/^~(?=$|\/)/, homedir())
-          .replace(/^\$HOME(?=$|\/)/, homedir());
-      }
-      if (cliEnv.GROK_HOME) {
-        cliEnv.GROK_HOME = cliEnv.GROK_HOME
-          .replace(/^~(?=$|\/)/, homedir())
-          .replace(/^\$HOME(?=$|\/)/, homedir());
-      }
-      const binDir = resolve(process.cwd(), "bin");
+      const rawCliEnv = { ...(config.clis[spec.cli]?.env ?? {}), ...(allocatedAccount?.env ?? {}) };
+      const cliEnv = expandEnvPaths(rawCliEnv);
       const currentPath = process.env.PATH ?? "";
-      const pathWithBin = currentPath.includes(binDir) ? currentPath : `${binDir}:${currentPath}`;
+      const pathWithBin = pathComExecutaveisLocais(currentPath);
       env = {
         ...ambienteLimpo(),
         ...cliEnv,
         ...envDaPonte(spec.cli),
+        ...envDaDshApi(spec.cli),
         PATH: pathWithBin,
         COCKPIT_PORT: String(opts.porta),
         COCKPIT_MISSION: opts.missionId ?? "",
@@ -604,10 +625,20 @@ export class PtyManager {
       } as Record<string, string>;
     }
 
+    const effectiveBackend = opts.loginArgs
+      ? "pty"
+      : isBash
+      ? "pty"
+      : opts.backend
+      ? parseCliBackend(opts.backend)
+      : backendDo(bundle.cli);
+
     const state: PaneState = {
       paneId,
       agent: opts.agent,
-      label: isBash
+      label: opts.loginArgs
+        ? (opts.label ?? `Login (${bundle.cli}): ${allocatedAccount?.label || allocatedAccount?.id || bundle.cli}`)
+        : isBash
         ? (opts.agent === "shell" ? "Shell" : (opts.label ?? opts.agent))
         : (opts.label ?? config.agents[opts.agent]?.label ?? opts.agent),
       cor: isBash ? "#4ade80" : config.agents[opts.agent]?.cor ?? "#94a3b8",
@@ -626,6 +657,7 @@ export class PtyManager {
       accountId: allocatedAccount?.id ?? null,
       accountLabel: allocatedAccount?.label ?? null,
       accountPinned: Boolean(opts.accountPinned && allocatedAccount?.id),
+      backend: effectiveBackend,
       status: "starting",
       bytesIn: 0,
       bytesOut: 0,
@@ -645,8 +677,7 @@ export class PtyManager {
     this.savePaneToDisk(state);
 
     // Seam DSH: depois de harness/pool/papel/env/PaneState, antes do spawn PTY.
-    // cockpit.json continua pty implícito até PR-4; só entra aqui com backend:"dsh".
-    if (!isBash && backendDo(state.cli) === "dsh") {
+    if (!isBash && state.backend === "dsh") {
       const dsh = getDshManager();
       const emit = (data: string) => {
         entry.state.bytesOut += data.length;
@@ -660,7 +691,7 @@ export class PtyManager {
           paneId,
           state,
           cwd: opts.cwd,
-          tarefa: opts.tarefa,
+          tarefa: dshInitialPrompt,
           env,
           model: state.model,
           onOutput: emit,
@@ -707,6 +738,7 @@ export class PtyManager {
             missionId: state.missionId,
             sessionId: state.sessionId,
             maestro: state.maestro,
+            backend: state.backend,
           },
         }),
       )
@@ -731,6 +763,15 @@ export class PtyManager {
     this.client.input(paneId, data).catch(() => {
       entry.state.status = "dead";
     });
+  }
+
+  public async submitPrompt(paneId: string, prompt: string): Promise<boolean> {
+    const entry = this.ptys.get(paneId);
+    if (!entry || entry.state.status === "dead") return false;
+    const clean = prompt.trim();
+    if (!clean) return false;
+    if (entry.state.backend !== "dsh" || !getDshManager().has(paneId)) return false;
+    return await getDshManager().submitPrompt(paneId, clean);
   }
 
   public resizePty(paneId: string, cols: number, rows: number): void {
@@ -830,13 +871,14 @@ export class PtyManager {
 
         const isIdle = agora - entry.lastData > DEFAULT_IDLE_TIMEOUT_MS;
         const norm = normalizePaneStatus(entry.state.status);
-        if (norm === "working" && isIdle) {
+        const isDsh = getDshManager().has(entry.state.paneId) || entry.state.backend === "dsh";
+        if (norm === "working" && isIdle && !isDsh) {
           try {
             transitionPane(entry.state, "waiting-user");
           } catch {
             // Ignored
           }
-        } else if (norm === "waiting-user" && !isIdle && entry.state.bytesOut > 0) {
+        } else if (norm === "waiting-user" && !isIdle && entry.state.bytesOut > 0 && !isDsh) {
           try {
             transitionPane(entry.state, "working");
           } catch {

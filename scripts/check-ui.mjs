@@ -29,6 +29,7 @@ try {
   let maestroSettings = { agent: { label: 'MAESTRO', cli: 'codex', model: 'gpt-6-astra', effort: 'high' }, auto: true, limits: {}, providers: [{ id: 'codex', disponivel: true, modelos: ['gpt-6-astra'] }, { id: 'claude', disponivel: true, modelos: ['opus'] }, { id: 'agy', disponivel: true, modelos: ['gemini-3.1-pro-high'] }] };
   const politicaIA = { politica: { modo: 'padrao' }, agents: { maestro: { label: 'Maestro', cor: '#4195ff', cli: 'codex', model: 'gpt-6-astra' }, piloto: { label: 'Piloto', cor: '#4195ff', cli: 'claude', model: 'opus' }, builder: { label: 'Builder', cor: '#4195ff', cli: 'claude', model: 'sonnet' } }, providers: [{ id: 'codex', comando: 'codex', disponivel: true, caminho: 'C:/codex.exe', modelos: ['gpt-6-astra'], efforts: ['low', 'high'], agentes: ['maestro'] }] };
   const pontes = [{ id: 'openrouter', label: 'OpenRouter', base: 'codex', baseDisponivel: true, baseUrl: 'https://openrouter.ai/api/v1', chaveEnv: 'OPENROUTER_API_KEY', chaveEm: null, pronto: false, falta: 'falta a chave (OPENROUTER_API_KEY)', chaveUrl: 'https://openrouter.ai/settings/keys', modelos: [{ id: 'livre/modelo', nome: 'Livre', contexto: 200000, ferramentas: true, gratis: true }, { id: 'livre/conversa', nome: 'Conversa', contexto: 8000, ferramentas: false, gratis: true }], modelo: 'livre/modelo', agentes: ['gratis'], catalogoEm: Date.now(), nota: null }];
+  let dshApis = [];
   const usage = { in: 0, out: 0, cacheWrite: 0, cacheRead: 0, custo: 0, turnos: 0, model: null };
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname;
@@ -37,6 +38,16 @@ try {
     if (path === '/api/maestro' && route.request().method() === 'POST') { const body = route.request().postDataJSON(); maestroSettings = { ...maestroSettings, agent: { ...maestroSettings.agent, cli: body.cli, model: body.model, effort: body.effort }, auto: body.auto }; return route.fulfill({ json: maestroSettings }); }
     if (path === '/api/maestro' || path === '/api/maestro/refresh') return route.fulfill({ json: maestroSettings });
     if (path === '/api/politica-ia') return route.fulfill({ json: politicaIA });
+    if (path === '/api/dsh-apis/modelos' && route.request().method() === 'POST') return route.fulfill({ json: { ok: true, modelos: [{ id: 'deepseek-flash', name: 'DeepSeek-V41-Flash' }, { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' }] } });
+    if (path === '/api/dsh-apis') {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON();
+        dshApis = [{ id: body.id, label: body.label, provider: body.provider, model: body.model, modelos: body.modelos || [], api: body.api || null, baseURL: body.baseURL || null, chaveEnv: 'COCKPIT_DSH_TEST_API_KEY', chaveEm: body.chave ? 'cofre do cockpit' : null, pronto: Boolean(body.chave), falta: body.chave ? null : 'falta a chave', chaveUrl: body.chaveUrl || null }];
+        return route.fulfill({ json: { ok: true, api: dshApis[0] } });
+      }
+      if (route.request().method() === 'DELETE') { dshApis = []; return route.fulfill({ json: { ok: true } }); }
+      return route.fulfill({ json: { apis: dshApis } });
+    }
     if (path.startsWith('/api/pontes')) return route.fulfill({ json: route.request().method() === 'POST' ? { ok: true } : { pontes } });
     const data = path === '/api/config' ? { agents: { maestro: { label: 'Maestro', cli: 'claude', cor: '#00b4ff', maestro: true }, piloto: { label: 'Piloto', cli: 'claude', cor: '#e2703a', papel: 'Executa a tarefa direto' }, builder: { label: 'Builder', cli: 'claude', cor: '#4fb286', papel: 'Constroi e testa' }, artista: { label: 'Artista', cli: 'agy', cor: '#d9a441', papel: 'Imagens e video' } }, squads: {}, tarefas: {}, providers: [] }
       : path === '/api/projects' ? { projects } : path === '/api/missions' ? { missions }
@@ -63,7 +74,7 @@ try {
   await page.reload();
   await page.getByRole('heading', { name: 'Traga o primeiro agente.' }).waitFor();
   // Projetos e missões moram numa janela, aberta pelo botão do projeto.
-  await page.getByTitle('Projetos e missões', { exact: true }).click();
+  await page.locator('.brand-button').click();
   await page.getByRole('dialog', { name: 'Projetos e missões', exact: true }).waitFor();
   assert.equal(await page.locator('.linha-toque').count(), 2, 'um projeto e uma missão na janela');
   await page.getByRole('button', { name: 'Fechar projetos', exact: true }).click();
@@ -97,13 +108,19 @@ try {
   assert.equal(await page.locator('.sidebar-island').count(), 1, 'as missoes vivem numa ilha');
   await page.screenshot({ path: 'web/ui-lateral.png', fullPage: true });
   await page.getByRole('button', { name: 'Adicionar agente', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Adicionar agente', exact: true }).waitFor();
-  assert.equal(await page.locator('.agent-choice .mascote').count(), 4, 'cada agente do catalogo tem seu mascote');
-  const formas = await page.locator('.agent-choice .mascote-pele').evaluateAll(els => els.map(el => el.getAttribute('d')));
-  assert.ok(new Set(formas).size > 1, 'os mascotes do catalogo nao sao todos iguais');
-  assert.equal(await page.locator('.agent-choice .mascote.e-run').count(), 0, 'no catalogo ninguem finge estar trabalhando');
+  await page.getByRole('dialog', { name: 'Adicionar Agente ou Terminal', exact: true }).waitFor();
+  const catalog = page.getByRole('dialog', { name: 'Adicionar Agente ou Terminal', exact: true });
+  assert.equal(await catalog.getByRole('radio').count(), 10, 'o catalogo exibe oito posições e duas especializações auxiliares');
+  for (const nome of ['Orquestrador', 'Explorador', 'Arquiteto', 'Construtor', 'Depurador', 'Revisor', 'Verificador', 'Finalizador']) {
+    assert.equal(await catalog.getByRole('radio', { name: new RegExp(nome) }).count(), 1, `${nome} aparece no catalogo`);
+  }
+  assert.equal(await catalog.getByText('Funções incorporadas', { exact: true }).count(), 1, 'o contrato explicita funções incorporadas');
+  await catalog.getByRole('radio', { name: /Verificador/ }).click();
+  await catalog.getByText('Auditor', { exact: true }).waitFor();
+  assert.equal(await catalog.locator('.role-tile .mascote').count(), 10, 'cada posição do catalogo tem seu mascote');
+  assert.equal(await catalog.locator('.role-tile .mascote.e-run').count(), 0, 'no catalogo ninguem finge estar trabalhando');
   await page.screenshot({ path: 'web/ui-agentes.png', fullPage: true });
-  await page.getByRole('button', { name: 'Fechar seleção de agente', exact: true }).click();
+  await page.getByRole('button', { name: 'Fechar catálogo', exact: true }).click();
   const originalTerminal = await page.locator('[data-pane-id="pane1"] .xterm').elementHandle();
   socket.send(JSON.stringify({ type: 'output', paneId: 'pane1', data: 'ANTES-DE-TROCAR\r\n' }));
   // Trocar de agente e depois de missao: a sessao do primeiro segue viva e escondida.
@@ -207,10 +224,23 @@ try {
   await page.getByText(/servidor do cockpit está desatualizado/).waitFor();
   assert.equal(await page.locator('.tombo').count(), 0);
   await page.unroute('**/api/pontes');
+  await page.getByRole('tab', { name: 'APIs DSH' }).click();
+  await page.getByText('APIs diretas do DSH', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Conectar API ao DSH', exact: true }).click();
+  await page.getByLabel('Chave da API').fill('chave-dsh-de-teste');
+  await page.getByRole('button', { name: 'Salvar e disponibilizar no catálogo', exact: true }).click();
+  await page.getByText('DeepSeek API', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Fechar ajustes', exact: true }).click();
-  await page.getByTitle('Projetos e missões', { exact: true }).click();
+  await page.locator('.brand-button').click();
   await page.getByRole('dialog', { name: 'Projetos e missões', exact: true }).getByRole('button', { name: 'Nova missão', exact: true }).click();
   await page.getByRole('dialog', { name: 'Nova missão', exact: true }).waitFor();
+  const missionWizard = page.getByRole('dialog', { name: 'Nova missão', exact: true });
+  assert.equal(await missionWizard.locator('.mission-role-card.primary').count(), 8, 'Nova missão exibe as oito posições principais');
+  for (const nome of ['Orquestrador', 'Explorador', 'Arquiteto', 'Construtor', 'Depurador', 'Revisor', 'Verificador', 'Finalizador']) {
+    assert.equal(await missionWizard.locator('.mission-role-card').filter({ hasText: nome }).count(), 1, `${nome} aparece na composição da missão`);
+  }
+  await missionWizard.getByRole('button', { name: /Verificador/ }).click();
+  assert.equal(await missionWizard.getByText('Abrange: Verificador · Testador · Auditor', { exact: true }).count(), 1, 'Nova missão mostra as funções incorporadas');
   assert.deepEqual(await page.locator('.pane').first().boundingBox(), paneBounds);
   await page.getByRole('button', { name: 'Fechar nova missão', exact: true }).click();
   await page.getByRole('button', { name: 'Detalhes da missão', exact: true }).click();
@@ -239,7 +269,7 @@ try {
   holdTree = true;
   socket.send(JSON.stringify({ type: 'fs-change', path: 'exemplo.ts', base: 'C:/projetos/exemplo' }));
   await page.waitForRequest('**/api/tree?**');
-  await page.getByTitle('Projetos e missões', { exact: true }).click();
+  await page.locator('.brand-button').click();
   await page.getByTitle('Fechar projeto no cockpit', { exact: true }).click();
   await page.getByRole('button', { name: 'fechar', exact: true }).click();
   await page.getByRole('button', { name: 'Abrir projeto', exact: true }).waitFor();

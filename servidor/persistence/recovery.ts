@@ -40,12 +40,13 @@ export function recoverOnBoot(disk: DiskStore): RecoveryReport {
     const panes = paneStore.listPanes(mission.id);
     totalPanes += panes.length;
 
-    // Synchronize mission panes array with persistent pane records (do not erase!)
-    const activePaneIds = panes.map((p) => p.paneId);
-    // Combine existing mission.panes and activePaneIds to never lose references
-    const mergedPanes = Array.from(new Set([...mission.panes, ...activePaneIds]));
-    if (JSON.stringify(mission.panes) !== JSON.stringify(mergedPanes)) {
-      mission.panes = mergedPanes;
+    // Missões guardam somente panes recuperáveis. Registros mortos continuam
+    // disponíveis no histórico em disco, mas não reaparecem na interface.
+    const activePaneIds = panes
+      .filter((p) => !["dead", "completed", "failed"].includes(p.status))
+      .map((p) => p.paneId);
+    if (JSON.stringify(mission.panes) !== JSON.stringify(activePaneIds)) {
+      mission.panes = activePaneIds;
       missionStore.saveMission(mission);
     }
 

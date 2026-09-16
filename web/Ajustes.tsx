@@ -5,6 +5,7 @@ import { Marketplace } from "./Marketplace.tsx";
 import { Receitas } from "./Receitas.tsx";
 import { Media } from "./Media.tsx";
 import { Gratis } from "./Gratis.tsx";
+import { DshApis } from "./DshApis.tsx";
 import type { Colunas } from "./PaneGrid.tsx";
 import type { AgentSpec, SquadSpec, TipoTarefa } from "./api.ts";
 
@@ -19,10 +20,11 @@ import type { AgentSpec, SquadSpec, TipoTarefa } from "./api.ts";
  * disputar espaço com o terminal.
  */
 
-type Aba = "provedores" | "gratis" | "marketplace" | "skills" | "receitas" | "media" | "tela";
+type Aba = "provedores" | "dsh-apis" | "gratis" | "marketplace" | "skills" | "receitas" | "media" | "tela";
 
 const ABAS: { id: Aba; label: string }[] = [
   { id: "provedores", label: "Provedores" },
+  { id: "dsh-apis", label: "APIs DSH" },
   { id: "gratis", label: "Grátis" },
   { id: "marketplace", label: "Marketplace" },
   { id: "skills", label: "Skills" },
@@ -40,6 +42,7 @@ export function Ajustes({
   onColunas,
   onFechar,
   onMudou,
+  missionId,
 }: {
   inicial?: Aba;
   agents: Record<string, AgentSpec>;
@@ -49,6 +52,7 @@ export function Ajustes({
   onColunas: (colunas: Colunas) => void;
   onFechar: () => void;
   onMudou: () => void;
+  missionId?: string;
 }) {
   const [aba, setAba] = useState<Aba>(inicial ?? "provedores");
 
@@ -75,7 +79,8 @@ export function Ajustes({
       </nav>
 
       <div className="aba-corpo" role="tabpanel">
-        {aba === "provedores" && <Config onFechar={onFechar} onMudou={onMudou} />}
+        {aba === "provedores" && <Config onFechar={onFechar} onMudou={onMudou} missionId={missionId} />}
+        {aba === "dsh-apis" && <DshApis onMudou={onMudou} />}
         {aba === "gratis" && <Gratis onMudou={onMudou} />}
         {aba === "marketplace" && <Marketplace onMudou={onMudou} />}
         {aba === "skills" && <Skills agents={agents} />}

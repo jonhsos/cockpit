@@ -14,6 +14,7 @@ import {
 } from "../pty.ts";
 import { normalizePaneStatus } from "../sessions/pane-state.ts";
 import { getMission, getProject, detachPane, attachPane } from "../state.ts";
+import { cwdDaMissao } from "../missions/missions.ts";
 import { auditLogger } from "../security/audit.ts";
 import { execucaoDoPapel } from "./politica-ia.ts";
 import { listarPontes } from "../providers/ponte.ts";
@@ -228,7 +229,7 @@ export class MaestroCoordinator {
     if (missionId) {
       const mission = getMission(missionId);
       if (!mission || !getProject(mission.projectId) || (projectId && mission.projectId !== projectId)) return null;
-      return mission.worktree;
+      return cwdDaMissao(mission);
     }
     if (projectId) return getProject(projectId)?.root ?? null;
     return null;
@@ -238,14 +239,31 @@ export class MaestroCoordinator {
     agent: string,
     missionId: string,
     tarefa?: string,
-    harness?: Omit<Pedido, "agent">,
+    harness?: Omit<Pedido, "agent"> & { backend?: "pty" | "dsh"; loginArgs?: string[]; role?: string },
     skills: string[] = [],
     maestroOverride?: boolean,
     accountOpts?: { preferredAccountId?: string; accountPinned?: boolean },
   ): PaneState {
     const mission = getMission(missionId);
     if (!mission) throw new Error("missão não encontrada");
-    if (!getProject(mission.projectId)) throw new Error("projeto fechado");
+    const project = getProject(mission.projectId);
+    if (!project) throw new Error("projeto fechado");
+    if (config.workspace?.umaMissaoEscritoraPorProjeto !== false) {
+      const outraMissaoAtiva = listPanes().find((pane) => {
+        if (!pane.missionId) return false;
+        if (pane.missionId === missionId) return false;
+        const outraMissao = getMission(pane.missionId);
+        return outraMissao?.projectId === mission.projectId;
+      });
+      if (outraMissaoAtiva) {
+        const outraMissao = outraMissaoAtiva.missionId
+          ? getMission(outraMissaoAtiva.missionId)
+          : undefined;
+        throw new Error(
+          `o projeto já está sendo trabalhado pela missão "${outraMissao?.nome ?? outraMissaoAtiva.missionId}"; encerre seus painéis antes de iniciar outra missão`,
+        );
+      }
+    }
     const ehMaestro = maestroOverride ?? config.agents[agent]?.maestro === true;
     if (ehMaestro && listPanes().some((p) => p.missionId === missionId && p.maestro)) {
       throw new Error("Já existe um maestro nesta missão. Use Trocar maestro.");
@@ -264,8 +282,9 @@ export class MaestroCoordinator {
 
     const state = spawnPane({
       agent,
+      label: undefined,
       harness,
-      cwd: mission.worktree,
+      cwd: cwdDaMissao(mission),
       projectId: mission.projectId,
       missionId: mission.id,
       objetivo: mission.objetivo,
@@ -273,8 +292,13 @@ export class MaestroCoordinator {
       tarefa: tarefaLimpa,
       maestro: maestroOverride,
       porta: this.deps.porta,
+      role: harness?.role,
+      roleDefinition: harness?.roleDefinition,
+      runner: harness?.runner,
       preferredAccountId: accountOpts?.preferredAccountId,
       accountPinned: accountOpts?.accountPinned,
+      backend: harness?.backend,
+      loginArgs: harness?.loginArgs,
     });
     attachPane(mission.id, state.paneId);
     this.deps.continuity.record(

@@ -47,7 +47,7 @@ export function Workspace({
   onFechar: () => void;
 }) {
   const [busca, setBusca] = useState("");
-  // Apagar missão isolada leva worktree e branch: pede confirmação na linha.
+  // Worktrees legados nunca têm seus arquivos removidos ao arquivar a missão.
   const [confirmando, setConfirmando] = useState<string | null>(null);
   const [fechandoProjeto, setFechandoProjeto] = useState<string | null>(null);
 
@@ -113,7 +113,8 @@ export function Workspace({
                       <b>{p.nome}</b>
                       <span className="caminho">{p.root}</span>
                     </button>
-                    {!p.git && <span className="tipo-chip" title="sem git: as missões dividem a pasta">sem git</span>}
+                    <span className="tipo-chip" title="agentes trabalham diretamente nesta pasta">pasta real</span>
+                    {!p.git && <span className="tipo-chip" title="controle de versão não detectado">sem git</span>}
                     {quantas !== null && <span className="prov-cmd">{quantas} missão(ões)</span>}
                     <button
                       className="icon-btn apagar"
@@ -167,7 +168,7 @@ export function Workspace({
                           setConfirmando(null);
                         }}
                       >
-                        {m.isolada ? "apagar e descartar o branch" : "apagar"}
+                        {m.isolada ? "arquivar sem apagar o worktree" : "apagar"}
                       </button>
                       <button className="btn mini" onClick={() => setConfirmando(null)}>
                         não
@@ -191,7 +192,7 @@ export function Workspace({
                       <span className="caminho">{m.objetivo}</span>
                     </button>
                     {m.squad && <span className="squad-flag">{m.squad.squad}</span>}
-                    {m.branch && <span className="branch">{m.branch}</span>}
+                    {m.isolada && <span className="branch" title={m.worktree}>worktree legado</span>}
                     <span className="crew">
                       {tripulacao.length === 0 ? (
                         <i className="nenhum">—</i>

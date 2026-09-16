@@ -6,8 +6,8 @@ import { accountPool } from "./account-pool.ts";
 
 /**
  * Cada CLI pergunta "você confia nesta pasta?" antes de aceitar qualquer
- * coisa. Como toda missão cria um worktree novo, isso reapareceria em cada
- * painel de cada missão e travaria o briefing. Aqui registramos a resposta
+ * coisa. Como os agentes trabalham na pasta real escolhida, registramos a
+ * resposta uma vez para cada provedor e evitamos travar o briefing. É a resposta
  * que você daria, no formato de cada um.
  *
  * Só é chamado para pastas que você mesmo abriu no cockpit, e desliga com

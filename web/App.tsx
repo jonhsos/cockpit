@@ -19,6 +19,7 @@ import { NovaMissao, type Plano } from "./NovaMissao.tsx";
 import { Ajustes } from "./Ajustes.tsx";
 import { RoleCatalog } from "./RoleCatalog.tsx";
 import { QuadroTarefas } from "./QuadroTarefas.tsx";
+import { agentForRole, roleDefinitionFor } from "./role-contract.ts";
 import {
   closeProject,
   deleteMission,
@@ -43,7 +44,6 @@ import {
   postSquad,
   renomearMissao,
   mudarModo,
-  prepararGit,
   saveFile,
   type AgentSpec,
   type Mission,
@@ -266,7 +266,14 @@ export function App() {
           setPanes((prev) =>
             prev.map((p) => {
               const pulso = msg.pulsos.find((x) => x.paneId === p.paneId);
-              return pulso ? { ...p, status: pulso.status, atividade: pulso.atividade } : p;
+              return pulso
+                ? {
+                    ...p,
+                    status: pulso.status,
+                    atividade: pulso.atividade,
+                    blockedReason: pulso.blockedReason !== undefined ? pulso.blockedReason : p.blockedReason,
+                  }
+                : p;
             }),
           );
           break;
@@ -403,8 +410,18 @@ export function App() {
       }
       // Escalonado: quatro CLIs subindo juntos brigam por CPU.
       plano.agentes.forEach((agent, i) => {
+        const papel = plano.papeis[i] ?? "builder";
         setTimeout(
-          () => send({ type: "spawn", agent, missionId: m.id, tipo: plano.tipo || undefined }),
+          () => send({
+            type: "spawn",
+            agent,
+            missionId: m.id,
+            tipo: plano.tipo || undefined,
+            role: papel,
+            runner: plano.runners[i] || undefined,
+            cli: plano.runners[i] || undefined,
+            maestro: papel === "maestro",
+          }),
           i * 1800,
         );
       });
@@ -720,7 +737,8 @@ export function App() {
               <p className="mission-objective">{active.objetivo || "Esta missão ainda não tem um objetivo definido."}</p>
               <dl className="detail-list">
                 <div><dt>Projeto</dt><dd>{project?.nome}</dd></div>
-                <div><dt>Branch</dt><dd>{active.branch || "Pasta compartilhada"}</dd></div>
+                <div><dt>Pasta de trabalho</dt><dd>{active.isolada ? active.worktree : project?.root}</dd></div>
+                <div><dt>Workspace</dt><dd>{active.isolada ? "Worktree legado — resgatar antes de remover" : "Pasta real do projeto"}</dd></div>
                 <div>
                   <dt>Modo de execução</dt>
                   <dd>
@@ -746,7 +764,6 @@ export function App() {
                 <div><dt>Arquivos alterados</dt><dd>{active.git.dirty}</dd></div>
                 <div><dt>Elenco</dt><dd>{active.elenco?.clis.map(cli => `${cli}${active.elenco?.soVisual?.includes(cli) ? " (só imagens)" : ""}`).join(" · ") || "Catálogo de agentes"}</dd></div>
               </dl>
-              {!active.branch && <button className="btn" disabled={busy} onClick={() => guarded(async () => { if (!projectId) return; await prepararGit(projectId); await recarregarProjetos(); await recarregarMissoes(projectId); })}>Preparar isolamento com Git</button>}
               <button className="btn" aria-label="Maestro" onClick={() => { setVerMissao(false); setVerMaestro(true); }}><Icon name="team" size={16} /> Maestro e continuidade · {maestroCli ?? "Escolher"}</button>
           {active && verMissao && (
             <SquadBar
@@ -792,20 +809,28 @@ export function App() {
                   elenco={active.elenco}
                   defaultRole="builder"
                   defaultRunner="bash"
+                  missionId={active.id}
                   onCancel={fecharEscolhaAgente}
                   onLaunch={(params) => {
+                    const role = roleDefinitionFor(params.role, params.customRole ? [params.customRole] : []);
+                    const agent = params.runner === "bash"
+                      ? "shell"
+                      : agentForRole(agents, role) ?? role.baseAgent ?? "builder";
                     send({
                       type: "spawn",
-                      agent: params.role,
+                      agent,
                       missionId: active.id,
                       cli: params.runner,
                       model: params.model,
                       effort: params.effort || undefined,
                       tarefa: params.tarefa,
                       role: params.role,
+                      roleDefinition: params.roleDefinition,
                       runner: params.runner,
+                      maestro: params.role === "maestro",
                       preferredAccountId: params.preferredAccountId,
                       accountPinned: params.accountPinned || undefined,
+                      backend: params.backend,
                     });
                     fecharEscolhaAgente();
                   }}
@@ -856,6 +881,7 @@ export function App() {
               agents={agents}
               squads={squads}
               tarefas={tarefas}
+              missionId={active?.id}
               onFechar={() => setVerConfig(false)}
               onMudou={() => {
                 void fetchConfig().then((c) => {
@@ -1042,7 +1068,7 @@ export function App() {
                     <Icon name="folder" /> Abrir projeto <Icon name="arrow" size={16} />
                   </button>
                   <p className="rodape-partida">
-                    Qualquer pasta serve. Com git, cada missão ganha um worktree próprio.
+                    Os agentes trabalham diretamente na pasta que você selecionar.
                   </p>
                 </div>
               ) : !active ? (
@@ -1052,9 +1078,7 @@ export function App() {
                     <Icon name="plus" /> Nova missão <Icon name="arrow" size={16} />
                   </button>
                   <p className="rodape-partida">
-                    {project.git
-                      ? "Cada missão ganha seu próprio worktree. Agentes da mesma missão compartilham os arquivos."
-                      : "Sem git nesta pasta, as missões dividem os mesmos arquivos."}
+                    Todas as missões usam a pasta real do projeto. O Cockpit não cria cópias nem troca branches.
                   </p>
                 </div>
               ) : visible.length === 0 ? (

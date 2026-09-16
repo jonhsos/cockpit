@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { config, salvarConfig } from "./config.ts";
 import { Continuity } from "./missions/continuity.ts";
 import { getPane, listPanes, initializePty, getDefaultPtyManager } from "./pty.ts";
-import { CASA, detachPane, getProject, listMissions, listProjects } from "./state.ts";
+import { CASA, detachPane, listProjects } from "./state.ts";
 import { observar } from "./missions/watcher.ts";
 import { getDefaultBridge, getDefaultMailboxManager } from "./connections/index.ts";
 import { getTaskManager, getFileOwnershipManager } from "./tasks/index.ts";
@@ -15,6 +15,8 @@ import { createApiRouter, type RouterContext } from "./routes/index.ts";
 
 const porta = Number(process.env.COCKPIT_PORTA) || config.port;
 const app = express();
+const webDist = fileURLToPath(new URL("../web/dist", import.meta.url));
+const webIndex = join(webDist, "index.html");
 app.use(express.json({ limit: "8mb" }));
 
 const server = createServer(app);
@@ -138,16 +140,16 @@ const routerContext: RouterContext = {
 };
 
 app.use("/api", createApiRouter(routerContext));
-app.use(express.static(fileURLToPath(new URL("../web/dist", import.meta.url))));
+app.use(express.static(webDist));
+app.get("/", (_req, res, next) => {
+  res.sendFile(webIndex, (error) => error ? next(error) : undefined);
+});
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   res.status(400).json({ error: err.message });
 });
 
 // File Watchers
 for (const project of listProjects()) observar(project.root, avisarMudanca);
-for (const mission of listMissions()) {
-  if (getProject(mission.projectId)) observar(mission.worktree, avisarMudanca);
-}
 
 // Process error handling & Server listen
 process.on("uncaughtException", (err: NodeJS.ErrnoException) => {

@@ -1,13 +1,17 @@
 import type { WebSocket } from "ws";
+import { MAX_DSH_PROMPT_LENGTH } from "../sessions/dsh-backend/dsh-manager.ts";
 import type { ClientManager } from "./client-manager.ts";
 import type { TerminalHandler } from "./terminal-handler.ts";
 import type { ClientMessage } from "./ws-events.ts";
 import type { WsServerContext } from "./ws-server.ts";
 import type { WsValidationResult } from "./ws-types.ts";
+import type { RoleContractInput } from "../orchestration/roles.ts";
 
 export const MAX_WS_PAYLOAD_BYTES = 1024 * 1024; // 1 MB
 
 const FORBIDDEN_PROPERTIES = new Set(["__proto__", "constructor", "prototype"]);
+const MAX_ROLE_FIELD_LENGTH = 600;
+const MAX_ROLE_LIST_ITEMS = 8;
 
 /** Detects prototype pollution keys in object hierarchies */
 export function hasPrototypePollution(obj: unknown, depth = 0): boolean {
@@ -32,6 +36,47 @@ export function hasPrototypePollution(obj: unknown, depth = 0): boolean {
     }
   }
   return false;
+}
+
+function parseRoleDefinition(value: unknown): { value?: RoleContractInput; error?: string } {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { error: "Campo 'roleDefinition' para spawn deve ser um objeto" };
+  }
+  const raw = value as Record<string, unknown>;
+  const requiredText = ["id", "label", "description", "outcome"];
+  for (const field of requiredText) {
+    if (typeof raw[field] !== "string" || !raw[field].trim() || raw[field].length > MAX_ROLE_FIELD_LENGTH) {
+      return { error: `Campo '${field}' do roleDefinition é inválido ou excede ${MAX_ROLE_FIELD_LENGTH} caracteres` };
+    }
+  }
+  const lists = ["owns", "doesNotOwn", "qualityGates", "deliverables"];
+  for (const field of lists) {
+    const list = raw[field];
+    if (!Array.isArray(list) || list.length > MAX_ROLE_LIST_ITEMS || list.some((item) => typeof item !== "string" || !item.trim() || item.length > MAX_ROLE_FIELD_LENGTH)) {
+      return { error: `Campo '${field}' do roleDefinition deve conter até ${MAX_ROLE_LIST_ITEMS} textos válidos` };
+    }
+  }
+  if (raw.incorporates !== undefined && (!Array.isArray(raw.incorporates) || raw.incorporates.length > MAX_ROLE_LIST_ITEMS || raw.incorporates.some((item) => typeof item !== "string" || !item.trim() || item.length > MAX_ROLE_FIELD_LENGTH))) {
+    return { error: `Campo 'incorporates' do roleDefinition deve conter até ${MAX_ROLE_LIST_ITEMS} textos válidos` };
+  }
+  if (raw.baseAgent !== undefined && (typeof raw.baseAgent !== "string" || !/^[a-z0-9_-]{1,48}$/i.test(raw.baseAgent))) {
+    return { error: "Campo 'baseAgent' do roleDefinition é inválido" };
+  }
+  return {
+    value: {
+      id: (raw.id as string).trim(),
+      label: (raw.label as string).trim(),
+      description: (raw.description as string).trim(),
+      outcome: (raw.outcome as string).trim(),
+      owns: (raw.owns as string[]).map((item) => item.trim()),
+      doesNotOwn: (raw.doesNotOwn as string[]).map((item) => item.trim()),
+      qualityGates: (raw.qualityGates as string[]).map((item) => item.trim()),
+      deliverables: (raw.deliverables as string[]).map((item) => item.trim()),
+      ...(Array.isArray(raw.incorporates) ? { incorporates: raw.incorporates.map((item) => item.trim()) } : {}),
+      ...(typeof raw.baseAgent === "string" ? { baseAgent: raw.baseAgent.trim() } : {}),
+    },
+  };
 }
 
 /** Validates and parses a raw WebSocket frame into a strictly typed ClientMessage */
@@ -124,6 +169,11 @@ export function validateAndParseClientMessage(raw: unknown): WsValidationResult<
       if (msg.accountPinned !== undefined && typeof msg.accountPinned !== "boolean") {
         return { ok: false, error: "Campo 'accountPinned' para spawn deve ser boolean quando fornecido" };
       }
+      if (msg.backend !== undefined && msg.backend !== "pty" && msg.backend !== "dsh") {
+        return { ok: false, error: "Campo 'backend' para spawn deve ser 'pty' ou 'dsh' quando fornecido" };
+      }
+      const roleDefinition = parseRoleDefinition(msg.roleDefinition);
+      if (roleDefinition.error) return { ok: false, error: roleDefinition.error };
       return {
         ok: true,
         message: {
@@ -136,6 +186,7 @@ export function validateAndParseClientMessage(raw: unknown): WsValidationResult<
           model: typeof msg.model === "string" ? msg.model : null,
           effort: typeof msg.effort === "string" ? msg.effort : null,
           role: typeof msg.role === "string" ? msg.role : undefined,
+          roleDefinition: roleDefinition.value,
           runner: typeof msg.runner === "string" ? msg.runner : undefined,
           maestro: typeof msg.maestro === "boolean" ? msg.maestro : undefined,
           preferredAccountId:
@@ -143,6 +194,7 @@ export function validateAndParseClientMessage(raw: unknown): WsValidationResult<
               ? msg.preferredAccountId.trim()
               : undefined,
           accountPinned: typeof msg.accountPinned === "boolean" ? msg.accountPinned : undefined,
+          backend: msg.backend === "dsh" || msg.backend === "pty" ? msg.backend : undefined,
         },
       };
     }
@@ -160,6 +212,29 @@ export function validateAndParseClientMessage(raw: unknown): WsValidationResult<
           type: "input",
           paneId: msg.paneId.trim(),
           data: msg.data,
+        },
+      };
+    }
+
+    case "prompt": {
+      if (typeof msg.paneId !== "string" || !msg.paneId.trim()) {
+        return { ok: false, error: "Campo 'paneId' obrigatório e deve ser string não-vazia para prompt" };
+      }
+      if (typeof msg.prompt !== "string") {
+        return { ok: false, error: "Campo 'prompt' obrigatório e deve ser string para prompt" };
+      }
+      if (!msg.prompt.trim()) {
+        return { ok: false, error: "Campo 'prompt' deve ser não-vazio" };
+      }
+      if (msg.prompt.trim().length > MAX_DSH_PROMPT_LENGTH) {
+        return { ok: false, error: `Campo 'prompt' excede ${MAX_DSH_PROMPT_LENGTH} caracteres` };
+      }
+      return {
+        ok: true,
+        message: {
+          type: "prompt",
+          paneId: msg.paneId.trim(),
+          prompt: msg.prompt,
         },
       };
     }
@@ -261,6 +336,9 @@ export class WsDispatcher {
                   effort: msg.effort || undefined,
                 },
                 runner: msg.runner,
+                role: msg.role,
+                roleDefinition: msg.roleDefinition,
+                backend: msg.backend,
               },
               [],
               msg.maestro,
@@ -279,6 +357,12 @@ export class WsDispatcher {
 
         case "input":
           this.terminalHandler.handleInput(msg.paneId, msg.data);
+          break;
+
+        case "prompt":
+          if (!(await this.terminalHandler.handlePrompt(msg.paneId, msg.prompt))) {
+            this.clientManager.send(ws, { type: "error", message: "Prompt rejeitado: painel DSH indisponível" });
+          }
           break;
 
         case "resize":

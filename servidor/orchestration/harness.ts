@@ -1,5 +1,6 @@
 import { config, type AgentSpec, type Elenco, type TipoTarefa } from "../config.ts";
 import { execucaoDoPapel } from "./politica-ia.ts";
+import type { RoleContractInput } from "./roles.ts";
 import { providerDisponivel } from "../providers/providers.ts";
 
 /**
@@ -34,6 +35,14 @@ export type Pedido = {
   agent: string;
   /** Runner explícito (ex: bash, codex, claude). */
   runner?: string;
+  /** Role/papel funcional explícito. */
+  role?: string;
+  /** Contrato temporário de papel criado na interface. */
+  roleDefinition?: RoleContractInput;
+  /** Backend explícito (pty ou dsh). */
+  backend?: "pty" | "dsh";
+  /** Argumentos de login executados diretamente, sem interpolação de shell. */
+  loginArgs?: string[];
   /** Tipo da tarefa: chave de harness.tipos no cockpit.json. */
   tipo?: string;
   /** O que o roster do time fixou para este agente nesta fase. */

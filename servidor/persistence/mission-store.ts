@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, realpathSync, statSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import type { DiskStore } from "./disk-store.ts";
@@ -85,9 +85,18 @@ export class MissionStore {
   }
 
   public addProject(caminho: string): ProjectRecord {
-    const root = resolve(caminho);
-    if (!existsSync(root)) throw new Error(`pasta não encontrada: ${root}`);
+    const resolvido = resolve(caminho);
+    if (!existsSync(resolvido)) throw new Error(`pasta não encontrada: ${resolvido}`);
+    const root = realpathSync(resolvido);
     if (!statSync(root).isDirectory()) throw new Error(`${root} não é uma pasta`);
+    if (root.split(/[\\/]+/).includes(".cockpit-worktrees")) {
+      throw new Error("abra a pasta real do projeto, não uma pasta dentro de .cockpit-worktrees");
+    }
+    try {
+      accessSync(root, constants.R_OK | constants.W_OK);
+    } catch {
+      throw new Error(`sem permissão de leitura e escrita em: ${root}`);
+    }
 
     const existente = this.cachedProjects.find((p) => p.root === root);
     if (existente) return existente;

@@ -59,7 +59,7 @@ const TOOLS: Tool[] = [
   {
     name: "delegar",
     description:
-      "Abre um painel novo com um especialista e entrega uma tarefa a ele. A tarefa deve ser autossuficiente: o especialista não vê esta conversa. Ele trabalha no mesmo worktree da missão, então diga exatamente quais arquivos são dele para evitar colisão. Tipo é opcional e somente descreve trabalho; agente escolhido mantém modelo e esforço.",
+      "Abre um painel novo com um especialista e entrega uma tarefa a ele. A tarefa deve ser autossuficiente: o especialista não vê esta conversa. Ele trabalha na pasta real do projeto, compartilhada pela missão, então diga exatamente quais arquivos são dele para evitar colisão. Tipo é opcional e somente descreve trabalho; agente escolhido mantém modelo e esforço.",
     inputSchema: {
       type: "object",
       properties: {

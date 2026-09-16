@@ -2,17 +2,18 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { discardBufferedOutput, onOutput, send, takeBufferedOutput } from "./socket.ts";
-import { fetchPaneReplay, type AgentSpec, type Usage } from "./api.ts";
+import { fetchPaneReplay, postPanePrompt, openLoginTerminal, type AgentSpec, type Usage } from "./api.ts";
 import {
   type PaneState,
   type Connection,
   type Task,
   type GranularPaneStatus,
   GRANULAR_STATUS_MAP,
-  CANONICAL_ROLES,
+  CATALOG_ROLES,
 } from "./tipos.ts";
 import { Icon } from "./Icon.tsx";
 import { Mascote } from "./Mascote.tsx";
+import { roleDefinitionFor } from "./role-contract.ts";
 
 const BARRAS = 40;
 
@@ -112,6 +113,39 @@ export function Pane({
   const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
   const [detalhesPos, setDetalhesPos] = useState<{ top: number; right: number } | null>(null);
 
+  // DSH interactive prompt state (Requirement R1)
+  const isDsh = pane.backend === "dsh";
+  const isDshRef = useRef(isDsh);
+  isDshRef.current = isDsh;
+  const [promptTexto, setPromptTexto] = useState("");
+  const [promptEnviando, setPromptEnviando] = useState(false);
+  const [promptErro, setPromptErro] = useState<string | null>(null);
+  const promptInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleEnviarPrompt = async () => {
+    const texto = promptTexto.trim();
+    if (!texto || promptEnviando) return;
+    setPromptEnviando(true);
+    setPromptErro(null);
+    try {
+      const result = await postPanePrompt(pane.paneId, texto);
+      if (!result.ok) throw new Error("O servidor rejeitou o prompt");
+      setPromptTexto("");
+    } catch (err) {
+      setPromptErro(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPromptEnviando(false);
+      promptInputRef.current?.focus();
+    }
+  };
+
+  const handlePromptKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void handleEnviarPrompt();
+    }
+  };
+
   // Close popovers on click-outside or Escape key
   useEffect(() => {
     if (!menuPapelAberto && !detalhesAberto) return;
@@ -170,7 +204,10 @@ export function Pane({
     const area = host.current!;
     term.open(area);
 
-    term.onData((data) => send({ type: "input", paneId: pane.paneId, data }));
+    term.onData((data) => {
+      if (isDshRef.current) return;
+      send({ type: "input", paneId: pane.paneId, data });
+    });
     term.onResize(({ cols, rows }) =>
       send({ type: "resize", paneId: pane.paneId, cols, rows }),
     );
@@ -294,7 +331,8 @@ export function Pane({
     }
   };
 
-  const roleName = pane.role || (pane.maestro ? "maestro" : pane.agent);
+  const roleId = pane.role || (pane.maestro ? "maestro" : pane.agent);
+  const roleName = roleDefinitionFor(roleId).label;
 
   const nome = label ?? spec?.label ?? pane.label;
 
@@ -407,12 +445,26 @@ export function Pane({
                     </div>
                   )}
                   {(pane.accountLabel || pane.accountId) && (
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                       <span style={{ color: "var(--ink-3)" }}>Conta:</span>
-                      <span style={{ color: "var(--ink)", textAlign: "right", wordBreak: "break-word" }}>
-                        {pane.accountLabel || pane.accountId}
-                        {pane.accountPinned ? " · fixada" : ""}
-                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ color: "var(--ink)", textAlign: "right", wordBreak: "break-word" }}>
+                          {pane.accountLabel || pane.accountId}
+                          {pane.accountPinned ? " · fixada" : ""}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn mini quiet"
+                          style={{ padding: "1px 6px", fontSize: "10.5px" }}
+                          onClick={async () => {
+                            setDetalhesAberto(false);
+                            await openLoginTerminal(pane.cli, pane.accountId!, pane.missionId ?? undefined);
+                          }}
+                          title="Abrir terminal de login para esta conta"
+                        >
+                          🔑 Login
+                        </button>
+                      </div>
                     </div>
                   )}
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -550,13 +602,13 @@ export function Pane({
                   className={pane.maestro ? "active" : ""}
                   onClick={() => handleEscolherPapel("maestro")}
                 >
-                  👑 Maestro (Coordenador)
+                  👑 Orquestrador (coordenação)
                 </button>
-                {CANONICAL_ROLES.filter((r) => r.id !== "maestro").map((r) => (
+                {CATALOG_ROLES.filter((r) => r.id !== "maestro").map((r) => (
                   <button
                     key={r.id}
                     type="button"
-                    className={roleName === r.id ? "active" : ""}
+                    className={roleId === r.id ? "active" : ""}
                     onClick={() => handleEscolherPapel(r.id)}
                   >
                     {r.label}
@@ -582,6 +634,22 @@ export function Pane({
               </>
             )}
           </span>
+
+          <span
+            className={`pane-badge badge-backend ${isDsh ? "dsh" : "pty"}`}
+            title={`Backend de execução: ${isDsh ? "DSH (SDK headless / subagentes)" : "PTY (Terminal interativo CLI)"}`}
+          >
+            {isDsh ? "⚡ dsh" : "📟 pty"}
+          </span>
+
+          {pane.accountLabel && (
+            <span
+              className="pane-badge badge-account"
+              title={`Conta do pool: ${pane.accountLabel}${pane.accountPinned ? " (fixada)" : ""}`}
+            >
+              👤 {pane.accountLabel}
+            </span>
+          )}
 
           {pane.cli === "bash" ? (
             <span className="pane-badge badge-model clean-bash" title="Terminal Linux soberano sem LLM">
@@ -632,6 +700,62 @@ export function Pane({
       </header>
 
       <div className="pane-term" ref={host} />
+
+      {isDsh && (
+        <div className="pane-dsh-prompt-box">
+          <div className="pane-dsh-status-row">
+            <span className={`dsh-status-tag ${pane.status}`}>
+              <span className="dsh-status-dot" />
+              <span className="dsh-status-text">
+                {pane.status === "waiting-user"
+                  ? "Aguardando instrução"
+                  : pane.status === "working"
+                  ? "Executando resposta..."
+                  : pane.status === "completed" || pane.status === "review"
+                  ? "Resposta concluída"
+                  : pane.status === "starting"
+                  ? "Iniciando agente DSH..."
+                  : pane.status === "blocked"
+                  ? `Bloqueado: ${pane.blockedReason || "Aguardando liberação"}`
+                  : pane.status === "failed"
+                  ? `Falha: ${pane.blockedReason || "Erro"}`
+                  : "Pronto"}
+              </span>
+            </span>
+            <span className="dsh-status-hint">
+              {pane.status === "working" ? "Subagentes em execução..." : "Enter envia · Shift+Enter quebra linha"}
+            </span>
+          </div>
+
+          <div className="pane-dsh-input-row">
+            <textarea
+              ref={promptInputRef}
+              className="pane-dsh-input"
+              placeholder={
+                pane.status === "working"
+                  ? "Agente trabalhando... você pode digitar a próxima instrução para enfileirar"
+                  : "Digite uma instrução para o agente DSH..."
+              }
+              value={promptTexto}
+              onChange={(e) => setPromptTexto(e.target.value)}
+              onKeyDown={handlePromptKeyDown}
+              disabled={promptEnviando || pane.status === "dead" || pane.status === "failed"}
+              rows={Math.min(6, Math.max(2, promptTexto.split("\n").length))}
+            />
+            <button
+              type="button"
+              className="btn acao pane-dsh-send-btn"
+              disabled={!promptTexto.trim() || promptEnviando || pane.status === "dead" || pane.status === "failed"}
+              onClick={() => void handleEnviarPrompt()}
+              title="Enviar instrução ao agente DSH (Enter)"
+            >
+              <span>{promptEnviando ? "Enviando..." : "Enviar"}</span>
+              <Icon name="arrow" size={14} />
+            </button>
+          </div>
+          {promptErro && <div className="pane-dsh-prompt-error" role="alert">{promptErro}</div>}
+        </div>
+      )}
     </section>
   );
 }

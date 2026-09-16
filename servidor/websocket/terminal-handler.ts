@@ -1,7 +1,7 @@
 import type { WebSocket } from "ws";
 import type { ClientManager } from "./client-manager.ts";
 import type { Continuity } from "../missions/continuity.ts";
-import { getPane, killPty, resizePty, writePty, replayPane } from "../pty.ts";
+import { getPane, killPty, resizePty, writePty, replayPane, submitPrompt } from "../pty.ts";
 import { detachPane } from "../state.ts";
 
 export class TerminalHandler {
@@ -24,12 +24,31 @@ export class TerminalHandler {
     if (typeof data !== "string") return;
     try {
       const pane = getPane(paneId);
+      if (pane?.backend === "dsh") {
+        // DSH panes only accept structured prompts, ignore raw input keystrokes
+        return;
+      }
       if (pane?.missionId) {
         this.continuity.record(pane.missionId, pane.paneId, "input", data);
       }
       writePty(paneId, data);
     } catch {
       // Safely ignore input errors on closed or missing panes
+    }
+  }
+
+  public async handlePrompt(paneId: string, prompt: string): Promise<boolean> {
+    if (typeof paneId !== "string" || !paneId) return false;
+    if (typeof prompt !== "string" || !prompt.trim()) return false;
+    try {
+      const pane = getPane(paneId);
+      if (!pane || pane.backend !== "dsh") return false;
+      if (pane?.missionId) {
+        this.continuity.record(pane.missionId, pane.paneId, "input", prompt);
+      }
+      return await submitPrompt(paneId, prompt);
+    } catch {
+      return false;
     }
   }
 

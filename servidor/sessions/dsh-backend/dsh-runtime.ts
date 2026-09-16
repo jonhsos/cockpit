@@ -59,8 +59,8 @@ export type DshRuntimeOptions = {
   dshRepoPath?: string;
   /**
    * Rota do cérebro do harness no handshake.
-   * Não hardcodar modelo de produto OmniRoute aqui — PR-4 passa override por pane.
-   * Smoke/PR-2 pode usar defaults só para provar o fio.
+   * Panes e smokes devem informar provider/model explicitamente para impedir
+   * fallback silencioso para um provedor diferente do selecionado.
    */
   provider?: string;
   model?: string;
@@ -123,12 +123,15 @@ export async function createDshRuntime(options: DshRuntimeOptions = {}): Promise
     getClient: () => client,
     async start() {
       if (started && initResult) return initResult;
+      if (!options.provider?.trim() || !options.model?.trim()) {
+        throw new Error("DSH runtime requer provider e model explícitos");
+      }
       client.start();
-      // Handshake exige provider+model. Defaults só para o fio; OmniRoute/PR-4 sobrescreve.
+      // Handshake exige provider+model. Panes reais sempre passam a rota resolvida.
       initResult = await client.initialize({
         cwd: options.cwd ?? process.cwd(),
-        provider: options.provider ?? "deepseek-official",
-        model: options.model ?? "deepseek-v4-flash",
+        provider: options.provider,
+        model: options.model,
       });
       started = true;
       return initResult;

@@ -1,7 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { accessSync, constants, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { config } from "../config.ts";
 import { chaveDaPonte, pontede } from "./ponte.ts";
+import { chaveDaDshApi, dshApiDoCli } from "./dsh-api.ts";
 
 /**
  * Quais CLIs existem de verdade nesta máquina.
@@ -16,6 +19,7 @@ import { accountPool, type AccountPoolView } from "./account-pool.ts";
 export type Provider = {
   id: string;
   comando: string;
+  backend?: "pty" | "dsh";
   disponivel: boolean;
   caminho: string | null;
   modelos: string[];
@@ -30,6 +34,8 @@ export type Provider = {
    * pôr a chave em vez de procurar um comando que nunca vai existir.
    */
   ponte?: { base: string; chaveEnv: string; chaveEm: string | null; gratis: boolean };
+  /** API configurada diretamente para o runtime DSH. */
+  dshApi?: { label: string; provider: string; chaveEnv: string; chaveEm: string | null };
   /** Pool de contas multicontas configurado para este provedor */
   pool?: AccountPoolView;
 };
@@ -49,25 +55,75 @@ const COMO_INSTALAR: Record<string, string> = {
 const VALIDADE = 10_000;
 const cache = new Map<string, { caminho: string | null; quando: number }>();
 
-function achar(comando: string): string | null {
-  const guardado = cache.get(comando);
+function executavelValido(caminho: string): boolean {
+  try {
+    if (!statSync(caminho).isFile()) return false;
+    accessSync(caminho, process.platform === "win32" ? constants.F_OK : constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function diretoriosLocais(): string[] {
+  const home = homedir();
+  return [
+    join(home, ".local", "bin"),
+    join(home, ".npm-global", "bin"),
+    join(home, ".cargo", "bin"),
+    join(home, ".grok", "bin"),
+    join(home, ".kimi-code", "bin"),
+  ];
+}
+
+function candidatosDoPath(comando: string, pathValue: string): string[] {
+  const dirs = [...pathValue.split(delimiter).filter(Boolean), ...diretoriosLocais()];
+  return [...new Set(dirs)].map((dir) => join(dir, comando));
+}
+
+function validarComando(comando: string): string {
+  if (typeof comando !== "string" || !comando.trim() || comando.includes("\0")) {
+    throw new Error("Comando de executor inválido");
+  }
+  return comando.trim();
+}
+
+/** Resolve CLIs mesmo quando o serviço foi iniciado sem o PATH interativo do usuário. */
+export function resolverExecutavel(comando: string): string | null {
+  const nome = validarComando(comando);
+  const guardado = cache.get(nome);
   if (guardado && Date.now() - guardado.quando < VALIDADE) return guardado.caminho;
+
+  const pathValue = process.env.PATH ?? "";
   let caminho: string | null = null;
-  if (/[\\/]/.test(comando)) {
-    caminho = existsSync(comando) ? comando : null;
+  if (/[\\/]/.test(nome)) {
+    const candidato = isAbsolute(nome) ? nome : resolve(nome);
+    caminho = executavelValido(candidato) ? candidato : null;
   } else {
     try {
-      const linhas = execFileSync(process.platform === "win32" ? "where" : "which", [comando], {
+      caminho = execFileSync(process.platform === "win32" ? "where" : "which", [nome], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
-      }).split(/\r?\n/);
-      caminho = linhas.find((l) => l.trim())?.trim() ?? null;
+        env: { ...process.env, PATH: pathValue },
+      })
+        .split(/\r?\n/)
+        .map((linha) => linha.trim())
+        .find((candidato) => executavelValido(candidato)) ?? null;
     } catch {
       caminho = null;
     }
+
+    if (!caminho) {
+      caminho = candidatosDoPath(nome, pathValue).find((candidato) => executavelValido(candidato)) ?? null;
+    }
   }
-  cache.set(comando, { caminho, quando: Date.now() });
+  cache.set(nome, { caminho, quando: Date.now() });
   return caminho;
+}
+
+export function pathComExecutaveisLocais(pathValue = process.env.PATH ?? ""): string {
+  const dirs = [join(process.cwd(), "bin"), ...diretoriosLocais(), ...pathValue.split(delimiter).filter(Boolean)];
+  return [...new Set(dirs)].join(delimiter);
 }
 
 /** Força uma varredura nova, sem esperar a validade. */
@@ -77,15 +133,17 @@ export function esquecerCache(): void {
 
 export function listarProviders(): Provider[] {
   return Object.entries(config.clis).map(([id, spec]) => {
-    const caminho = achar(spec.command);
+    const caminho = resolverExecutavel(spec.command);
     const ponte = pontede(id);
     // Uma ponte com o binário no lugar mas sem chave não está disponível: ela
     // abriria o painel e morreria autenticando. Disponível = dá para usar.
-    const credencial = ponte ? chaveDaPonte(id) : null;
+    const dshApi = dshApiDoCli(id);
+    const credencial = ponte ? chaveDaPonte(id) : dshApi ? chaveDaDshApi(id) : null;
     return {
       id,
       comando: spec.command,
-      disponivel: caminho !== null && (!ponte || credencial!.valor !== null),
+      backend: spec.backend ?? "pty",
+      disponivel: caminho !== null && (!ponte && !dshApi || credencial!.valor !== null),
       ...(ponte
         ? {
             ponte: {
@@ -93,6 +151,16 @@ export function listarProviders(): Provider[] {
               chaveEnv: ponte.spec.chaveEnv,
               chaveEm: credencial!.onde || null,
               gratis: ponte.spec.soGratis === true,
+            },
+          }
+        : {}),
+      ...(dshApi
+        ? {
+            dshApi: {
+              label: dshApi.label,
+              provider: dshApi.provider,
+              chaveEnv: dshApi.chaveEnv,
+              chaveEm: credencial!.onde || null,
             },
           }
         : {}),
@@ -106,7 +174,7 @@ export function listarProviders(): Provider[] {
         ? ponte && credencial!.valor === null
           ? `ponha a chave em Ajustes → Grátis (ou exporte ${ponte.spec.chaveEnv})`
           : undefined
-        : (COMO_INSTALAR[id] ?? (ponte ? COMO_INSTALAR[spec.command] : undefined)),
+        : (COMO_INSTALAR[id] ?? ((ponte || dshApi) ? COMO_INSTALAR[spec.command] : undefined)),
       pool: accountPool.hasPool(id) ? accountPool.getView(id)[id] : undefined,
     };
   });
@@ -114,7 +182,8 @@ export function listarProviders(): Provider[] {
 
 export function providerDisponivel(id: string): boolean {
   if (id === "bash") return true;
-  if (achar(config.clis[id]?.command ?? id) === null) return false;
+  if (resolverExecutavel(config.clis[id]?.command ?? id) === null) return false;
   const ponte = pontede(id);
-  return !ponte || chaveDaPonte(id).valor !== null;
+  const dshApi = dshApiDoCli(id);
+  return !ponte && !dshApi || (ponte ? chaveDaPonte(id).valor !== null : chaveDaDshApi(id).valor !== null);
 }

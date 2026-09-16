@@ -45,6 +45,12 @@ const dirtyEnv: NodeJS.ProcessEnv = {
   COCKPIT_MAESTRO_BRIDGE: "/path/to/bridge.ts",
   COCKPIT_TASK: "Do something dangerous",
   COCKPIT_PROMPT: "System prompt injection",
+  CODEX_HOME: "/tmp/cockpit-codex-home",
+  CLAUDE_CONFIG_DIR: "/tmp/cockpit-claude-home",
+  DSH_HOME: "/tmp/cockpit-dsh-home",
+  JETSKI_APP_DATA_DIR: "/tmp/cockpit-agy-home",
+  GROK_HOME: "/tmp/cockpit-grok-home",
+  KIMI_CONFIG_DIR: "/tmp/cockpit-kimi-home",
 };
 const cleanEnv = sanitizeCleanShellEnv(dirtyEnv, {
   paneId: "test-pane-1",
@@ -59,6 +65,12 @@ assert.equal(cleanEnv.CLAUDECODE, undefined);
 assert.equal(cleanEnv.COCKPIT_MAESTRO_BRIDGE, undefined);
 assert.equal(cleanEnv.COCKPIT_TASK, undefined);
 assert.equal(cleanEnv.COCKPIT_PROMPT, undefined);
+assert.equal(cleanEnv.CODEX_HOME, undefined);
+assert.equal(cleanEnv.CLAUDE_CONFIG_DIR, undefined);
+assert.equal(cleanEnv.DSH_HOME, undefined);
+assert.equal(cleanEnv.JETSKI_APP_DATA_DIR, undefined);
+assert.equal(cleanEnv.GROK_HOME, undefined);
+assert.equal(cleanEnv.KIMI_CONFIG_DIR, undefined);
 assert.equal(cleanEnv.SHELL, BASH_PATH);
 assert.equal(cleanEnv.TERM, "xterm-256color");
 assert.equal(cleanEnv.COCKPIT_PANE, "test-pane-1");

@@ -5,6 +5,7 @@ import {
   listMissions,
   createMission,
   archiveMission,
+  cwdDaMissao,
   persistir,
 } from "../missions/missions.ts";
 import { getProject, lerMemoria, anotar } from "../state.ts";
@@ -12,7 +13,7 @@ import { listPanes, killPty, stopPane, replayPane, flushDshKills } from "../pty.
 import { branchStatus } from "../missions/git.ts";
 import { readUsage, somaUsage } from "../providers/usage.ts";
 import { getRun, iniciarSquad, avancarFase, encerrarRun } from "../orchestration/squad.ts";
-import { observar, parar } from "../missions/watcher.ts";
+import { observar } from "../missions/watcher.ts";
 import {
   normalizeMissionMode,
   canMaestroDelegate,
@@ -172,7 +173,7 @@ export function createMissionsRouter(ctx: RouterContext): Router {
       const feito = await gerar({
         tipo: tipo as "image" | "video" | "audio",
         prompt: String(req.body.prompt ?? ""),
-        destino: mission.worktree,
+        destino: cwdDaMissao(mission),
         provedor: req.body.provedor ? String(req.body.provedor) : undefined,
         modelo: req.body.modelo ? String(req.body.modelo) : undefined,
         referencia: req.body.referencia ? String(req.body.referencia) : undefined,
@@ -189,7 +190,7 @@ export function createMissionsRouter(ctx: RouterContext): Router {
     const missions = await Promise.all(
       listMissions(projectId).map(async (m: any) => ({
         ...m,
-        git: await branchStatus(m.worktree),
+        git: await branchStatus(cwdDaMissao(m)),
         usage: somaUsage(
           panes.filter((p) => p.missionId === m.id).map((p) => readUsage(p.sessionId)),
         ),
@@ -216,7 +217,7 @@ export function createMissionsRouter(ctx: RouterContext): Router {
         },
       );
       ctx.missionModeManager.setMissionMode(mission.id, modo);
-      observar(mission.worktree, avisarMudanca);
+      observar(cwdDaMissao(mission), avisarMudanca);
       res.json(mission);
     } catch (err) {
       fail(res, err);
@@ -311,8 +312,6 @@ export function createMissionsRouter(ctx: RouterContext): Router {
 
   router.delete("/missions/:id", async (req, res) => {
     try {
-      const mission = getMission(req.params.id);
-      if (mission) parar(mission.worktree);
       encerrarRun(req.params.id);
       await archiveMission(req.params.id, async (paneId) => {
         // stopPane aguarda reap do runtime DSH; killPty sozinho era fire-and-forget.

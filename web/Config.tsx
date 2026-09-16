@@ -14,6 +14,8 @@ import {
   getOnboardingStatus,
   cancelOnboarding,
   submitManualOnboardingCallback,
+  salvarBackendProvider,
+  openLoginTerminal,
   type Preset,
   type Provider,
 } from "./api.ts";
@@ -36,7 +38,15 @@ interface OnboardUIState {
  * credencial passa por aqui: cada CLI já é autenticado por fora, na conta que
  * você paga. Por isso a tela mostra "instalado" e "responde", não "logado".
  */
-export function Config({ onFechar, onMudou }: { onFechar: () => void; onMudou: () => void }) {
+export function Config({
+  onFechar,
+  onMudou,
+  missionId,
+}: {
+  onFechar: () => void;
+  onMudou: () => void;
+  missionId?: string;
+}) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [autoAprovar, setAutoAprovar] = useState(true);
@@ -326,6 +336,30 @@ export function Config({ onFechar, onMudou }: { onFechar: () => void; onMudou: (
                           não encontrado — instale com <code>{p.instalar}</code>
                         </span>
                       )}
+                      {(p.id === "codex" || p.id === "claude") && (
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", marginTop: "4px" }}>
+                          <span style={{ color: "var(--ink-3)", fontWeight: 500 }}>Backend:</span>
+                          <select
+                            className="campo"
+                            style={{ padding: "2px 6px", fontSize: "11px" }}
+                            value={p.backend ?? "dsh"}
+                            disabled={ocupado}
+                            onChange={(e) => {
+                              const novo = e.target.value as "dsh" | "pty";
+                              guardado(async () => {
+                                await salvarBackendProvider(p.id, novo);
+                                setProviders((prev) =>
+                                  prev.map((item) => (item.id === p.id ? { ...item, backend: novo } : item)),
+                                );
+                                onMudou();
+                              });
+                            }}
+                          >
+                            <option value="dsh">dsh (SDK headless / subagentes)</option>
+                            <option value="pty">pty (Terminal CLI tradicional)</option>
+                          </select>
+                        </div>
+                      )}
                       {testes[p.id] && (
                         <span className={`prov-teste${testes[p.id]!.ok ? " ok" : " falhou"}`}>
                           {testes[p.id]!.saida}
@@ -406,6 +440,25 @@ export function Config({ onFechar, onMudou }: { onFechar: () => void; onMudou: (
                                 </span>
                                 <b>{c.label || c.id}</b>
                                 <code style={{ color: "var(--ink-4)", fontSize: "11px" }}>{c.id}</code>
+                                {c.authenticated === false && (
+                                  <span
+                                    className="badge-auth-aviso"
+                                    style={{
+                                      background: "rgba(248, 81, 73, 0.15)",
+                                      color: "#f85149",
+                                      border: "1px solid rgba(248, 81, 73, 0.3)",
+                                      borderRadius: "4px",
+                                      padding: "1px 6px",
+                                      fontSize: "10.5px",
+                                      fontWeight: 600,
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                    }}
+                                  >
+                                    ⚠️ Não autenticada
+                                  </span>
+                                )}
                               </div>
                               <div className="conta-pool-detalhes">
                                 {c.env && Object.entries(c.env).length > 0 ? (
@@ -424,6 +477,22 @@ export function Config({ onFechar, onMudou }: { onFechar: () => void; onMudou: (
                             </div>
 
                             <div className="conta-pool-acoes">
+                              {c.authenticated === false && (
+                                <button
+                                  className="btn solid"
+                                  disabled={ocupado}
+                                  style={{ fontSize: "11px", padding: "2px 8px", background: "#238636" }}
+                                  title={`Abrir terminal configurado para autenticar esta conta (${p.id} login)`}
+                                  onClick={() =>
+                                    guardado(async () => {
+                                      await openLoginTerminal(p.id, c.id, missionId);
+                                      onFechar();
+                                    })
+                                  }
+                                >
+                                  🔑 Fazer Login
+                                </button>
+                              )}
                               {c.status === "cooldown" && (
                                 <button
                                   className="btn"

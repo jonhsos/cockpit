@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { RouterContext } from "./types.ts";
+import { parseCliBackend } from "../config.ts";
 import { resolverHarness, type Pedido } from "../orchestration/harness.ts";
 import { listarProviders, esquecerCache } from "../providers/providers.ts";
 import { conectar, desconectar, criarAgente, testar, PRESETS, type Conexao } from "../providers/conectar.ts";
@@ -10,6 +11,14 @@ import {
   sincronizarModelos,
   testarPonte,
 } from "../providers/ponte.ts";
+import {
+  atualizarDshApiModelos,
+  descobrirDshApiModelos,
+  guardarChaveDshApi,
+  listarDshApis,
+  removerDshApi,
+  salvarDshApi,
+} from "../providers/dsh-api.ts";
 import { lerCotas, esquecerCotas, aplicarSinal } from "../providers/cotas.ts";
 import { lerConsumo } from "../providers/consumo.ts";
 
@@ -54,6 +63,21 @@ export function createProvidersRouter(ctx: RouterContext): Router {
     }
   });
 
+  router.post("/providers/:id/backend", (req, res) => {
+    try {
+      const cli = req.params.id;
+      if (!ctx.config.clis[cli]) {
+        throw new Error(`Provedor "${cli}" não encontrado`);
+      }
+      const backend = parseCliBackend(req.body?.backend);
+      ctx.config.clis[cli].backend = backend;
+      ctx.salvarConfig();
+      res.json({ ok: true, cli, backend });
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
   router.post("/providers/:id/agente", (req, res) => {
     try {
       res.json(criarAgente(req.params.id));
@@ -67,6 +91,61 @@ export function createProvidersRouter(ctx: RouterContext): Router {
       (r) => res.json(r),
       (err: Error) => fail(res, err),
     );
+  });
+
+  // ---------- APIs diretas do DSH ----------
+  router.get("/dsh-apis", (_req, res) => res.json({ apis: listarDshApis() }));
+
+  router.post("/dsh-apis/modelos", (req, res) => {
+    descobrirDshApiModelos({
+      provider: String(req.body?.provider ?? ""),
+      api: req.body?.api ?? null,
+      baseURL: req.body?.baseURL ?? null,
+      chave: req.body?.chave ?? null,
+    }).then(
+      (modelos) => res.json({ ok: true, modelos }),
+      (err: Error) => fail(res, err),
+    );
+  });
+
+  router.post("/dsh-apis", (req, res) => {
+    try {
+      const api = salvarDshApi(req.body ?? {});
+      esquecerCache();
+      res.json({ ok: true, api });
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  router.post("/dsh-apis/:id/modelos", (req, res) => {
+    atualizarDshApiModelos(req.params.id).then(
+      (api) => {
+        esquecerCache();
+        res.json({ ok: true, api, modelos: api.modelos });
+      },
+      (err: Error) => fail(res, err),
+    );
+  });
+
+  router.post("/dsh-apis/:id/chave", (req, res) => {
+    try {
+      guardarChaveDshApi(req.params.id, String(req.body?.chave ?? ""));
+      esquecerCache();
+      res.json({ ok: true });
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  router.delete("/dsh-apis/:id", (req, res) => {
+    try {
+      removerDshApi(req.params.id);
+      esquecerCache();
+      res.json({ ok: true });
+    } catch (err) {
+      fail(res, err);
+    }
   });
 
   // ---------- pontes (OpenRouter e outras APIs sem CLI) ----------

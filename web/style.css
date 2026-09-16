@@ -1723,6 +1723,19 @@ svg { flex-shrink: 0; vertical-align: middle; }
 .form-inline.chave { flex: none; width: min(340px, 46%); }
 .form-inline.chave .campo { font-family: var(--fonte-mono); }
 .prov-instalar code { word-break: break-all; }
+.dsh-modelos, .dsh-form-catalogo { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.dsh-modelos-cabecalho { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dsh-modelos-cabecalho > span { display: flex; flex-direction: column; gap: 2px; }
+.dsh-modelos-cabecalho small { color: var(--ink-4); font-size: var(--t-mini); }
+.dsh-modelos ul, .dsh-form-catalogo ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 6px; margin: 9px 0 0; padding: 0; list-style: none; }
+.dsh-modelos li, .dsh-form-catalogo li { min-width: 0; }
+.dsh-modelos li, .dsh-form-catalogo li button { display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper-2); color: var(--ink-3); text-align: left; }
+.dsh-form-catalogo li button { cursor: pointer; font: inherit; }
+.dsh-modelos li.ativo, .dsh-form-catalogo li.ativo button { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 9%, var(--paper-2)); }
+.dsh-modelos li code, .dsh-form-catalogo li code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-mini); }
+.dsh-modelos li span, .dsh-form-catalogo li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-4); font-size: var(--t-mini); }
+.dsh-modelos li em, .dsh-form-catalogo li em { margin-left: auto; flex: none; color: var(--ok); font-size: var(--t-mini); font-style: normal; }
+.dsh-form-catalogo { margin-bottom: 12px; }
 
 @media (max-width: 760px) {
   .abas { overflow-x: auto; }

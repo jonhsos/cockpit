@@ -100,7 +100,6 @@ export function createProjectsRouter(ctx: RouterContext): Router {
       // morrem, porque são processos.
       parar(project.root);
       for (const mission of listMissions(project.id)) {
-        parar(mission.worktree);
         encerrarRun(mission.id);
         for (const paneId of mission.panes) {
           await stopPane(paneId);

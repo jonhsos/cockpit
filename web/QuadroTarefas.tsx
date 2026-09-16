@@ -18,7 +18,7 @@ import {
 import { onMessage, onReconnect } from "./socket.ts";
 import {
   CANONICAL_TASK_STATUSES,
-  CANONICAL_ROLES,
+  CATALOG_ROLES,
   type Task,
   type TaskStatus,
   type TaskPriority,
@@ -707,7 +707,7 @@ export function QuadroTarefas({
                     }}
                   >
                     <option value="">Nenhum</option>
-                    {CANONICAL_ROLES.map((r) => (
+                    {CATALOG_ROLES.map((r) => (
                       <option key={r.id} value={r.id}>
                         {r.label}
                       </option>
@@ -941,7 +941,7 @@ export function QuadroTarefas({
                   value={novoPapel}
                   onChange={(e) => setNovoPapel(e.target.value)}
                 >
-                  {CANONICAL_ROLES.map((r) => (
+                  {CATALOG_ROLES.map((r) => (
                     <option key={r.id} value={r.id}>
                       {r.label}
                     </option>
