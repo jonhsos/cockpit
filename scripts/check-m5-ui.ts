@@ -15,6 +15,7 @@ import { TaskManager } from "../servidor/tasks/task-manager.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { nomeDoPainel } from "../web/rotulos.ts";
 
 let falhas = 0;
 const ok = (cond: boolean, msg: string) => {
@@ -241,6 +242,30 @@ ok(
 ok(
   paneSrc.includes("renomeando") && paneSrc.includes("onRenomearLabel"),
   "Pane suporta renomeação inline de rótulo interativa"
+);
+const paneRenomeado = {
+  paneId: "pane-renomeado",
+  agent: "shell",
+  label: "SHELL manual",
+  cor: "#4ade80",
+  cli: "bash",
+  model: null,
+  effort: null,
+  tipo: null,
+  cwd: "/tmp",
+  projectId: "p1",
+  missionId: "m1",
+  sessionId: null,
+  maestro: false,
+  status: "waiting-user",
+  bytesIn: 0,
+  bytesOut: 0,
+  iniciadoEm: 0,
+  atividade: [],
+} as const;
+ok(
+  nomeDoPainel(paneRenomeado, [paneRenomeado], { shell: { label: "SHELL", cor: "#4ade80", cli: "bash" } }) === "SHELL manual",
+  "nome manual do painel tem prioridade sobre o label padrão do agente",
 );
 ok(
   paneSrc.includes("menuPapelAberto") && paneSrc.includes("onReclassificarPapel"),

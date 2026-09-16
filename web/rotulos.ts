@@ -9,7 +9,7 @@ import type { AgentSpec, PaneState } from "./api.ts";
  * posição na tela.
  */
 export function nomeDoPainel(pane: PaneState, irmaos: PaneState[], agents: Record<string, AgentSpec>): string {
-  const nome = agents[pane.agent]?.label ?? pane.label;
+  const nome = pane.label?.trim() || agents[pane.agent]?.label || pane.agent;
   const mesmos = irmaos.filter(outro => outro.missionId === pane.missionId && outro.agent === pane.agent);
   return mesmos.length > 1 ? `${nome} · ${mesmos.indexOf(pane) + 1}` : nome;
 }

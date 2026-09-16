@@ -1348,9 +1348,11 @@ select.stage-mode-select:hover { border-color: #58a6ff; }
     scrollbar-width: none;
   }
   .catalog-breadcrumbs .crumb { font-size: 11px; padding: 2px 5px; white-space: nowrap; }
-  .role-catalog-layout { grid-template-columns: 1fr; }
-  .role-contract-card { max-height: 220px; }
-  .role-grid, .runner-grid { grid-template-columns: 1fr; }
+  .role-catalog-layout { display: flex; flex: none; flex-direction: column; gap: 12px; }
+  .role-contract-card { max-height: none; }
+  .role-grid, .runner-grid { flex: none; grid-template-columns: 1fr; min-height: 0; overflow: visible; }
+  .role-grid { display: flex; flex-direction: column; padding: 0; }
+  .role-flow-grid { grid-template-columns: 1fr; }
   .catalog-step { padding-right: 0; }
   .catalog-actions { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
   .catalog-actions .btn { flex: 1 1 150px; min-height: 40px; }

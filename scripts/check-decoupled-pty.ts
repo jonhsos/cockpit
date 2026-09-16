@@ -105,11 +105,17 @@ async function runTests(): Promise<void> {
       missionId: null,
       sessionId: null,
       maestro: false,
+      accountId: "codex-test",
+      accountLabel: "Conta Codex de teste",
+      accountPinned: true,
     },
   });
 
   assert.equal(spawnRes.paneId, paneId);
   assert.ok(spawnRes.pid > 0, "Spawned process must have valid PID");
+  assert.equal(spawnRes.accountId, "codex-test", "PTY daemon must preserve the selected account id");
+  assert.equal(spawnRes.accountLabel, "Conta Codex de teste", "PTY daemon must preserve the selected account label");
+  assert.equal(spawnRes.accountPinned, true, "PTY daemon must preserve account pinning");
 
   // Send test command into bash
   await client.input(paneId, "echo 'COCKPIT_M2_ALIVE'\n");
@@ -151,6 +157,9 @@ async function runTests(): Promise<void> {
   assert.notEqual(surviving.status, "dead", "Surviving pane must not be marked dead");
   assert.equal(surviving.cli, "bash");
   assert.equal(surviving.runner, "bash");
+  assert.equal(surviving.accountId, "codex-test", "surviving pane must retain the selected account id");
+  assert.equal(surviving.accountLabel, "Conta Codex de teste", "surviving pane must retain the selected account label");
+  assert.equal(surviving.accountPinned, true, "surviving pane must retain account pinning");
 
   // Verify terminal scrollback was preserved in the 256KB ring buffer and can be replayed
   const replayAfterRestart = await client2.replay(paneId);

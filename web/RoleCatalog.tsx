@@ -160,11 +160,15 @@ export function RoleCatalog({
     };
 
     recarregarPool();
+    const timer = poolDoCockpitAtivo && selectedRunner !== "bash"
+      ? window.setInterval(recarregarPool, 1500)
+      : undefined;
     const removerListener = onMessage((message) => {
       if (message.type === "pool:updated" || message.type === "pool:rotated") recarregarPool();
     });
     return () => {
       ativo = false;
+      if (timer !== undefined) window.clearInterval(timer);
       removerListener();
     };
   }, [poolDoCockpitAtivo, selectedRunner]);

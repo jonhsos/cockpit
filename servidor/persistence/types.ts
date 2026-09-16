@@ -96,6 +96,9 @@ export interface PaneRecord {
   effort: string | null;
   cwd: string;
   maestro: boolean;
+  accountId?: string | null;
+  accountLabel?: string | null;
+  accountPinned?: boolean;
   status: PaneStatus;
   iniciadoEm: number;
   atualizadoEm: number;

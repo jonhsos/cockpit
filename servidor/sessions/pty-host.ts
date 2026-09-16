@@ -123,6 +123,9 @@ export interface DaemonSpawnOptions {
     missionId: string | null;
     sessionId: string | null;
     maestro: boolean;
+    accountId?: string | null;
+    accountLabel?: string | null;
+    accountPinned?: boolean;
     backend?: "pty" | "dsh";
   };
 }
@@ -324,6 +327,9 @@ export class PtyHost {
         missionId: initialState.missionId,
         sessionId: initialState.sessionId,
         maestro: initialState.maestro,
+        accountId: initialState.accountId ?? null,
+        accountLabel: initialState.accountLabel ?? null,
+        accountPinned: initialState.accountPinned ?? false,
         backend: initialState.backend ?? "pty",
         status: "starting",
         bytesIn: 0,
