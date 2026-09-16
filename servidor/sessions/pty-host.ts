@@ -116,6 +116,8 @@ export interface DaemonSpawnOptions {
     cli: string;
     role?: string;
     runner?: string;
+    connected?: boolean;
+    attachedRunner?: string | null;
     model: string | null;
     effort: string | null;
     tipo: string | null;
@@ -319,6 +321,8 @@ export class PtyHost {
         cli: initialState.cli,
         role: initialState.role,
         runner: initialState.runner,
+        connected: true,
+        attachedRunner: initialState.attachedRunner ?? null,
         model: initialState.model,
         effort: initialState.effort,
         tipo: initialState.tipo,
@@ -352,6 +356,7 @@ export class PtyHost {
       // Listen to PTY exit
       pty.onExit(({ exitCode }) => {
         const finalStatus = exitCode === 0 ? "dead" : "failed";
+        state.connected = false;
         try {
           transitionPane(state, finalStatus, { exitCode });
         } catch {

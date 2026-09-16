@@ -1,5 +1,19 @@
 import type { AgentSpec, PaneState } from "./api.ts";
 
+const LABELS_LEGADOS: Record<string, string> = {
+  BUILDER: "CONSTRUTOR",
+  REVIEWER: "REVISOR",
+  SCOUT: "EXPLORADOR",
+  ARCHITECT: "ARQUITETO",
+  DEBUGGER: "DEPURADOR",
+  VERIFIER: "VERIFICADOR",
+  FINALIZER: "FINALIZADOR",
+};
+
+function traduzirLabel(label: string): string {
+  return LABELS_LEGADOS[label.trim().toUpperCase()] ?? label;
+}
+
 /**
  * O nome que um agente carrega em toda a interface.
  *
@@ -9,7 +23,7 @@ import type { AgentSpec, PaneState } from "./api.ts";
  * posição na tela.
  */
 export function nomeDoPainel(pane: PaneState, irmaos: PaneState[], agents: Record<string, AgentSpec>): string {
-  const nome = pane.label?.trim() || agents[pane.agent]?.label || pane.agent;
+  const nome = traduzirLabel(pane.label?.trim() || agents[pane.agent]?.label || pane.agent);
   const mesmos = irmaos.filter(outro => outro.missionId === pane.missionId && outro.agent === pane.agent);
   return mesmos.length > 1 ? `${nome} · ${mesmos.indexOf(pane) + 1}` : nome;
 }

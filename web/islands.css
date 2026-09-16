@@ -152,6 +152,57 @@ button, summary { -webkit-tap-highlight-color: transparent; }
 .work { gap: 12px; position: relative; }
 .panes-wrap { flex-direction: column; min-height: 0; flex: 1; display: flex; }
 .panes-stack { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; gap: 8px; }
+.panes.tem-foco > .pane:not(.em-foco) { visibility: hidden; pointer-events: none; }
+.pane-focus-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: rgba(0, 0, 0, .78);
+  cursor: default;
+  backdrop-filter: blur(2px);
+}
+.pane.em-foco {
+  position: fixed;
+  z-index: 80;
+  top: 50%;
+  left: 50%;
+  width: min(920px, calc(100vw - 48px));
+  height: min(720px, calc(100dvh - 64px));
+  min-height: 280px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100dvh - 64px);
+  transform: translate(-50%, -50%);
+  border-color: color-mix(in srgb, var(--pane, #b8a1ff) 80%, var(--fio));
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .62), 0 0 0 1px color-mix(in srgb, var(--pane, #b8a1ff) 28%, transparent);
+}
+.pane-focus-btn,
+.pane-focus-back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+.pane-focus-btn:hover,
+.pane-focus-back-btn:hover {
+  color: var(--ink);
+  background: #21262d;
+  border-color: #30363d;
+}
 
 /* ---------- terminal ---------- */
 /* A cor do agente contorna o terminal inteiro, não só uma aresta: com seis
@@ -1378,6 +1429,13 @@ select.stage-mode-select:hover { border-color: #58a6ff; }
   .pane-badge.badge-model { max-width: 80px; }
   .pane-badge.badge-active-task { max-width: 60px; }
   .pane-badge.badge-active-task .task-title { display: none; }
+  .pane.em-foco {
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 20px);
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 20px);
+    border-radius: 16px;
+  }
   .icon-btn { min-width: 36px; min-height: 36px; }
   .nota .icon-btn, .linha .apagar, .skill .apagar, .receita .apagar { opacity: 1; }
 }

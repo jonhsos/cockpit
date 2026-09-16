@@ -100,13 +100,7 @@ export function createMissionsRouter(ctx: RouterContext): Router {
             });
             if (!guard.allowed) throw Error(guard.reason);
           }
-          const availablePanes = ctx.paneDispatcher.listAvailablePanes(mission.id);
-          const existingIdle = availablePanes.find(
-            (p) =>
-              (p.label.toLowerCase() === String(args.agente).toLowerCase() ||
-                p.role.toLowerCase() === String(args.agente).toLowerCase()) &&
-              p.canAcceptTask,
-          );
+          const existingIdle = ctx.paneDispatcher.findAvailablePane(mission.id, String(args.agente));
           if (existingIdle) {
             const task = ctx.taskManager.createTask(mission.id, {
               título: String(args.tarefa ?? "").slice(0, 80),
@@ -341,24 +335,19 @@ export function createMissionsRouter(ctx: RouterContext): Router {
         const authorizedAgents = Object.entries(ctx.config.agents)
           .filter(([, a]) => elencoClis.length === 0 || elencoClis.includes((a as any).cli))
           .map(([k]) => k);
+        const openPaneTargets = ctx.paneDispatcher.listAvailablePanes(missionId).flatMap((p) => [p.label, p.role]);
         const guard = canMaestroDelegate({
           mode: modeInfo.modo,
           targetAgentOrRole: String(req.body.agent ?? ""),
-          authorizedRoles: authorizedAgents,
+          authorizedRoles: [...authorizedAgents, ...openPaneTargets],
           emergencyHalt: modeInfo.emergencyHalt,
         });
         if (!guard.allowed) throw Error(guard.reason);
       }
 
       // Check if idle existing pane matches
-      const availablePanes = ctx.paneDispatcher.listAvailablePanes(missionId);
       const requestedAgent = String(req.body.agent ?? "");
-      const existingIdle = availablePanes.find(
-        (p) =>
-          (p.label.toLowerCase() === requestedAgent.toLowerCase() ||
-            p.role.toLowerCase() === requestedAgent.toLowerCase()) &&
-          p.canAcceptTask,
-      );
+      const existingIdle = ctx.paneDispatcher.findAvailablePane(missionId, requestedAgent);
       if (existingIdle) {
         const task = ctx.taskManager.createTask(missionId, {
           título: String(req.body.tarefa ?? "").slice(0, 80),

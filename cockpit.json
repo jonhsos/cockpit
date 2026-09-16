@@ -76,7 +76,7 @@
     },
     "codex": {
       "command": "codex",
-      "backend": "dsh",
+      "backend": "pty",
       "env": {
         "CODEX_HOME": "/home/jj/.jion"
       },
@@ -248,21 +248,21 @@
       "papel_id": "executar"
     },
     "builder": {
-      "label": "BUILDER",
+      "label": "CONSTRUTOR",
       "cor": "#4fb286",
       "cli": "claude",
       "papel": "Você é o BUILDER. Constrói site, front-end e código de aplicação. Implementa exatamente o que foi pedido, sem alargar escopo, no padrão do que já existe. O layout e a aparência da tela você decide e escreve em código — não peça desenho de tela a ninguém. Quando faltar um arquivo de imagem (foto, ilustração, ícone), peça ao ARTISTA só esse arquivo e siga com o código.",
       "papel_id": "executar"
     },
     "reviewer": {
-      "label": "REVIEWER",
+      "label": "REVISOR",
       "cor": "#9d7bd8",
       "cli": "claude",
       "papel": "Você é o REVIEWER. Não escreve código de produção: lê o diff, procura bug de verdade e reporta com arquivo:linha.",
       "papel_id": "revisar"
     },
     "scout": {
-      "label": "SCOUT",
+      "label": "EXPLORADOR",
       "cor": "#4a9fd8",
       "cli": "claude",
       "papel": "Você é o SCOUT. Explora o repositório e responde onde as coisas estão. Não edita arquivo nenhum.",

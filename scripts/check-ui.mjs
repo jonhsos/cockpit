@@ -101,6 +101,21 @@ try {
   await page.locator('.pane:visible .xterm').first().waitFor();
   assert.equal(await page.locator('.pane:visible').count(), 3, 'a missao aberta mostra todos os seus terminais, nao caixinhas');
   assert.equal(await page.locator('.agent-row').count(), 4, 'a missao ativa lista seus tres agentes e o atalho de adicionar');
+  // Foco em qualquer painel abre uma camada centralizada sem desmontar os demais terminais.
+  const primeiroPainel = page.locator('[data-pane-id="pane1"]');
+  await primeiroPainel.getByRole('button', { name: /Focar Maestro/ }).click();
+  await primeiroPainel.waitFor({ state: 'visible' });
+  assert.equal(await primeiroPainel.evaluate(el => el.classList.contains('em-foco')), true, 'o primeiro painel entrou em foco');
+  assert.equal(await primeiroPainel.getAttribute('role'), 'dialog', 'o painel focado tem semantica de dialogo');
+  assert.equal(await primeiroPainel.getAttribute('aria-modal'), 'true', 'o painel focado e modal');
+  assert.equal(await page.locator('.pane-focus-backdrop').count(), 1, 'a camada escura aparece');
+  assert.equal(await page.locator('.panes.tem-foco > .pane:not(.em-foco)').evaluateAll(els => els.every(el => getComputedStyle(el).visibility === 'hidden')), true, 'os outros paineis ficam fora da vista');
+  const focoBounds = await primeiroPainel.boundingBox();
+  assert.ok(focoBounds && Math.abs((focoBounds.x + focoBounds.width / 2) - 720) < 3, 'o painel focado fica centralizado na horizontal');
+  assert.ok(focoBounds && Math.abs((focoBounds.y + focoBounds.height / 2) - 500) < 3, 'o painel focado fica centralizado na vertical');
+  await page.getByRole('button', { name: 'Voltar', exact: true }).click();
+  assert.equal(await page.locator('.pane-focus-backdrop').count(), 0, 'Voltar fecha a camada');
+  assert.equal(await page.locator('.pane:visible').count(), 3, 'Voltar devolve a grade completa');
   // Cada agente tem mascote, e o mascote carrega o estado real do painel.
   assert.equal(await page.locator('.agent-row .mascote').count(), 3, 'cada agente da missao tem um mascote');
   assert.equal(await page.locator('.agent-row .mascote.e-run').count(), 1, 'so o agente em atividade tem a cara de trabalhando');

@@ -104,6 +104,9 @@ try {
   assert.equal(dead.canAcceptTask, false);
   assert.equal(dead.isBusy, false);
 
+  assert.equal(dispatcher.findAvailablePane("m1", "construtor")?.paneId, "pane-idle");
+  assert.equal(dispatcher.findAvailablePane("m1", "explorador")?.paneId, undefined);
+
   // -------------------------------------------------------------
   // Test 2: Dispatch to Existing Idle Pane (0 new PTY processes!)
   // -------------------------------------------------------------
@@ -217,6 +220,7 @@ try {
     activeTaskId: null,
     missionId: "m1",
   });
+  assert.equal(dispatcher.findAvailablePane("m1", "shell"), undefined, "Shell puro não é destino autônomo");
   const task4 = taskManager.createTask("m1", {
     título: "Task for pure shell",
     descrição: "Do not write to stdin",
@@ -240,6 +244,7 @@ try {
     activeTaskId: null,
     missionId: "m1",
   });
+  assert.equal(dispatcher.findAvailablePane("m1", "builder")?.paneId, "pane-specialist-shell");
   const task5 = taskManager.createTask("m1", {
     título: "Build UI component",
     descrição: "Implement reactive cards",
@@ -249,6 +254,68 @@ try {
   assert.equal(writtenInputs.length, writesBeforePureShell + 1, "Specialist shell receives task prompt");
   assert.equal(writtenInputs[writtenInputs.length - 1].id, "pane-specialist-shell");
   assert.match(writtenInputs[writtenInputs.length - 1].data, /^\x1b\[200~.*Implement reactive cards.*\x1b\[201~\r$/s);
+
+  // -------------------------------------------------------------
+  // Test 8: Reclassified shell without an attached CLI remains sovereign
+  // -------------------------------------------------------------
+  console.log("Test 8: Reclassified shell without attached CLI...");
+  panes.set("pane-reclassified-shell", {
+    paneId: "pane-reclassified-shell",
+    label: "Shell - 2",
+    role: "builder",
+    runner: "bash",
+    cli: "bash",
+    status: "waiting-user",
+    activeTaskId: null,
+    missionId: "m1",
+  });
+  const task6 = taskManager.createTask("m1", {
+    título: "Task for unattached shell",
+    descrição: "Keep shell stdin untouched",
+    status: "todo",
+  });
+  const writesBeforeUnattachedShell = writtenInputs.length;
+  assert.equal(dispatcher.findAvailablePane("m1", "builder"), undefined, "Shell reclassificado sem CLI não é destino");
+  dispatcher.dispatchToExistingPane("m1", task6.id, "pane-reclassified-shell");
+  assert.equal(writtenInputs.length, writesBeforeUnattachedShell, "Reclassified shell without CLI must not receive stdin bytes");
+
+  // -------------------------------------------------------------
+  // Test 9: Portuguese alias dispatches to a shell with a manually attached CLI
+  // -------------------------------------------------------------
+  console.log("Test 9: Portuguese alias dispatches to attached CLI...");
+  panes.set("pane-attached-shell", {
+    paneId: "pane-attached-shell",
+    label: "Shell - 3",
+    role: "explorador",
+    runner: "bash",
+    cli: "bash",
+    attachedRunner: "codex",
+    connected: true,
+    status: "waiting-user",
+    activeTaskId: null,
+    missionId: "m1",
+  });
+  const task7 = taskManager.createTask("m1", {
+    título: "Task for attached Codex",
+    descrição: "Send only to the attached CLI",
+    status: "todo",
+  });
+  const attached = dispatcher.findAvailablePane("m1", "explorer");
+  assert.equal(attached?.paneId, "pane-attached-shell");
+  dispatcher.dispatchToExistingPane("m1", task7.id, "pane-attached-shell");
+  assert.equal(writtenInputs.length, writesBeforeUnattachedShell + 1, "Attached CLI receives delegated task");
+
+  panes.set("pane-disconnected", {
+    paneId: "pane-disconnected",
+    label: "Construtor",
+    role: "builder",
+    runner: "claude",
+    connected: false,
+    status: "waiting-user",
+    activeTaskId: null,
+    missionId: "m1",
+  });
+  assert.equal(dispatcher.findAvailablePane("m1", "builder"), undefined);
 
   console.log("PASS: check-pane-dispatch.ts — pane querying, dispatching without spawning, busy conflicts, dead rejections, and shell specialist dispatch verified!");
 } finally {

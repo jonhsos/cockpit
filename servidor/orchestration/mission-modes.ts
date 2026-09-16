@@ -80,8 +80,39 @@ export function canMaestroDelegate(params: DelegateGuardParams): GuardResult {
   }
 
   if (params.mode === "dirigido") {
-    const roles = (params.authorizedRoles ?? []).map((r) => r.toLowerCase());
-    if (roles.length > 0 && !roles.includes(params.targetAgentOrRole.toLowerCase())) {
+    const aliases: Record<string, string> = {
+      orchestrator: "maestro",
+      orquestrador: "maestro",
+      explorer: "scout",
+      explorador: "scout",
+      pesquisador: "scout",
+      architect: "architect",
+      arquiteto: "architect",
+      planejador: "architect",
+      builder: "builder",
+      construtor: "builder",
+      executor: "builder",
+      integrador: "builder",
+      debugger: "debugger",
+      depurador: "debugger",
+      especialista: "debugger",
+      reviewer: "reviewer",
+      revisor: "reviewer",
+      verifier: "verifier",
+      verificador: "verifier",
+      testador: "verifier",
+      tester: "verifier",
+      auditor: "verifier",
+      finalizer: "finalizer",
+      finalizador: "finalizer",
+      documentador: "finalizer",
+    };
+    const normalize = (value: string) => {
+      const normalized = value.trim().toLowerCase().replace(/[_-]+/g, " ");
+      return aliases[normalized] ?? normalized;
+    };
+    const roles = (params.authorizedRoles ?? []).map(normalize);
+    if (roles.length > 0 && !roles.includes(normalize(params.targetAgentOrRole))) {
       return {
         allowed: false,
         reason: `Agente ou papel "${params.targetAgentOrRole}" não autorizado no elenco do modo Dirigido.`,

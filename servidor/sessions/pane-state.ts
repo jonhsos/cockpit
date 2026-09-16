@@ -36,6 +36,8 @@ export interface PaneState {
   cli: string;
   role?: string;
   runner?: string;
+  connected?: boolean;
+  attachedRunner?: string | null;
   /** O que o harness resolveu de verdade, não o padrão do catálogo. */
   model: string | null;
   effort: string | null;

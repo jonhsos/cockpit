@@ -6,6 +6,8 @@ export interface PaneDispatcherState {
   label?: string;
   role?: string;
   runner?: string;
+  connected?: boolean;
+  attachedRunner?: string | null;
   cli?: string;
   model?: string | null;
   status?: string;
@@ -23,6 +25,59 @@ export interface AvailablePaneInfo {
   activeTaskId: string | null;
   isBusy: boolean;
   canAcceptTask: boolean;
+  connected: boolean;
+  attachedRunner: string | null;
+}
+
+const ROLE_ALIASES: Record<string, string> = {
+  maestro: "maestro",
+  orchestrator: "maestro",
+  orquestrador: "maestro",
+  scout: "scout",
+  explorer: "scout",
+  explorador: "scout",
+  pesquisador: "scout",
+  architect: "architect",
+  arquiteto: "architect",
+  planejador: "architect",
+  builder: "builder",
+  construtor: "builder",
+  executor: "builder",
+  integrador: "builder",
+  debugger: "debugger",
+  depurador: "debugger",
+  especialista: "debugger",
+  reviewer: "reviewer",
+  revisor: "reviewer",
+  verifier: "verifier",
+  verificador: "verifier",
+  testador: "verifier",
+  tester: "verifier",
+  auditor: "verifier",
+  finalizer: "finalizer",
+  finalizador: "finalizer",
+  documentador: "finalizer",
+  artista: "artista",
+  media: "artista",
+};
+
+function normalizarAlvo(value: string): string {
+  const normalized = value.trim().toLowerCase().replace(/[_-]+/g, " ");
+  return ROLE_ALIASES[normalized] ?? normalized;
+}
+
+function correspondeAoAlvo(pane: PaneDispatcherState, alvo: string): boolean {
+  const alvoNormalizado = normalizarAlvo(alvo);
+  return [pane.label, pane.role, pane.runner, pane.cli, pane.paneId]
+    .filter((value): value is string => Boolean(value))
+    .some((value) => normalizarAlvo(value) === alvoNormalizado);
+}
+
+function shellPodeReceberTarefa(pane: PaneDispatcherState): boolean {
+  const isBash = pane.cli === "bash" || pane.runner === "bash";
+  if (!isBash) return true;
+  if (pane.attachedRunner) return true;
+  return pane.role?.trim().toLowerCase() === "shell" && pane.label?.trim().toLowerCase() !== "shell";
 }
 
 export interface DispatchResult {
@@ -64,7 +119,9 @@ export class PaneDispatcher {
     return missionPanes.map((p) => {
       const status = p.status || "waiting-user";
       const isBusy = status === "working";
-      const canAcceptTask = status === "waiting-user" || status === "completed" || status === "idle";
+      const connected = p.connected !== false && status !== "dead" && status !== "failed";
+      const ready = status === "waiting-user" || status === "completed" || status === "idle";
+      const canAcceptTask = connected && ready && shellPodeReceberTarefa(p);
 
       return {
         paneId: p.paneId,
@@ -76,8 +133,16 @@ export class PaneDispatcher {
         activeTaskId: p.activeTaskId ?? null,
         isBusy,
         canAcceptTask,
+        connected,
+        attachedRunner: p.attachedRunner ?? null,
       };
     });
+  }
+
+  public findAvailablePane(missionId: string, target: string): AvailablePaneInfo | undefined {
+    return this.listAvailablePanes(missionId).find(
+      (pane) => pane.canAcceptTask && correspondeAoAlvo(pane, target),
+    );
   }
 
   /**
@@ -105,6 +170,9 @@ export class PaneDispatcher {
 
     // 3. Status checks
     const currentStatus = pane.status || "waiting-user";
+    if (pane.connected === false || currentStatus === "starting") {
+      throw new Error(`Pane is not connected or ready: cannot dispatch task to inactive pane`);
+    }
     if (currentStatus === "dead" || currentStatus === "failed") {
       throw new Error(`Pane is dead or failed: cannot dispatch task to inactive pane`);
     }
@@ -138,10 +206,8 @@ export class PaneDispatcher {
       status: "unread",
     });
 
-    const isSpecialistOrNonBash =
-      (pane.cli !== "bash" && pane.runner !== "bash") ||
-      (Boolean(pane.label) && pane.label!.toLowerCase() !== "shell") ||
-      (Boolean(pane.role) && pane.role!.toLowerCase() !== "shell");
+    const isBash = pane.cli === "bash" || pane.runner === "bash";
+    const isSpecialistOrNonBash = shellPodeReceberTarefa(pane);
 
     if (this.paneProvider.writePane && isSpecialistOrNonBash) {
       const bracketedPrompt = `\x1b[200~${prompt}\x1b[201~\r`;

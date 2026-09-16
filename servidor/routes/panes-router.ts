@@ -45,6 +45,14 @@ export function createPanesRouter(ctx: RouterContext): Router {
         typeof req.body.label === "string"
           ? req.body.label
           : (ctx.config.agents[novoAgente]?.label ?? pane.label);
+      const novoPapel =
+        typeof req.body.role === "string"
+          ? req.body.role
+          : typeof req.body.agent === "string"
+          ? novoAgente
+          : novoMaestro
+          ? "maestro"
+          : (pane.role ?? pane.agent);
       const novaCor =
         typeof req.body.cor === "string"
           ? req.body.cor
@@ -62,6 +70,7 @@ export function createPanesRouter(ctx: RouterContext): Router {
       const atualizado = updatePane(pane.paneId, {
         maestro: novoMaestro,
         agent: novoAgente,
+        role: novoPapel,
         label: novoLabel,
         cor: novaCor,
       });

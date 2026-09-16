@@ -78,6 +78,8 @@ export type PaneState = {
   maestro: boolean;
   role?: string;
   runner?: string;
+  connected?: boolean;
+  attachedRunner?: string | null;
   accountId?: string | null;
   accountLabel?: string | null;
   accountPinned?: boolean;
@@ -486,7 +488,7 @@ export const fetchPaneReplay = (paneId: string) =>
   );
 export const postPapelPainel = (
   paneId: string,
-  dados: { maestro: boolean; agent?: string; label?: string; cor?: string },
+  dados: { maestro: boolean; agent?: string; role?: string; label?: string; cor?: string },
 ) => post(`/api/panes/${paneId}/papel`, dados).then(json<{ ok: true; pane: PaneState }>);
 export const postSquad = (id: string, squad: string, brief: string) =>
   post(`/api/missions/${id}/squad`, { squad, brief }).then(json<{ run: SquadRun }>);

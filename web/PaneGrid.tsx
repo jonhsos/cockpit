@@ -70,6 +70,7 @@ export function PaneGrid({
       return new Set();
     }
   });
+  const [paneEmFoco, setPaneEmFoco] = useState<string | null>(null);
 
   useEffect(() => {
     const onResize = () => setLarguraJanela(window.innerWidth);
@@ -95,6 +96,21 @@ export function PaneGrid({
     });
   }, [panes]);
 
+  useEffect(() => {
+    if (!paneEmFoco) return;
+    const existeNaMissao = panes.some((pane) => pane.paneId === paneEmFoco && pane.missionId === missionId);
+    if (!existeNaMissao) setPaneEmFoco(null);
+  }, [missionId, paneEmFoco, panes]);
+
+  useEffect(() => {
+    if (!paneEmFoco) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPaneEmFoco(null);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [paneEmFoco]);
+
   const daMissao = panes.filter((p) => missionId !== null && p.missionId === missionId);
   const ativos = daMissao.filter((p) => !minimizados.has(p.paneId));
   const naBandeja = daMissao.filter((p) => minimizados.has(p.paneId));
@@ -108,6 +124,18 @@ export function PaneGrid({
   const ativosIds = ativos.map((p) => p.paneId).join(",");
 
   const minimizar = (id: string) => setMinimizados((prev) => new Set(prev).add(id));
+  const focar = (id: string) => {
+    if (!daMissao.some((pane) => pane.paneId === id)) return;
+    setMinimizados((prev) => {
+      if (!prev.has(id)) return prev;
+      const proximo = new Set(prev);
+      proximo.delete(id);
+      return proximo;
+    });
+    setPaneEmFoco(id);
+    onSelectPane?.(id);
+  };
+  const voltarParaGrade = () => setPaneEmFoco(null);
   const restaurar = (id: string) => {
     setMinimizados((prev) => {
       const proximo = new Set(prev);
@@ -120,7 +148,7 @@ export function PaneGrid({
   return (
     <div className="panes-stack">
       <div
-        className="panes"
+        className={`panes${paneEmFoco ? " tem-foco" : ""}`}
         data-colunas={n}
         data-ativos={ativos.length}
         hidden={!ativos.length}
@@ -154,14 +182,34 @@ export function PaneGrid({
               onConectar={onConectar}
               onDesconectar={onDesconectar}
               label={nomeDoPainel(p, panes, agents)}
-              onClose={() => onClose(p.paneId)}
-              onMinimizar={() => minimizar(p.paneId)}
+              onClose={() => {
+                if (paneEmFoco === p.paneId) voltarParaGrade();
+                onClose(p.paneId);
+              }}
+              onMinimizar={() => {
+                if (paneEmFoco === p.paneId) voltarParaGrade();
+                minimizar(p.paneId);
+              }}
+              emFoco={paneEmFoco === p.paneId}
+              onFocar={() => focar(p.paneId)}
+              onVoltarFoco={voltarParaGrade}
               gridColumn={span > 1 ? `span ${span}` : undefined}
               layoutEpoch={`${n}:${ativosIds}`}
             />
           );
         })}
       </div>
+
+      {paneEmFoco && (
+        <button
+          type="button"
+          className="pane-focus-backdrop"
+          tabIndex={-1}
+          aria-hidden="true"
+          aria-label="Voltar para a grade de painéis"
+          onClick={voltarParaGrade}
+        />
+      )}
 
       {naBandeja.length > 0 && (
         <div className="panes-tray" role="toolbar" aria-label="Painéis minimizados">

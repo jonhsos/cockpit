@@ -1133,6 +1133,7 @@ export function App() {
                   guarded(async () => {
                     await postPapelPainel(paneId, {
                       agent: novoPapel,
+                      role: novoPapel,
                       maestro: novoPapel === "maestro",
                     });
                   });

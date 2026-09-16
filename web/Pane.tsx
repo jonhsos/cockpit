@@ -13,6 +13,7 @@ import {
 } from "./tipos.ts";
 import { Icon } from "./Icon.tsx";
 import { Mascote } from "./Mascote.tsx";
+import { nomeDoPainel } from "./rotulos.ts";
 import { roleDefinitionFor } from "./role-contract.ts";
 
 const BARRAS = 40;
@@ -70,6 +71,9 @@ export function Pane({
   onDesconectar,
   gridColumn,
   layoutEpoch,
+  emFoco = false,
+  onFocar,
+  onVoltarFoco,
 }: {
   pane: PaneState;
   spec: AgentSpec | undefined;
@@ -96,6 +100,9 @@ export function Pane({
   gridColumn?: string;
   /** Muda quando a grade reflowa (minimizar/colunas) — força fit do xterm. */
   layoutEpoch?: string;
+  emFoco?: boolean;
+  onFocar?: () => void;
+  onVoltarFoco?: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
@@ -290,7 +297,7 @@ export function Pane({
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [visible, selecionado, minimizado, layoutEpoch, gridColumn]);
+  }, [visible, selecionado, minimizado, layoutEpoch, gridColumn, emFoco]);
 
   // Find active task for this pane
   const taskAtiva =
@@ -338,11 +345,13 @@ export function Pane({
 
   return (
     <section
-      className={`pane${selecionado ? " selecionado" : ""}${
+      className={`pane${selecionado ? " selecionado" : ""}${emFoco ? " em-foco" : ""}${
         menuPapelAberto || detalhesAberto ? " popover-aberto" : ""
       }`}
       hidden={!visible || minimizado}
       data-pane-id={pane.paneId}
+      role={emFoco ? "dialog" : undefined}
+      aria-modal={emFoco ? true : undefined}
       aria-label={`Terminal de ${nome}`}
       style={{
         ["--pane" as string]: pane.cor,
@@ -389,6 +398,27 @@ export function Pane({
           </div>
 
           <div className="pane-head-actions">
+            {emFoco && onVoltarFoco ? (
+              <button
+                type="button"
+                className="pane-focus-back-btn"
+                onClick={onVoltarFoco}
+                autoFocus
+              >
+                <Icon name="back" size={14} />
+                <span>Voltar</span>
+              </button>
+            ) : onFocar ? (
+              <button
+                type="button"
+                className="pane-focus-btn"
+                title="Focar painel"
+                aria-label={`Focar ${nome}`}
+                onClick={onFocar}
+              >
+                <Icon name="expand" size={14} />
+              </button>
+            ) : null}
             <details
               className="pane-details"
               ref={detailsRef}
@@ -491,7 +521,9 @@ export function Pane({
                   {conexoesReais.map((c) => {
                     const outroId = c.sourcePaneId === pane.paneId ? c.targetPaneId : c.sourcePaneId;
                     const outroPane = todosPaineis.find((p) => p.paneId === outroId);
-                    const outroNome = outroPane?.label ?? outroId;
+                    const outroNome = outroPane
+                      ? nomeDoPainel(outroPane, todosPaineis, agentes)
+                      : outroId;
                     return (
                       <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, color: "var(--ink)" }}>
                         <span>🔗 {outroNome}</span>
@@ -527,7 +559,7 @@ export function Pane({
                           .filter((p) => p.paneId !== pane.paneId)
                           .map((p) => (
                             <option key={p.paneId} value={p.paneId}>
-                              {p.maestro ? "⭐ " : ""}{p.label} ({p.role || p.agent})
+                              {p.maestro ? "⭐ " : ""}{nomeDoPainel(p, todosPaineis, agentes)} ({roleDefinitionFor(p.role || (p.maestro ? "maestro" : p.agent)).label})
                             </option>
                           ))}
                       </select>
@@ -653,7 +685,7 @@ export function Pane({
 
           {pane.cli === "bash" ? (
             <span className="pane-badge badge-model clean-bash" title="Terminal Linux soberano sem LLM">
-              clean-bash
+              Shell limpo
             </span>
           ) : pane.model ? (
             <span className="pane-badge badge-model" title={`Modelo: ${pane.model}${pane.effort ? ` · ${pane.effort}` : ""}`}>

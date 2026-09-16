@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFile } from "node:child_process";
@@ -93,6 +93,7 @@ export interface ManagerPaneEntry {
   onExit?: (code: number) => void;
   lastData: number;
   acumulado: number;
+  inputBuffer: string;
 }
 
 const MCP_SCRIPT = fileURLToPath(new URL("../mcp-maestro.ts", import.meta.url));
@@ -107,6 +108,22 @@ function expandEnvPaths(env: Record<string, string>): Record<string, string> {
     }
   }
   return expanded;
+}
+
+type ManualRunner = "codex" | "agy" | "grok" | "claude";
+
+function runnerFromText(text: string): ManualRunner | null {
+  if (/ask codex to do anything|openai codex|codex build/i.test(text)) return "codex";
+  if (/antigravity cli|google ai pro|gemini \d/i.test(text)) return "agy";
+  if (/grok build|\bgrok\b/i.test(text)) return "grok";
+  if (/claude code|anthropic/i.test(text)) return "claude";
+  return null;
+}
+
+function runnerFromCommand(text: string): ManualRunner | null {
+  const lastLine = text.split(/[\r\n]/).at(-1)?.replace(/[\u0000-\u001f\u007f]/g, " ") ?? "";
+  const match = /^\s*(codex|agy|grok|claude)(?:\s|$)/i.exec(lastLine);
+  return (match?.[1]?.toLowerCase() as ManualRunner | undefined) ?? null;
 }
 
 export function resolveCli(cli: string, extra: string[]): { file: string; args: string[] } {
@@ -192,6 +209,7 @@ export class PtyManager {
   private globalExitListeners = new Set<(paneId: string, code: number, pane?: PaneState) => void>();
   /** Reaps DSH iniciados por killPty síncrono — flushDshKills() espera todos. */
   private pendingDshKills: Promise<void>[] = [];
+  private agyMcpHomes = new Map<string, string>();
 
   constructor(socketPath: string = getDefaultSocketPath()) {
     this.client = new PtyClient(socketPath);
@@ -228,6 +246,7 @@ export class PtyManager {
     this.client.on("output", (paneId: string, data: string) => {
       const entry = this.ptys.get(paneId);
       if (entry) {
+        this.registrarRunnerManual(entry, data);
         entry.lastData = Date.now();
         entry.acumulado += data.length;
         entry.state.bytesOut += data.length;
@@ -254,6 +273,7 @@ export class PtyManager {
       const exitedPane = entry?.state;
       accountPool.release(paneId);
       if (entry) {
+        entry.state.connected = false;
         try {
           transitionPane(entry.state, status, { exitCode: code });
         } catch {
@@ -261,6 +281,7 @@ export class PtyManager {
           entry.state.exitCode = code;
         }
         this.savePaneToDisk(entry.state);
+        this.limparMcpAgy(paneId);
         if (entry.onExit) entry.onExit(code);
         this.ptys.delete(paneId);
       }
@@ -281,6 +302,7 @@ export class PtyManager {
         } catch {
           entry.state.status = status;
         }
+        if (status === "dead" || status === "failed") entry.state.connected = false;
         this.savePaneToDisk(entry.state);
       }
     });
@@ -290,6 +312,7 @@ export class PtyManager {
         const entry = this.ptys.get(p.paneId);
         if (entry) {
           entry.state.status = p.status;
+          entry.state.connected = p.status !== "dead" && p.status !== "failed";
           entry.state.atividade = p.atividade;
           entry.state.bytesIn = p.bytesIn;
           entry.state.bytesOut = p.bytesOut;
@@ -299,6 +322,10 @@ export class PtyManager {
 
     this.client.on("connected", async () => {
       await this.syncSurvivingPanes();
+    });
+
+    this.client.on("disconnected", () => {
+      for (const entry of this.ptys.values()) entry.state.connected = false;
     });
   }
 
@@ -338,12 +365,20 @@ export class PtyManager {
             state: pane,
             lastData: Date.now(),
             acumulado: 0,
+            inputBuffer: "",
           };
           this.ptys.set(pane.paneId, entry);
         } else {
           entry.state = pane;
         }
         this.savePaneToDisk(entry.state);
+        if (isCleanShell(entry.state) && !entry.state.attachedRunner) {
+          try {
+            this.registrarRunnerManual(entry, await this.client.replay(pane.paneId));
+          } catch {
+            // O painel pode encerrar enquanto o replay é lido.
+          }
+        }
       }
     } catch {
       // Best effort
@@ -374,6 +409,74 @@ export class PtyManager {
     } catch {
       // Persistence store might be mock or uninitialized
     }
+  }
+
+  private criarMcpAgyIsolado(paneId: string, opts: SpawnOpts, agent: AgentSpec): string {
+    const home = mkdtempSync(join(tmpdir(), "cockpit-agy-maestro-"));
+    const caminho = join(home, ".gemini", "config", "mcp_config.json");
+    mkdirSync(dirname(caminho), { recursive: true });
+    writeFileSync(
+      caminho,
+      JSON.stringify(
+        {
+          mcpServers: {
+            cockpit: {
+              command: process.execPath,
+              args: [MCP_SCRIPT],
+              env: {
+                COCKPIT_PORT: String(opts.porta),
+                COCKPIT_MISSION: opts.missionId ?? "",
+                COCKPIT_PROJECT: opts.projectId ?? "",
+                COCKPIT_AGENT: agent.label,
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    this.agyMcpHomes.set(paneId, home);
+    return home;
+  }
+
+  private limparMcpAgy(paneId: string): void {
+    const home = this.agyMcpHomes.get(paneId);
+    if (!home) return;
+    this.agyMcpHomes.delete(paneId);
+    try {
+      rmSync(home, { recursive: true, force: true });
+    } catch {
+      // Best effort.
+    }
+  }
+
+  private registrarRunnerManual(entry: ManagerPaneEntry, text: string): void {
+    if (!isCleanShell(entry.state) || entry.state.attachedRunner) return;
+    const runner = runnerFromText(text);
+    if (!runner) return;
+    entry.state.attachedRunner = runner;
+    entry.state.atualizadoEm = Date.now();
+    this.savePaneToDisk(entry.state);
+  }
+
+  private registrarEntradaManual(entry: ManagerPaneEntry, data: string): void {
+    if (!isCleanShell(entry.state)) return;
+    entry.inputBuffer = `${entry.inputBuffer}${data}`.slice(-512);
+    if (entry.state.attachedRunner) {
+      const lastLine = entry.inputBuffer.split(/[\r\n]/).at(-1)?.trim().toLowerCase();
+      if (lastLine === "exit") {
+        entry.state.attachedRunner = null;
+        entry.state.atualizadoEm = Date.now();
+        this.savePaneToDisk(entry.state);
+      }
+      return;
+    }
+    const runner = runnerFromCommand(entry.inputBuffer);
+    if (!runner) return;
+    entry.state.attachedRunner = runner;
+    entry.state.atualizadoEm = Date.now();
+    this.savePaneToDisk(entry.state);
   }
 
   /**
@@ -613,6 +716,19 @@ export class PtyManager {
       argv = resolved.args;
       const rawCliEnv = { ...(config.clis[spec.cli]?.env ?? {}), ...(allocatedAccount?.env ?? {}) };
       const cliEnv = expandEnvPaths(rawCliEnv);
+      if (familia === "agy" && maestro && opts.missionId) {
+        const targetHome =
+          allocatedAccount?.env?.JETSKI_APP_DATA_DIR ||
+          allocatedAccount?.env?.HOME ||
+          config.clis[spec.cli]?.env?.JETSKI_APP_DATA_DIR ||
+          config.clis[spec.cli]?.env?.HOME;
+        cliEnv.HOME = this.criarMcpAgyIsolado(paneId, opts, spec);
+        if (targetHome) {
+          cliEnv.JETSKI_APP_DATA_DIR = targetHome
+            .replace(/^~(?=$|\/)/, homedir())
+            .replace(/^\$HOME(?=$|\/)/, homedir());
+        }
+      }
       const currentPath = process.env.PATH ?? "";
       const pathWithBin = pathComExecutaveisLocais(currentPath);
       env = {
@@ -655,6 +771,8 @@ export class PtyManager {
       accountLabel: allocatedAccount?.label ?? null,
       accountPinned: Boolean(opts.accountPinned && allocatedAccount?.id),
       backend: effectiveBackend,
+      connected: true,
+      attachedRunner: null,
       status: "starting",
       bytesIn: 0,
       bytesOut: 0,
@@ -669,6 +787,7 @@ export class PtyManager {
       onExit,
       lastData: Date.now(),
       acumulado: 0,
+      inputBuffer: "",
     };
     this.ptys.set(paneId, entry);
     this.savePaneToDisk(state);
@@ -694,17 +813,21 @@ export class PtyManager {
           onOutput: emit,
           onExit: (code) => {
             accountPool.release(paneId);
+            entry.state.connected = false;
             entry.state.status = "dead";
             entry.state.exitCode = code;
             this.savePaneToDisk(entry.state);
+            this.limparMcpAgy(paneId);
             if (entry.onExit) entry.onExit(code);
             for (const listener of this.globalExitListeners) listener(paneId, code, entry.state);
           },
         })
         .catch((err) => {
           accountPool.release(paneId);
+          state.connected = false;
           state.status = "failed";
           state.blockedReason = err instanceof Error ? err.message : String(err);
+          this.limparMcpAgy(paneId);
           this.savePaneToDisk(state);
           if (onExit) onExit(1);
         });
@@ -739,13 +862,18 @@ export class PtyManager {
             accountLabel: state.accountLabel,
             accountPinned: state.accountPinned,
             backend: state.backend,
+            connected: state.connected,
+            attachedRunner: state.attachedRunner,
           },
         }),
       )
       .catch((err) => {
         accountPool.release(paneId);
+        state.connected = false;
         state.status = "failed";
         state.blockedReason = err.message;
+        this.limparMcpAgy(paneId);
+        this.savePaneToDisk(state);
         if (onExit) onExit(1);
       });
 
@@ -754,7 +882,8 @@ export class PtyManager {
 
   public writePty(paneId: string, data: string): void {
     const entry = this.ptys.get(paneId);
-    if (!entry || entry.state.status === "dead") return;
+    if (!entry || entry.state.status === "dead" || entry.state.connected === false) return;
+    this.registrarEntradaManual(entry, data);
     entry.state.bytesIn += data.length;
     if (getDshManager().has(paneId)) {
       getDshManager().write(paneId, data);
@@ -762,12 +891,14 @@ export class PtyManager {
     }
     this.client.input(paneId, data).catch(() => {
       entry.state.status = "dead";
+      entry.state.connected = false;
+      this.limparMcpAgy(paneId);
     });
   }
 
   public async submitPrompt(paneId: string, prompt: string): Promise<boolean> {
     const entry = this.ptys.get(paneId);
-    if (!entry || entry.state.status === "dead") return false;
+    if (!entry || entry.state.status === "dead" || entry.state.connected === false) return false;
     const clean = prompt.trim();
     if (!clean) return false;
     if (entry.state.backend !== "dsh" || !getDshManager().has(paneId)) return false;
@@ -776,13 +907,15 @@ export class PtyManager {
 
   public resizePty(paneId: string, cols: number, rows: number): void {
     const entry = this.ptys.get(paneId);
-    if (!entry || entry.state.status === "dead") return;
+    if (!entry || entry.state.status === "dead" || entry.state.connected === false) return;
     if (getDshManager().has(paneId)) {
       getDshManager().resize(paneId, cols, rows);
       return;
     }
     this.client.resize(paneId, cols, rows).catch(() => {
       entry.state.status = "dead";
+      entry.state.connected = false;
+      this.limparMcpAgy(paneId);
     });
   }
 
@@ -815,13 +948,17 @@ export class PtyManager {
           .catch(() => {}),
       );
       entry.state.status = "dead";
+      entry.state.connected = false;
       this.ptys.delete(paneId);
       this.savePaneToDisk(entry.state);
+      this.limparMcpAgy(paneId);
       return;
     }
     entry.state.status = "dead";
+    entry.state.connected = false;
     this.ptys.delete(paneId);
     this.savePaneToDisk(entry.state);
+    this.limparMcpAgy(paneId);
     this.client.kill(paneId).catch(() => {});
   }
 
@@ -839,13 +976,17 @@ export class PtyManager {
     if (getDshManager().has(paneId)) {
       await getDshManager().kill(paneId, 0);
       entry.state.status = "dead";
+      entry.state.connected = false;
       this.ptys.delete(paneId);
       this.savePaneToDisk(entry.state);
+      this.limparMcpAgy(paneId);
       return;
     }
     entry.state.status = "dead";
+    entry.state.connected = false;
     this.ptys.delete(paneId);
     this.savePaneToDisk(entry.state);
+    this.limparMcpAgy(paneId);
     await this.client.kill(paneId);
   }
 
