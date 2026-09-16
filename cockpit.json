@@ -50,19 +50,19 @@
           }
         },
         {
-          "id": "agy-51",
-          "label": "olhapautagruposaht@gmail.com",
-          "env": {
-            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_51",
-            "HOME": "~/.gemini/antigravity-cli/profiles/conta_51"
-          }
-        },
-        {
           "id": "agy-52",
           "label": "oitonovesuporte@gmail.com",
           "env": {
             "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_52",
             "HOME": "~/.gemini/antigravity-cli/profiles/conta_52"
+          }
+        },
+        {
+          "id": "agy-53",
+          "label": "olhapautagruposaht@gmail.com",
+          "env": {
+            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_53",
+            "HOME": "~/.gemini/antigravity-cli/profiles/conta_53"
           }
         }
       ]

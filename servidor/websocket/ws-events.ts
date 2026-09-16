@@ -5,7 +5,7 @@ import type { MailboxMessage } from "../connections/connection-types.ts";
 import type { RoleContractInput } from "../orchestration/roles.ts";
 
 export type ClientMessage =
-  | { type: "spawn"; agent: string; missionId: string; tipo?: string; tarefa?: string; cli?: string; model?: string | null; effort?: string | null; role?: string; roleDefinition?: RoleContractInput; runner?: string; maestro?: boolean; preferredAccountId?: string; accountPinned?: boolean; backend?: "pty" | "dsh" }
+  | { type: "spawn"; agent: string; missionId: string; tipo?: string; tarefa?: string; cli?: string; model?: string | null; effort?: string | null; role?: string; label?: string; roleDefinition?: RoleContractInput; runner?: string; maestro?: boolean; preferredAccountId?: string; accountPinned?: boolean; backend?: "pty" | "dsh" }
   | { type: "input"; paneId: string; data: string }
   | { type: "prompt"; paneId: string; prompt: string }
   | { type: "resize"; paneId: string; cols: number; rows: number }

@@ -26,6 +26,10 @@ for (const [id, label, functions] of expected) {
 
 assert.ok(CATALOG_ROLES.some((role) => role.id === "luna"), "especialização de UX deve continuar disponível");
 assert.ok(CATALOG_ROLES.some((role) => role.id === "artista"), "especialização de mídia deve continuar disponível");
+const architectRole = PRIMARY_ROLES.find((role) => role.id === "architect")!;
+const builderRole = PRIMARY_ROLES.find((role) => role.id === "builder")!;
+assert.notEqual(architectRole.color, builderRole.color, "Arquiteto e Construtor devem ter cores distintas");
+assert.notEqual(architectRole.label, builderRole.label, "Arquiteto e Construtor devem ter nomes distintos");
 
 for (const [id, label] of expected) {
   const contract = roleContractFor(id);

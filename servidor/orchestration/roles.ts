@@ -9,6 +9,7 @@ export type RoleContractInput = {
   deliverables: string[];
   incorporates?: string[];
   baseAgent?: string;
+  color?: string;
 };
 
 type RoleContract = RoleContractInput;
@@ -211,6 +212,42 @@ function safeCustomContract(input: RoleContractInput, base: RoleContract): RoleC
 
 function baseAgentFor(value: unknown): string | undefined {
   return typeof value === "string" && /^[a-z0-9_-]{1,48}$/i.test(value) ? value : undefined;
+}
+
+const ROLE_COLORS: Record<string, string> = {
+  maestro: "#00b4ff",
+  builder: "#4fb286",
+  architect: "#b58cff",
+  debugger: "#f08a5d",
+  verifier: "#39c0ba",
+  finalizer: "#e1b84c",
+  luna: "#e2703a",
+  reviewer: "#9d7bd8",
+  scout: "#4a9fd8",
+  artista: "#d9a441",
+};
+
+function papelFoiPedido(role?: string, custom?: RoleContractInput): boolean {
+  const requested = role?.trim();
+  if (!requested) return false;
+  const chave = requested.toLowerCase();
+  if (ROLE_CONTRACTS[chave] || ROLE_ALIASES[chave]) return true;
+  return Boolean(custom && (custom.id === requested || custom.id === chave));
+}
+
+/** Nome e cor do PAPEL, não do perfil de execução (architect não herda CONSTRUTOR). */
+export function identidadeVisualDoPapel(
+  role?: string,
+  custom?: RoleContractInput,
+): { id: string; label: string; cor: string } | undefined {
+  if (!papelFoiPedido(role, custom)) return undefined;
+  const contract = roleContractFor(role, undefined, custom);
+  const corCustom = custom?.color?.trim();
+  return {
+    id: contract.id,
+    label: contract.label.toUpperCase(),
+    cor: (corCustom && /^#[0-9a-f]{3,8}$/i.test(corCustom) ? corCustom : ROLE_COLORS[contract.id]) ?? ROLE_COLORS.builder,
+  };
 }
 
 function roleIdFor(role?: string, agent?: string): string {

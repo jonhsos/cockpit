@@ -332,20 +332,21 @@ async function main(): Promise<void> {
     assert.equal(validateMissionName("  Missão Refatoração  ").cleanName, "Missão Refatoração");
   });
 
-  check("2.5 web/App.tsx Stage Topbar inline rename keeps active mission synchronized", () => {
+  check("2.5 web/App.tsx mission rename and mode live in the sidebar, not the stage topbar", () => {
     const appSrc = readFileSync("web/App.tsx", "utf8");
+    const lateralSrc = readFileSync("web/Lateral.tsx", "utf8");
 
     assert.ok(
-      appSrc.includes("stage-mission-title"),
-      "Stage topbar must display interactive mission title"
+      !appSrc.includes("stage-topbar"),
+      "Stage must not keep a mission topbar over the terminals"
     );
     assert.ok(
-      appSrc.includes("renomeandoAtiva"),
-      "App must track inline renaming state"
+      lateralSrc.includes("onRenomearMissao") && lateralSrc.includes("mission-rename"),
+      "Sidebar must rename the mission"
     );
     assert.ok(
-      appSrc.includes("renomearMissao(active.id, nome)"),
-      "Inline renaming form must trigger renomearMissao API call"
+      lateralSrc.includes("mission-modo") && lateralSrc.includes("onMudarModo"),
+      "Sidebar must hold Livre / Dirigido / Autônomo"
     );
     assert.ok(
       appSrc.includes("recarregarMissoes(projectId)"),

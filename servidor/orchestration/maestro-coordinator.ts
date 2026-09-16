@@ -13,6 +13,7 @@ import {
   type PaneState,
 } from "../pty.ts";
 import { normalizePaneStatus } from "../sessions/pane-state.ts";
+import { hasSignificantTerminalOutput } from "../sessions/terminal-activity.ts";
 import { getMission, getProject, detachPane, attachPane } from "../state.ts";
 import { cwdDaMissao } from "../missions/missions.ts";
 import { auditLogger } from "../security/audit.ts";
@@ -20,6 +21,7 @@ import { execucaoDoPapel } from "./politica-ia.ts";
 import { listarPontes } from "../providers/ponte.ts";
 import { listarProviders } from "../providers/providers.ts";
 import { resolverHarness, type Pedido } from "./harness.ts";
+import { identidadeVisualDoPapel } from "./roles.ts";
 import { accountPool } from "../providers/account-pool.ts";
 
 export interface MaestroCoordinatorDeps {
@@ -107,12 +109,12 @@ export class MaestroCoordinator {
           break;
         }
 
-        if (pane.status === "starting" && agora - info.delegatedAt < 8000) {
+        if (pane.status === "starting" && agora - info.delegatedAt < 2000) {
           allDone = false;
           break;
         }
 
-        if (agora - info.delegatedAt < 4000) {
+        if (agora - info.delegatedAt < 600) {
           allDone = false;
           break;
         }
@@ -281,9 +283,10 @@ export class MaestroCoordinator {
     const clean = isCleanShell(agent);
     const tarefaLimpa = clean ? undefined : tarefa;
 
+    const visual = identidadeVisualDoPapel(harness?.role, harness?.roleDefinition);
     const state = spawnPane({
       agent,
-      label: undefined,
+      label: harness?.label ?? visual?.label,
       harness,
       cwd: cwdDaMissao(mission),
       projectId: mission.projectId,
@@ -450,9 +453,14 @@ export class MaestroCoordinator {
 
   public observeOutput(pane: PaneState, data: string): void {
     if (!pane.missionId) return;
-    this.deps.continuity.record(pane.missionId, pane.paneId, "output", data);
+    if (hasSignificantTerminalOutput(data)) {
+      this.deps.continuity.record(pane.missionId, pane.paneId, "output", data);
+    }
     const tail = ((this.outputTails.get(pane.paneId) ?? "") + data).slice(-4000);
     this.outputTails.set(pane.paneId, tail);
+    if (!/429|quota|limit|exhausted|cota|limite|RESOURCE/i.test(data) && !/429|quota|limit|exhausted|cota|limite|RESOURCE/i.test(tail.slice(-400))) {
+      return;
+    }
     const signal = detectLimit(data) ?? detectLimit(tail);
     if (!signal || this.seenSignals.get(pane.paneId) === signal.detail) return;
     this.seenSignals.set(pane.paneId, signal.detail);

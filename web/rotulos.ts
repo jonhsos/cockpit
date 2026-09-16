@@ -1,4 +1,5 @@
 import type { AgentSpec, PaneState } from "./api.ts";
+import { resolveRoleId, roleDefinitionFor } from "./role-contract.ts";
 
 const LABELS_LEGADOS: Record<string, string> = {
   BUILDER: "CONSTRUTOR",
@@ -8,23 +9,48 @@ const LABELS_LEGADOS: Record<string, string> = {
   DEBUGGER: "DEPURADOR",
   VERIFIER: "VERIFICADOR",
   FINALIZER: "FINALIZADOR",
+  ORQUESTRADOR: "ORQUESTRADOR",
 };
 
 function traduzirLabel(label: string): string {
   return LABELS_LEGADOS[label.trim().toUpperCase()] ?? label;
 }
 
+export function sementeDoPainel(pane: Pick<PaneState, "role" | "agent" | "maestro">): string {
+  if (pane.maestro) return "maestro";
+  return pane.role?.trim() || pane.agent;
+}
+
+export function corDoPainel(pane: Pick<PaneState, "role" | "cor">): string {
+  const roleId = pane.role ? resolveRoleId(pane.role) : undefined;
+  if (roleId) return roleDefinitionFor(roleId).color;
+  return pane.cor;
+}
+
+function rotuloDoPapel(pane: Pick<PaneState, "role" | "maestro">): string | null {
+  const roleId = pane.maestro ? "maestro" : pane.role ? resolveRoleId(pane.role) : undefined;
+  if (!roleId) return null;
+  return traduzirLabel(roleDefinitionFor(roleId).label.toUpperCase());
+}
+
 /**
  * O nome que um agente carrega em toda a interface.
  *
- * A lateral, o cabeçalho do terminal e os rótulos de acessibilidade precisam
- * dizer a mesma coisa: duas sessões do mesmo agente só se diferenciam por um
- * sufixo estável, derivado da ordem em que entraram na missão — nunca da
- * posição na tela.
+ * A identidade visível é o PAPEL (Arquiteto ≠ Construtor), mesmo quando os dois
+ * compartilham o perfil de execução. Duas sessões do mesmo papel só se
+ * diferenciam por um sufixo estável — nunca da posição na tela.
  */
 export function nomeDoPainel(pane: PaneState, irmaos: PaneState[], agents: Record<string, AgentSpec>): string {
-  const nome = traduzirLabel(pane.label?.trim() || agents[pane.agent]?.label || pane.agent);
-  const mesmos = irmaos.filter(outro => outro.missionId === pane.missionId && outro.agent === pane.agent);
+  const agentNome = traduzirLabel(agents[pane.agent]?.label || pane.agent);
+  const papelNome = rotuloDoPapel(pane);
+  const gravado = pane.label?.trim() ?? "";
+  const padraoDoExecutor = !gravado || gravado === agentNome || gravado.toUpperCase() === agentNome.toUpperCase();
+  const padraoDoPapel = Boolean(papelNome && gravado.toUpperCase() === papelNome);
+  const nome = papelNome && (padraoDoExecutor || padraoDoPapel)
+    ? papelNome
+    : traduzirLabel(gravado || agentNome);
+  const chave = sementeDoPainel(pane).toLowerCase();
+  const mesmos = irmaos.filter((outro) => outro.missionId === pane.missionId && sementeDoPainel(outro).toLowerCase() === chave);
   return mesmos.length > 1 ? `${nome} · ${mesmos.indexOf(pane) + 1}` : nome;
 }
 

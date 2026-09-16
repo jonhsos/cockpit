@@ -1,8 +1,19 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from "react";
 import { Icon } from "./Icon.tsx";
-import { estadoDoPainel, nomeDoPainel } from "./rotulos.ts";
+import { corDoPainel, estadoDoPainel, nomeDoPainel, sementeDoPainel } from "./rotulos.ts";
 import { Mascote } from "./Mascote.tsx";
 import type { AgentSpec, Mission, PaneState, Project } from "./api.ts";
+import {
+  aplicarOrdem,
+  chaveMissoes,
+  chavePaineis,
+  gravarOrdem,
+  lerOrdem,
+  metadeDepois,
+  moverAntesOuDepois,
+  onOrdem,
+  useOrdem,
+} from "./ordem.ts";
 
 /**
  * A lateral do cockpit: a pasta do trabalho.
@@ -34,6 +45,9 @@ export function Lateral({
   onNovaMissao,
   onAddAgente,
   onRenomearMissao,
+  onFecharJanelas,
+  onMudarModo,
+  busy = false,
   aberta,
   onFechar,
   recolhida,
@@ -57,6 +71,9 @@ export function Lateral({
   onNovaMissao: () => void;
   onAddAgente: (missionId: string) => void;
   onRenomearMissao: (missionId: string, nome: string) => void;
+  onFecharJanelas?: (missionId: string | "todas") => void;
+  onMudarModo?: (missionId: string, modo: string) => void;
+  busy?: boolean;
   aberta: boolean;
   onFechar: () => void;
   recolhida: boolean;
@@ -80,6 +97,17 @@ export function Lateral({
     }
   });
   const anterior = useRef(activeId);
+  const [arrasto, setArrasto] = useState<{ tipo: "missao" | "painel"; id: string; missao?: string; sobre?: string; depois?: boolean } | null>(null);
+  const arrastoRef = useRef(arrasto);
+  arrastoRef.current = arrasto;
+  const [, setOrdemTick] = useState(0);
+  const idsMissoes = missions.map((m) => m.id);
+  const [ordemMissoes, setOrdemMissoes] = useOrdem(project ? chaveMissoes(project.id) : null, idsMissoes);
+  const missoesOrdenadas = aplicarOrdem(idsMissoes, ordemMissoes)
+    .map((id) => missions.find((m) => m.id === id))
+    .filter((m): m is Mission => Boolean(m));
+
+  useEffect(() => onOrdem(() => setOrdemTick((n) => n + 1)), []);
 
   useEffect(() => {
     if (activeId && activeId !== anterior.current) setAbertas(prev => new Set(prev).add(activeId));
@@ -132,18 +160,69 @@ export function Lateral({
         {pagina === "arquivos" ? arquivos : pagina === "tarefas" ? (tarefas ?? <p className="sidebar-vazio">Nenhuma tarefa nesta missão.</p>) : <>
         <div className="sidebar-secao">
           <span className="sidebar-titulo">Missões</span>
+          {project && panes.length > 0 && onFecharJanelas && (
+            <button
+              type="button"
+              className="sidebar-fechar-todas"
+              title="Encerrar todas as janelas abertas"
+              onClick={() => onFecharJanelas("todas")}
+            >
+              Fechar todas
+            </button>
+          )}
           {project && <button className="icon-btn" aria-label="Nova missão" title="Nova missão" onClick={onNovaMissao}><Icon name="plus" size={15} /></button>}
         </div>
 
         {!project && <p className="sidebar-vazio">Abra um projeto para ver as missões.</p>}
         {project && !missions.length && <p className="sidebar-vazio">Nenhuma missão ainda.</p>}
 
-        {missions.map(m => {
+        {missoesOrdenadas.map(m => {
           const daMissao = panes.filter(p => p.missionId === m.id);
+          const idsPaineis = aplicarOrdem(daMissao.map((p) => p.paneId), lerOrdem(chavePaineis(m.id)));
+          const paineisOrdenados = idsPaineis
+            .map((id) => daMissao.find((p) => p.paneId === id))
+            .filter((p): p is PaneState => Boolean(p));
           const expandida = abertas.has(m.id);
+          const alvoMissao = arrasto?.tipo === "missao" && arrasto.sobre === m.id;
           return (
-            <div className="mission-node" key={m.id}>
+            <div
+              className={`mission-node${arrasto?.tipo === "missao" && arrasto.id === m.id ? " arrastando" : ""}${alvoMissao ? (arrasto?.depois ? " alvo-depois" : " alvo-antes") : ""}`}
+              key={m.id}
+              onDragOver={(event: DragEvent<HTMLDivElement>) => {
+                if (arrastoRef.current?.tipo !== "missao") return;
+                event.preventDefault();
+                const depois = metadeDepois(event, event.currentTarget.getBoundingClientRect(), "y");
+                setArrasto((atual) => {
+                  const base = atual ?? arrastoRef.current;
+                  return base && base.tipo === "missao" ? { ...base, sobre: m.id, depois } : atual;
+                });
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const atual = arrastoRef.current;
+                if (atual?.tipo !== "missao") return;
+                const proxima = moverAntesOuDepois(ordemMissoes.length ? ordemMissoes : idsMissoes, atual.id, m.id, Boolean(atual.depois));
+                setOrdemMissoes(proxima);
+                setArrasto(null);
+              }}
+            >
               <div className={`mission-row${activeId === m.id ? " ativa" : ""}`}>
+                <span
+                  className="arrasto-pega"
+                  draggable
+                  title="Arrastar para reordenar"
+                  aria-label={`Arrastar missão ${m.nome}`}
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData("text/plain", `missao:${m.id}`);
+                    event.dataTransfer.effectAllowed = "move";
+                    const proximo = { tipo: "missao" as const, id: m.id };
+                    arrastoRef.current = proximo;
+                    setArrasto(proximo);
+                  }}
+                  onDragEnd={() => setArrasto(null)}
+                >
+                  <Icon name="grip" size={12} />
+                </span>
                 <button className="caret-btn" aria-expanded={expandida} aria-label={`${expandida ? "Recolher" : "Expandir"} ${m.nome}`} onClick={() => alternar(m.id)}>
                   <Icon name="chevron" size={13} />
                 </button>
@@ -155,23 +234,97 @@ export function Lateral({
                   <span>{m.nome}</span>
                   {daMissao.length > 0 && <em className="mission-count" aria-hidden="true">{daMissao.length}</em>}
                 </button>}
-                <button className="mission-rename-btn" aria-label={`Renomear ${m.nome}`} title="Renomear missão" onClick={() => { setRenomeando(m.id); setNomeEmEdicao(m.nome); }}>renomear</button>
+                {daMissao.length > 0 && onFecharJanelas && (
+                  <button
+                    type="button"
+                    className="mission-rename-btn"
+                    aria-label={`Fechar janelas de ${m.nome}`}
+                    title="Fechar todas as janelas desta missão"
+                    onClick={() => onFecharJanelas(m.id)}
+                  >
+                    fechar
+                  </button>
+                )}
+                <button className="mission-rename-btn" aria-label={`Renomear ${m.nome}`} title="Renomear missão" onClick={() => { setRenomeando(m.id); setNomeEmEdicao(m.nome); }}>✏️</button>
               </div>
 
-              {expandida && <div className="mission-agents">
-                {daMissao.map(p => (
-                  <button
-                    key={p.paneId}
-                    className={`agent-row${selectedId === p.paneId && activeId === m.id ? " selecionado" : ""}`}
-                    style={{ "--identity": p.cor } as CSSProperties}
-                    aria-current={selectedId === p.paneId && activeId === m.id ? "true" : undefined}
-                    onClick={() => onSelectPane(m.id, p.paneId)}
-                    title={`${nomeDoPainel(p, panes, agents)} · ${estadoDoPainel(p, connected)}`}
+              {expandida && (
+                <div className="mission-ajuste">
+                  <select
+                    className="mission-modo"
+                    value={m.modo ?? "livre"}
+                    disabled={busy || !onMudarModo}
+                    aria-label={`Modo da missão ${m.nome}`}
+                    title="Modo de execução da missão"
+                    onChange={(event) => onMudarModo?.(m.id, event.target.value)}
+                    onClick={(event) => event.stopPropagation()}
                   >
-                    <Mascote semente={p.agent} cor={p.cor} estado={connected ? p.status : "off"} tamanho={20} />
-                    <span>{nomeDoPainel(p, panes, agents)}</span>
-                  </button>
-                ))}
+                    <option value="livre">Livre</option>
+                    <option value="dirigido">Dirigido</option>
+                    <option value="autonomo">Autônomo</option>
+                  </select>
+                  {m.branch && <span className="mission-branch" title={`Branch: ${m.branch}`}>{m.branch}</span>}
+                </div>
+              )}
+
+              {expandida && <div className="mission-agents">
+                {paineisOrdenados.map(p => {
+                  const alvoPainel = arrasto?.tipo === "painel" && arrasto.missao === m.id && arrasto.sobre === p.paneId;
+                  const nome = nomeDoPainel(p, panes, agents);
+                  return (
+                  <div
+                    key={p.paneId}
+                    className={`agent-row${selectedId === p.paneId && activeId === m.id ? " selecionado" : ""}${arrasto?.tipo === "painel" && arrasto.id === p.paneId ? " arrastando" : ""}${alvoPainel ? (arrasto?.depois ? " alvo-depois" : " alvo-antes") : ""}`}
+                    style={{ "--identity": corDoPainel(p) } as CSSProperties}
+                    onDragOver={(event) => {
+                      if (arrastoRef.current?.tipo !== "painel" || arrastoRef.current.missao !== m.id) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const depois = metadeDepois(event, event.currentTarget.getBoundingClientRect(), "y");
+                      setArrasto((atual) => {
+                        const base = atual ?? arrastoRef.current;
+                        return base && base.tipo === "painel" ? { ...base, sobre: p.paneId, depois } : atual;
+                      });
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const atual = arrastoRef.current;
+                      if (atual?.tipo !== "painel" || atual.missao !== m.id) return;
+                      const proxima = moverAntesOuDepois(idsPaineis, atual.id, p.paneId, Boolean(atual.depois));
+                      gravarOrdem(chavePaineis(m.id), proxima);
+                      setArrasto(null);
+                    }}
+                  >
+                    <span
+                      className="arrasto-pega"
+                      draggable
+                      title="Arrastar para reordenar"
+                      aria-label={`Arrastar ${nome}`}
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData("text/plain", `painel:${m.id}:${p.paneId}`);
+                        event.dataTransfer.effectAllowed = "move";
+                        const proximo = { tipo: "painel" as const, id: p.paneId, missao: m.id };
+                        arrastoRef.current = proximo;
+                        setArrasto(proximo);
+                      }}
+                      onDragEnd={() => setArrasto(null)}
+                    >
+                      <Icon name="grip" size={12} />
+                    </span>
+                    <button
+                      type="button"
+                      className="agent-row-nome"
+                      aria-current={selectedId === p.paneId && activeId === m.id ? "true" : undefined}
+                      onClick={() => onSelectPane(m.id, p.paneId)}
+                      title={`${nome} · ${estadoDoPainel(p, connected)}`}
+                    >
+                      <Mascote semente={sementeDoPainel(p)} cor={corDoPainel(p)} estado={connected ? p.status : "off"} tamanho={20} />
+                      <span>{nome}</span>
+                    </button>
+                  </div>
+                  );
+                })}
                 <button className="agent-row novo" disabled={!connected} onClick={() => onAddAgente(m.id)}>
                   <Icon name="plus" size={14} /><span>Adicionar agente</span>
                 </button>

@@ -13,9 +13,9 @@ import {
 } from "./tipos.ts";
 import { Icon } from "./Icon.tsx";
 import { Mascote } from "./Mascote.tsx";
-import { nomeDoPainel } from "./rotulos.ts";
+import { corDoPainel, nomeDoPainel, sementeDoPainel } from "./rotulos.ts";
 import { roleDefinitionFor } from "./role-contract.ts";
-import { atalhoDeColar, atalhoDeCopiar, copiarTexto } from "./clipboard.ts";
+import { atalhoDeColar, atalhoDeCopiar, colarTexto, copiarTexto } from "./clipboard.ts";
 
 const BARRAS = 40;
 
@@ -75,6 +75,12 @@ export function Pane({
   emFoco = false,
   onFocar,
   onVoltarFoco,
+  arrastando = false,
+  alvoSoltar = null,
+  onArrastoInicio,
+  onArrastoSobre,
+  onArrastoSoltar,
+  onArrastoFim,
 }: {
   pane: PaneState;
   spec: AgentSpec | undefined;
@@ -104,10 +110,19 @@ export function Pane({
   emFoco?: boolean;
   onFocar?: () => void;
   onVoltarFoco?: () => void;
+  arrastando?: boolean;
+  alvoSoltar?: "antes" | "depois" | null;
+  onArrastoInicio?: (paneId: string) => void;
+  onArrastoSobre?: (paneId: string, depois: boolean) => void;
+  onArrastoSoltar?: (paneId: string) => void;
+  onArrastoFim?: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const caixa = useRef<HTMLElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const fitter = useRef<FitAddon | null>(null);
+  const [telaCheia, setTelaCheia] = useState(false);
+  const [menuClip, setMenuClip] = useState<{ x: number; y: number; temSelecao: boolean } | null>(null);
 
   // Inline rename state
   const [renomeando, setRenomeando] = useState(false);
@@ -129,6 +144,19 @@ export function Pane({
   const [promptEnviando, setPromptEnviando] = useState(false);
   const [promptErro, setPromptErro] = useState<string | null>(null);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
+  const colarNoXtermRef = useRef<(texto: string) => void>(() => {});
+  colarNoXtermRef.current = (texto: string) => {
+    if (!texto) return;
+    if (isDshRef.current) {
+      setPromptTexto((atual) => atual + texto);
+      promptInputRef.current?.focus();
+      return;
+    }
+    const term = terminal.current;
+    if (!term) return;
+    term.paste(texto);
+    term.focus();
+  };
 
   const handleEnviarPrompt = async () => {
     const texto = promptTexto.trim();
@@ -156,11 +184,14 @@ export function Pane({
 
   // Close popovers on click-outside or Escape key
   useEffect(() => {
-    if (!menuPapelAberto && !detalhesAberto) return;
+    if (!menuPapelAberto && !detalhesAberto && !menuClip) return;
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
       if (menuPapelAberto && !target?.closest(".pane-role-container")) {
         setMenuPapelAberto(false);
+      }
+      if (menuClip && !target?.closest(".pane-clip-menu")) {
+        setMenuClip(null);
       }
       if (detalhesAberto && detailsRef.current && !detailsRef.current.contains(target)) {
         detailsRef.current.removeAttribute("open");
@@ -170,6 +201,7 @@ export function Pane({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setMenuPapelAberto(false);
+        setMenuClip(null);
         if (detailsRef.current) {
           detailsRef.current.removeAttribute("open");
           setDetalhesAberto(false);
@@ -182,7 +214,7 @@ export function Pane({
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [menuPapelAberto, detalhesAberto]);
+  }, [menuPapelAberto, detalhesAberto, menuClip]);
 
   useEffect(() => {
     setTempLabel(label ?? spec?.label ?? pane.label);
@@ -249,21 +281,36 @@ export function Pane({
       const texto = ev.clipboardData?.getData("text/plain");
       if (!texto) return;
       ev.preventDefault();
-      term.paste(texto);
+      colarNoXtermRef.current(texto);
     };
     const aoMenu = (ev: MouseEvent) => {
       ev.preventDefault();
-      if (term.hasSelection()) {
-        void copiarTexto(term.getSelection());
-        return;
-      }
-      void navigator.clipboard.readText().then((texto) => {
-        if (texto) term.paste(texto);
-      }).catch(() => {});
+      ev.stopPropagation();
+      const temSelecao = term.hasSelection();
+      void colarTexto().then((texto) => {
+        if (texto) {
+          colarNoXtermRef.current(texto);
+          setMenuClip(null);
+          return;
+        }
+        setMenuClip({ x: ev.clientX, y: ev.clientY, temSelecao });
+      });
+    };
+    const aoMeio = (ev: MouseEvent) => {
+      if (ev.button !== 1) return;
+      ev.preventDefault();
+      void colarTexto().then((texto) => {
+        if (texto) colarNoXtermRef.current(texto);
+      });
+    };
+    const aoSelecao = () => {
+      if (term.hasSelection()) void copiarTexto(term.getSelection());
     };
     area.addEventListener("copy", aoCopiar);
     area.addEventListener("paste", aoColar);
-    area.addEventListener("contextmenu", aoMenu);
+    area.addEventListener("contextmenu", aoMenu, true);
+    area.addEventListener("auxclick", aoMeio);
+    term.onSelectionChange(aoSelecao);
 
     term.attachCustomWheelEventHandler((ev) => {
       ev.stopPropagation();
@@ -316,7 +363,8 @@ export function Pane({
       offOutput?.();
       area.removeEventListener("copy", aoCopiar);
       area.removeEventListener("paste", aoColar);
-      area.removeEventListener("contextmenu", aoMenu);
+      area.removeEventListener("contextmenu", aoMenu, true);
+      area.removeEventListener("auxclick", aoMeio);
       term.dispose();
       terminal.current = null;
       fitter.current = null;
@@ -333,6 +381,33 @@ export function Pane({
       };
     }
   }, [pane.cor]);
+
+  useEffect(() => {
+    const aoMudar = () => {
+      const ativo = document.fullscreenElement === caixa.current;
+      setTelaCheia(ativo);
+      requestAnimationFrame(() => fitter.current?.fit());
+    };
+    document.addEventListener("fullscreenchange", aoMudar);
+    return () => document.removeEventListener("fullscreenchange", aoMudar);
+  }, []);
+
+  useEffect(() => {
+    if (emFoco) return;
+    if (document.fullscreenElement === caixa.current) {
+      void document.exitFullscreen().catch(() => {});
+    }
+  }, [emFoco]);
+
+  const alternarTelaCheia = () => {
+    const el = caixa.current;
+    if (!el) return;
+    if (document.fullscreenElement === el) {
+      void document.exitFullscreen().catch(() => {});
+      return;
+    }
+    void el.requestFullscreen?.().catch(() => {});
+  };
 
   useEffect(() => {
     if (!visible || minimizado) return;
@@ -387,20 +462,35 @@ export function Pane({
   const roleId = pane.role || (pane.maestro ? "maestro" : pane.agent);
   const roleName = roleDefinitionFor(roleId).label;
 
-  const nome = label ?? spec?.label ?? pane.label;
+  const nome = nomeDoPainel(pane, todosPaineis.length ? todosPaineis : [pane], agentes);
 
   return (
     <section
-      className={`pane${selecionado ? " selecionado" : ""}${emFoco ? " em-foco" : ""}${
-        menuPapelAberto || detalhesAberto ? " popover-aberto" : ""
-      }`}
+      ref={caixa}
+      className={`pane${selecionado ? " selecionado" : ""}${emFoco ? " em-foco" : ""}${telaCheia ? " tela-cheia" : ""}${
+        menuPapelAberto || detalhesAberto || menuClip ? " popover-aberto" : ""
+      }${arrastando ? " arrastando" : ""}${alvoSoltar === "antes" ? " alvo-antes" : ""}${alvoSoltar === "depois" ? " alvo-depois" : ""}`}
+      onDragOver={(event) => {
+        if (!onArrastoSobre || emFoco) return;
+        event.preventDefault();
+        const box = event.currentTarget.getBoundingClientRect();
+        const dx = Math.abs(event.clientX - (box.left + box.width / 2));
+        const dy = Math.abs(event.clientY - (box.top + box.height / 2));
+        const apos = dx > dy ? event.clientX > box.left + box.width / 2 : event.clientY > box.top + box.height / 2;
+        onArrastoSobre(pane.paneId, apos);
+      }}
+      onDrop={(event) => {
+        if (!onArrastoSoltar || emFoco) return;
+        event.preventDefault();
+        onArrastoSoltar(pane.paneId);
+      }}
       hidden={!visible || minimizado}
       data-pane-id={pane.paneId}
       role={emFoco ? "dialog" : undefined}
       aria-modal={emFoco ? true : undefined}
       aria-label={`Terminal de ${nome}`}
       style={{
-        ["--pane" as string]: pane.cor,
+        ["--pane" as string]: corDoPainel(pane),
         ...(gridColumn ? { gridColumn } : {}),
       }}
     >
@@ -408,7 +498,23 @@ export function Pane({
         {/* Linha 1: identidade + ações — nunca compete com os badges. */}
         <div className="pane-head-top">
           <div className="pane-head-id">
-            <Mascote semente={pane.agent} cor={pane.cor} estado={pane.status} tamanho={22} />
+            {onArrastoInicio && !emFoco ? (
+              <span
+                className="arrasto-pega"
+                draggable
+                title="Arrastar para reordenar"
+                aria-label={`Arrastar ${nome}`}
+                onDragStart={(event) => {
+                  event.dataTransfer.setData("text/plain", `painel:${pane.paneId}`);
+                  event.dataTransfer.effectAllowed = "move";
+                  onArrastoInicio(pane.paneId);
+                }}
+                onDragEnd={() => onArrastoFim?.()}
+              >
+                <Icon name="grip" size={12} />
+              </span>
+            ) : null}
+            <Mascote semente={sementeDoPainel(pane)} cor={corDoPainel(pane)} estado={pane.status} tamanho={22} />
             {renomeando ? (
               <input
                 autoFocus
@@ -445,15 +551,31 @@ export function Pane({
 
           <div className="pane-head-actions">
             {emFoco && onVoltarFoco ? (
-              <button
-                type="button"
-                className="pane-focus-back-btn"
-                onClick={onVoltarFoco}
-                autoFocus
-              >
-                <Icon name="back" size={14} />
-                <span>Voltar</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="pane-focus-btn"
+                  title={telaCheia ? "Sair da tela cheia" : "Tela cheia"}
+                  aria-label={telaCheia ? "Sair da tela cheia" : "Abrir em tela cheia"}
+                  aria-pressed={telaCheia}
+                  onClick={alternarTelaCheia}
+                >
+                  <Icon name={telaCheia ? "compress" : "expand"} size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="pane-focus-back-btn"
+                  onClick={() => {
+                    if (document.fullscreenElement === caixa.current) {
+                      void document.exitFullscreen().catch(() => {});
+                    }
+                    onVoltarFoco();
+                  }}
+                >
+                  <Icon name="back" size={14} />
+                  <span>Voltar</span>
+                </button>
+              </>
             ) : onFocar ? (
               <button
                 type="button"
@@ -832,6 +954,39 @@ export function Pane({
             </button>
           </div>
           {promptErro && <div className="pane-dsh-prompt-error" role="alert">{promptErro}</div>}
+        </div>
+      )}
+
+      {menuClip && (
+        <div
+          className="pane-clip-menu"
+          role="menu"
+          style={{ top: menuClip.y, left: menuClip.x }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!menuClip.temSelecao}
+            onClick={() => {
+              const texto = terminal.current?.getSelection() ?? "";
+              if (texto) void copiarTexto(texto);
+              setMenuClip(null);
+            }}
+          >
+            Copiar
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              void colarTexto().then((texto) => {
+                if (texto) colarNoXtermRef.current(texto);
+                setMenuClip(null);
+              });
+            }}
+          >
+            Colar
+          </button>
         </div>
       )}
     </section>

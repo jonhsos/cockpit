@@ -30,17 +30,52 @@ export function detectLimit(raw: string): LimitSignal | null {
 
 export class Continuity {
   private root: string;
+  private pending = new Map<string, string[]>();
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
   constructor(root: string) { this.root = root; }
   path(mission: string) {
     if (!/^[a-zA-Z0-9_-]+$/.test(mission)) throw Error("missão inválida");
     return join(this.root, mission);
   }
   record(mission: string, pane: string, kind: string, text: string) {
-    const dir = this.path(mission);
-    mkdirSync(dir, { recursive: true });
-    appendFileSync(join(dir, "history.jsonl"), JSON.stringify({ at: Date.now(), pane, kind, text: stripVTControlCharacters(text) }) + "\n");
+    const line = JSON.stringify({ at: Date.now(), pane, kind, text: stripVTControlCharacters(text) }) + "\n";
+    if (kind !== "output") {
+      this.flush();
+      const dir = this.path(mission);
+      mkdirSync(dir, { recursive: true });
+      appendFileSync(join(dir, "history.jsonl"), line);
+      return;
+    }
+    const fila = this.pending.get(mission) ?? [];
+    fila.push(line);
+    this.pending.set(mission, fila);
+    const bytes = fila.reduce((n, item) => n + item.length, 0);
+    if (bytes >= 24_000) {
+      this.flush();
+      return;
+    }
+    if (!this.flushTimer) {
+      this.flushTimer = setTimeout(() => this.flush(), 80);
+      this.flushTimer.unref?.();
+    }
+  }
+  flush(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    if (this.pending.size === 0) return;
+    const lote = this.pending;
+    this.pending = new Map();
+    for (const [mission, linhas] of lote) {
+      if (linhas.length === 0) continue;
+      const dir = this.path(mission);
+      mkdirSync(dir, { recursive: true });
+      appendFileSync(join(dir, "history.jsonl"), linhas.join(""));
+    }
   }
   checkpoint(mission: string, text: string) {
+    this.flush();
     const dir = this.path(mission);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "checkpoint.md"), text, "utf8");
@@ -50,6 +85,7 @@ export class Continuity {
     return existsSync(file) ? readFileSync(file, "utf8") : "Ainda não há resumo estruturado. Consulte o histórico e os arquivos antes de continuar.";
   }
   handoff(mission: string, objective: string, panes: unknown): string {
+    this.flush();
     return [
       "Continuação de missão após troca de provedor. Não recomece o trabalho nem repita ações já executadas.",
       `Objetivo original: ${objective}`,

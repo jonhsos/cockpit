@@ -7,7 +7,7 @@ import {
 import { hasSignificantTerminalOutput } from "./terminal-activity.ts";
 
 export const DEFAULT_SPARKLINE_SLOTS = 40;
-export const DEFAULT_IDLE_TIMEOUT_MS = 2000;
+export const DEFAULT_IDLE_TIMEOUT_MS = 700;
 
 /**
  * Tracks activity metrics, byte counters, and idle intervals for a single pane.

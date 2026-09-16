@@ -1,11 +1,12 @@
-import { useState, useEffect, type CSSProperties } from "react";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { Pane } from "./Pane.tsx";
 import { Icon } from "./Icon.tsx";
 import { Mascote } from "./Mascote.tsx";
-import { nomeDoPainel } from "./rotulos.ts";
+import { corDoPainel, nomeDoPainel, sementeDoPainel } from "./rotulos.ts";
 import type { AgentSpec, Usage } from "./api.ts";
 import type { PaneState, Connection, Task } from "./tipos.ts";
 import { GRANULAR_STATUS_MAP, type GranularPaneStatus } from "./tipos.ts";
+import { chavePaineis, moverAntesOuDepois, useOrdem } from "./ordem.ts";
 
 export type Colunas = "auto" | "1" | "2" | "3";
 
@@ -71,6 +72,11 @@ export function PaneGrid({
     }
   });
   const [paneEmFoco, setPaneEmFoco] = useState<string | null>(null);
+  const [arrasto, setArrasto] = useState<{ id: string; sobre?: string; depois?: boolean } | null>(null);
+  const arrastoRef = useRef(arrasto);
+  arrastoRef.current = arrasto;
+  const idsDaMissao = panes.filter((p) => missionId !== null && p.missionId === missionId).map((p) => p.paneId);
+  const [ordemPaineis, setOrdemPaineis] = useOrdem(missionId ? chavePaineis(missionId) : null, idsDaMissao);
 
   useEffect(() => {
     const onResize = () => setLarguraJanela(window.innerWidth);
@@ -111,7 +117,10 @@ export function PaneGrid({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [paneEmFoco]);
 
-  const daMissao = panes.filter((p) => missionId !== null && p.missionId === missionId);
+  const daMissao = ordemPaineis
+    .map((id) => panes.find((p) => p.paneId === id))
+    .filter((p): p is PaneState => Boolean(p));
+  const panesNaOrdem = [...daMissao, ...panes.filter((p) => p.missionId !== missionId)];
   const ativos = daMissao.filter((p) => !minimizados.has(p.paneId));
   const naBandeja = daMissao.filter((p) => minimizados.has(p.paneId));
   // Nunca peça mais colunas do que painéis visíveis: senão sobra buraco preto
@@ -154,7 +163,7 @@ export function PaneGrid({
         hidden={!ativos.length}
         style={{ "--columns": `repeat(${n}, minmax(0, 1fr))` } as CSSProperties}
       >
-        {panes.map((p) => {
+        {panesNaOrdem.map((p) => {
           const naGrade = p.missionId === missionId && !minimizados.has(p.paneId);
           const indiceAtivo = naGrade ? ativos.findIndex((a) => a.paneId === p.paneId) : -1;
           // Última fileira incompleta: só o último painel estica e tapa o buraco.
@@ -193,6 +202,24 @@ export function PaneGrid({
               emFoco={paneEmFoco === p.paneId}
               onFocar={() => focar(p.paneId)}
               onVoltarFoco={voltarParaGrade}
+              arrastando={arrasto?.id === p.paneId}
+              alvoSoltar={arrasto?.sobre === p.paneId ? (arrasto.depois ? "depois" : "antes") : null}
+              onArrastoInicio={(id) => {
+                const proximo = { id };
+                arrastoRef.current = proximo;
+                setArrasto(proximo);
+              }}
+              onArrastoSobre={(id, depois) => setArrasto((atual) => {
+                const base = atual ?? arrastoRef.current;
+                return base ? { ...base, sobre: id, depois } : atual;
+              })}
+              onArrastoSoltar={(destino) => {
+                const atual = arrastoRef.current;
+                if (!atual) return;
+                setOrdemPaineis(moverAntesOuDepois(ordemPaineis, atual.id, destino, Boolean(atual.depois)));
+                setArrasto(null);
+              }}
+              onArrastoFim={() => setArrasto(null)}
               gridColumn={span > 1 ? `span ${span}` : undefined}
               layoutEpoch={`${n}:${ativosIds}`}
             />
@@ -224,12 +251,12 @@ export function PaneGrid({
                 key={p.paneId}
                 type="button"
                 className={`pane-chip${selectedId === p.paneId ? " selecionado" : ""}`}
-                style={{ ["--pane" as string]: p.cor }}
+                style={{ ["--pane" as string]: corDoPainel(p) }}
                 title={`${nome} · ${info.label} — clique para restaurar`}
                 aria-label={`Restaurar ${nome}`}
                 onClick={() => restaurar(p.paneId)}
               >
-                <Mascote semente={p.agent} cor={p.cor} estado={p.status} tamanho={18} />
+                <Mascote semente={sementeDoPainel(p)} cor={corDoPainel(p)} estado={p.status} tamanho={18} />
                 <span className="pane-chip-nome">{nome}</span>
                 <span className="pane-chip-dot" style={{ background: info.color }} />
                 <Icon name="expand" size={12} />

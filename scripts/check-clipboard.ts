@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { atalhoDeColar, atalhoDeCopiar } from "../web/clipboard.ts";
+import { atalhoDeColar, atalhoDeCopiar, colarTexto, copiarTexto } from "../web/clipboard.ts";
 
 function tecla(init: { key: string; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; altKey?: boolean }) {
   return { ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, ...init };
@@ -16,5 +16,8 @@ assert.equal(atalhoDeCopiar(tecla({ key: "c", ctrlKey: true, altKey: true })), f
 assert.equal(atalhoDeColar(tecla({ key: "v", ctrlKey: true, shiftKey: true })), true);
 assert.equal(atalhoDeColar(tecla({ key: "Insert", shiftKey: true })), true);
 assert.equal(atalhoDeColar(tecla({ key: "v", ctrlKey: true })), false);
+
+assert.equal(typeof copiarTexto, "function");
+assert.equal(typeof colarTexto, "function");
 
 console.log("PASS: check-clipboard.ts — atalhos de copiar e colar verificados.");

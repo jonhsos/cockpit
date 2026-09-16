@@ -109,6 +109,7 @@ try {
   assert.equal(await primeiroPainel.getAttribute('role'), 'dialog', 'o painel focado tem semantica de dialogo');
   assert.equal(await primeiroPainel.getAttribute('aria-modal'), 'true', 'o painel focado e modal');
   assert.equal(await page.locator('.pane-focus-backdrop').count(), 1, 'a camada escura aparece');
+  assert.equal(await primeiroPainel.getByRole('button', { name: /tela cheia/i }).count(), 1, 'o popup tem botão de tela cheia');
   assert.equal(await page.locator('.panes.tem-foco > .pane:not(.em-foco)').evaluateAll(els => els.every(el => getComputedStyle(el).visibility === 'hidden')), true, 'os outros paineis ficam fora da vista');
   const focoBounds = await primeiroPainel.boundingBox();
   assert.ok(focoBounds && Math.abs((focoBounds.x + focoBounds.width / 2) - 720) < 3, 'o painel focado fica centralizado na horizontal');

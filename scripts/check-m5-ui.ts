@@ -159,6 +159,10 @@ ok(
   lateralSrc.includes('"tarefas"') && lateralSrc.includes("tarefas?: ReactNode"),
   "Lateral possui a 3ª aba 'tarefas' e renderiza o slot de tarefas"
 );
+ok(
+  lateralSrc.includes("arrasto-pega") && lateralSrc.includes("moverAntesOuDepois"),
+  "Missões e agentes na lateral podem ser reordenados arrastando"
+);
 
 const quadroSrc = readFileSync(resolve("web/QuadroTarefas.tsx"), "utf8");
 ok(
@@ -271,11 +275,23 @@ ok(
   paneSrc.includes("menuPapelAberto") && paneSrc.includes("onReclassificarPapel"),
   "Pane suporta popover de reclassificação de papel em tempo de execução"
 );
+ok(
+  paneSrc.includes("alternarTelaCheia") && paneSrc.includes("requestFullscreen"),
+  "Popup de foco oferece um segundo maximizar para tela cheia"
+);
+ok(
+  paneSrc.includes("pane-clip-menu") && paneSrc.includes("colarTexto"),
+  "Clique direito no terminal cola (e oferece menu Copiar/Colar se a área estiver vazia)"
+);
 
 const appSrc = readFileSync(resolve("web/App.tsx"), "utf8");
 ok(
-  appSrc.includes("renomeandoAtiva") && appSrc.includes("renomearMissao"),
-  "App suporta renomeação inline da missão ativa no palco superior"
+  !appSrc.includes("stage-topbar") && lateralSrc.includes("mission-modo") && lateralSrc.includes("onMudarModo"),
+  "Nome, caneta e modo da missão ficam na lateral — o palco fica só com as janelas"
+);
+ok(
+  appSrc.includes("Fechar todas as janelas") && appSrc.includes('type: "kill"'),
+  "Menu permite fechar todas as janelas abertas com confirmação"
 );
 ok(
   appSrc.includes("paneParaEncerrar") && appSrc.includes("confirmacaoDestrutiva"),

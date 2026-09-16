@@ -120,6 +120,11 @@ function normalizedRoleId(value: string): string {
   return ROLE_ID_ALIASES[normalized] ?? normalized;
 }
 
+export function resolveRoleId(roleId: string, customRoles: RoleDefinition[] = []): string | undefined {
+  const normalized = normalizedRoleId(roleId);
+  return [...CANONICAL_ROLES, ...customRoles].find((role) => role.id === roleId || role.id === normalized)?.id;
+}
+
 export function roleDefinitionFor(
   roleId: string,
   customRoles: RoleDefinition[] = [],

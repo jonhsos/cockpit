@@ -43,3 +43,12 @@ export function atalhoDeColar(event: Tecla): boolean {
   if (ctrl && event.shiftKey && event.key.toLowerCase() === "v" && !event.altKey) return true;
   return false;
 }
+
+/** Lê texto da área de transferência. Falha silenciosa se o navegador negar permissão. */
+export async function colarTexto(): Promise<string> {
+  try {
+    return (await navigator.clipboard.readText()) || "";
+  } catch {
+    return "";
+  }
+}

@@ -8,9 +8,9 @@ import { execFile } from "node:child_process";
 import { config, backendDo, parseCliBackend, type AgentSpec } from "../config.ts";
 import { CASA } from "../state.ts";
 import { confiar } from "../confianca.ts";
-import { definirModelo } from "../agy.ts";
+import { definirModelo, materializarPerfilAgy } from "../agy.ts";
 import { resolverHarness, type Pedido } from "../harness.ts";
-import { promptInicialDoPapel, type RoleContractInput } from "../orchestration/roles.ts";
+import { identidadeVisualDoPapel, promptInicialDoPapel, roleContractFor, type RoleContractInput } from "../orchestration/roles.ts";
 import { pathComExecutaveisLocais, providerDisponivel, resolverExecutavel } from "../providers.ts";
 import { argsDaPonte, envDaPonte, pontede } from "../ponte.ts";
 import { dshApiDoCli, envDaDshApi } from "../providers/dsh-api.ts";
@@ -566,6 +566,9 @@ export class PtyManager {
       argv = resolvedLogin.args;
       const cliConfigEnv = config.clis[cliTarget]?.env ?? {};
       const accountEnv = expandEnvPaths({ ...cliConfigEnv, ...(allocatedAccount?.env ?? {}) });
+      if (familiaDo(cliTarget) === "agy") {
+        materializarPerfilAgy(accountEnv.HOME || accountEnv.JETSKI_APP_DATA_DIR);
+      }
       const currentPath = process.env.PATH ?? "";
       const pathWithBin = pathComExecutaveisLocais(currentPath);
       env = {
@@ -627,6 +630,15 @@ export class PtyManager {
       }
       assertExecutorDisponivel(bundle.cli, opts.backend);
       const spec: AgentSpec = { ...perfil, cli: bundle.cli, model: bundle.model, effort: bundle.effort };
+      const visualDoPapel = identidadeVisualDoPapel(opts.role, opts.roleDefinition);
+      if (visualDoPapel && visualDoPapel.id !== opts.agent) {
+        const contrato = roleContractFor(opts.role, opts.agent, opts.roleDefinition);
+        spec.papel = [`Você é o ${contrato.label.toUpperCase()}. ${contrato.description}`, spec.papel]
+          .filter((parte): parte is string => Boolean(parte?.trim()))
+          .join("\n\n");
+        spec.label = visualDoPapel.label;
+        spec.cor = visualDoPapel.cor;
+      }
       const promptInicial = promptInicialDoPapel({
         role: opts.role,
         agent: opts.agent,
@@ -755,7 +767,7 @@ export class PtyManager {
       argv = resolved.args;
       const rawCliEnv = { ...(config.clis[spec.cli]?.env ?? {}), ...(allocatedAccount?.env ?? {}) };
       const cliEnv = expandEnvPaths(rawCliEnv);
-      if (familia === "agy" && opts.missionId) {
+      if (familia === "agy") {
         const perfil =
           cliEnv.HOME ||
           cliEnv.JETSKI_APP_DATA_DIR ||
@@ -767,10 +779,13 @@ export class PtyManager {
           ? perfil.replace(/^~(?=$|\/)/, homedir()).replace(/^\$HOME(?=$|\/)/, homedir())
           : "";
         if (perfilResolvido) {
-          this.gravarMcpAgyNoPerfil(paneId, opts, spec, maestro, perfilResolvido);
+          materializarPerfilAgy(perfilResolvido);
           cliEnv.HOME = perfilResolvido;
           if (!cliEnv.JETSKI_APP_DATA_DIR) cliEnv.JETSKI_APP_DATA_DIR = perfilResolvido;
-        } else {
+          if (opts.missionId) {
+            this.gravarMcpAgyNoPerfil(paneId, opts, spec, maestro, perfilResolvido);
+          }
+        } else if (opts.missionId) {
           cliEnv.HOME = this.criarMcpAgyIsolado(paneId, opts, spec, maestro);
         }
       }
@@ -801,15 +816,18 @@ export class PtyManager {
       } as Record<string, string>;
     }
 
+    const visualDoPapel = !opts.loginArgs
+      ? identidadeVisualDoPapel(opts.role, opts.roleDefinition)
+      : undefined;
     const state: PaneState = {
       paneId,
       agent: opts.agent,
       label: opts.loginArgs
         ? (opts.label ?? `Login (${bundle.cli}): ${allocatedAccount?.label || allocatedAccount?.id || bundle.cli}`)
-        : isBash
-        ? (opts.agent === "shell" ? "Shell" : (opts.label ?? opts.agent))
-        : (opts.label ?? config.agents[opts.agent]?.label ?? opts.agent),
-      cor: isBash ? "#4ade80" : config.agents[opts.agent]?.cor ?? "#94a3b8",
+        : visualDoPapel?.label
+          ?? opts.label
+          ?? (isBash ? (opts.agent === "shell" ? "Shell" : opts.agent) : (config.agents[opts.agent]?.label ?? opts.agent)),
+      cor: isBash ? "#4ade80" : visualDoPapel?.cor ?? config.agents[opts.agent]?.cor ?? "#94a3b8",
       cli: isBash ? "bash" : bundle.cli,
       role: opts.role ?? (isBash ? "shell" : opts.agent),
       runner: opts.runner ?? (isBash ? "bash" : bundle.cli),

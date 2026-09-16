@@ -170,6 +170,13 @@ async function run() {
 
       const tokenFile = join(sessState.account.profileDir, "antigravity-oauth-token");
       ok(existsSync(tokenFile), "Arquivo antigravity-oauth-token criado no perfil");
+      const tokenNoAppData = join(
+        sessState.account.profileDir,
+        ".gemini",
+        "antigravity-cli",
+        "antigravity-oauth-token",
+      );
+      ok(existsSync(tokenNoAppData), "Token espelhado em $HOME/.gemini/antigravity-cli/ para o CLI");
       const tokenJson = JSON.parse(readFileSync(tokenFile, "utf8"));
       ok(tokenJson.auth_method === "consumer", "auth_method: consumer no token");
       ok(tokenJson.token?.access_token === TEST_SECRET_VALUES.oauthAccessToken, "access_token gravado com fidelidade");

@@ -19,6 +19,8 @@ const paths = {
   agent: "M8 4h8l4 5v9l-4 2H8l-4-2V9zM9 10v3m6-3v3M9 16h6M12 4V2",
   minimize: "M5 12h14",
   expand: "M8 3H5v3M16 3h3v3M8 21H5v-3M16 21h3v-3",
+  compress: "M5 8h3V5M16 5v3h3M5 16h3v3M19 16h-3v3",
+  grip: "M9 5v14M15 5v14",
   panel: "M4 4h16v16H4zM10 4v16",
 };
 

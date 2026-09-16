@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { accountPool } from "./account-pool.ts";
 import { config, type ContaPoolSpec } from "../config.ts";
+import { materializarPerfilAgy } from "./agy.ts";
 
 /**
  * Credenciais OAuth do Antigravity (installed app).
@@ -677,6 +678,7 @@ export class AgyOnboardingService {
           encoding: "utf8",
           mode: 0o600,
         });
+        materializarPerfilAgy(profileDir);
 
         const home = homedir();
         const envDir = profileDir.startsWith(home) ? profileDir.replace(home, "~") : profileDir;

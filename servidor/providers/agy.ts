@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { resolverExecutavel } from "./providers.ts";
@@ -12,6 +12,38 @@ import { resolverExecutavel } from "./providers.ts";
  */
 
 const SETTINGS = join(homedir(), ".gemini", "antigravity-cli", "settings.json");
+const TOKEN_FILE = "antigravity-oauth-token";
+const SETTINGS_FILE = "settings.json";
+
+/** Onde o `agy` lê token e settings quando HOME aponta para o perfil isolado. */
+export function appDataDirDoAgy(profileDir: string): string {
+  return join(profileDir, ".gemini", "antigravity-cli");
+}
+
+/**
+ * O onboarding grava o OAuth na raiz do perfil. Com HOME=perfil o CLI procura
+ * em `$HOME/.gemini/antigravity-cli/`. Sem este espelho o painel abre pedindo
+ * login mesmo com a conta autenticada em Ajustes.
+ */
+export function materializarPerfilAgy(profileDir: string | undefined): void {
+  if (!profileDir) return;
+  const appData = appDataDirDoAgy(profileDir);
+  try {
+    mkdirSync(appData, { recursive: true });
+  } catch {
+    return;
+  }
+  for (const nome of [TOKEN_FILE, SETTINGS_FILE]) {
+    const origem = join(profileDir, nome);
+    const destino = join(appData, nome);
+    if (!existsSync(origem) || existsSync(destino)) continue;
+    try {
+      copyFileSync(origem, destino);
+    } catch {
+      // perfil inacessível: o spawn segue; o CLI vai pedir login
+    }
+  }
+}
 
 let mapa: Map<string, string> | null = null;
 
@@ -77,7 +109,7 @@ function resolverCaminhosSettings(targetHome?: string): string[] {
 
 export function definirModelo(modelId: string | undefined, targetHome?: string): void {
   if (!modelId) return;
-  const nome = carregarModelos().get(modelId) ?? MODELOS_PADRAO[modelId] ?? modelId;
+  const nome = MODELOS_PADRAO[modelId] ?? mapa?.get(modelId) ?? modelId;
   if (!nome) return;
 
   const caminhos = resolverCaminhosSettings(targetHome);

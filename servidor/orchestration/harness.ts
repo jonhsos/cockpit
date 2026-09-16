@@ -37,6 +37,8 @@ export type Pedido = {
   runner?: string;
   /** Role/papel funcional explícito. */
   role?: string;
+  /** Nome visível do painel (o papel, não o perfil de execução). */
+  label?: string;
   /** Contrato temporário de papel criado na interface. */
   roleDefinition?: RoleContractInput;
   /** Backend explícito (pty ou dsh). */

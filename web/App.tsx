@@ -110,6 +110,7 @@ export function App() {
   const [confirmacaoDestrutiva, setConfirmacaoDestrutiva] = useState<{
     titulo: string;
     mensagem: string;
+    confirmar?: string;
     onConfirmar: () => void;
   } | null>(null);
 
@@ -417,7 +418,7 @@ export function App() {
         await recarregarMissoes(projectId);
         return;
       }
-      // Escalonado: quatro CLIs subindo juntos brigam por CPU.
+      // Um fôlego curto evita pico de CPU; 300ms não deixa o segundo agente esperar 2s.
       plano.agentes.forEach((agent, i) => {
         const papel = plano.papeis[i] ?? "builder";
         setTimeout(
@@ -427,11 +428,12 @@ export function App() {
             missionId: m.id,
             tipo: plano.tipo || undefined,
             role: papel,
+            label: roleDefinitionFor(papel).label,
             runner: plano.runners[i] || undefined,
             cli: plano.runners[i] || undefined,
             maestro: papel === "maestro",
           }),
-          i * 1800,
+          i * 300,
         );
       });
     });
@@ -594,6 +596,25 @@ export function App() {
           onNovaMissao={() => setCriandoMissao(true)}
           onAddAgente={(id) => trocar(() => { setActiveId(id); abrirEscolhaAgente(); })}
           onRenomearMissao={(id, nome) => guarded(async () => { await renomearMissao(id, nome); await recarregarMissoes(projectId); })}
+          onMudarModo={(id, modo) => guarded(async () => { await mudarModo(id, modo); await recarregarMissoes(projectId); })}
+          busy={busy}
+          onFecharJanelas={(alvo) => {
+            const alvos = alvo === "todas" ? panes : panes.filter((p) => p.missionId === alvo);
+            if (!alvos.length) return;
+            const onde = alvo === "todas"
+              ? "neste projeto"
+              : `na missão ${missions.find((m) => m.id === alvo)?.nome ?? ""}`.trim();
+            setConfirmacaoDestrutiva({
+              titulo: "Fechar todas as janelas",
+              mensagem: alvos.length === 1
+                ? `Encerrar o painel aberto ${onde}? O processo em execução será encerrado.`
+                : `Encerrar os ${alvos.length} painéis abertos ${onde}? Os processos em execução serão encerrados.`,
+              confirmar: alvos.length === 1 ? "Encerrar painel" : "Encerrar todas",
+              onConfirmar: () => {
+                for (const p of alvos) send({ type: "kill", paneId: p.paneId });
+              },
+            });
+          }}
           aberta={lateralAberta}
           onFechar={() => setLateralAberta(false)}
           recolhida={lateralRecolhida}
@@ -612,92 +633,6 @@ export function App() {
           {/* No celular a lateral é gaveta e precisa de uma porta. No desktop
               ela está sempre aberta, e este botão não existe. */}
           <button className="icon-btn abrir-lateral" aria-label="Abrir lateral" onClick={() => setLateralAberta(true)}><Icon name="grid" size={17} /></button>
-
-          {active && (
-            <div className="stage-topbar">
-              <div className="stage-mission-info">
-                {renomeandoAtiva ? (
-                  <form
-                    className="mission-rename-inline"
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      const nome = novoNomeMissao.trim();
-                      if (nome) {
-                        await renomearMissao(active.id, nome);
-                        await recarregarMissoes(projectId);
-                        setRenomeandoAtiva(false);
-                      }
-                    }}
-                  >
-                    <input
-                      autoFocus
-                      className="campo mini"
-                      value={novoNomeMissao}
-                      onChange={(e) => setNovoNomeMissao(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") setRenomeandoAtiva(false);
-                      }}
-                      onBlur={async () => {
-                        const nome = novoNomeMissao.trim();
-                        if (nome && nome !== active.nome) {
-                          await renomearMissao(active.id, nome);
-                          await recarregarMissoes(projectId);
-                        }
-                        setRenomeandoAtiva(false);
-                      }}
-                    />
-                  </form>
-                ) : (
-                  <span
-                    className="stage-mission-title"
-                    title={`Missão: ${active.nome} (clique para renomear)`}
-                    onClick={() => {
-                      setNovoNomeMissao(active.nome);
-                      setRenomeandoAtiva(true);
-                    }}
-                  >
-                    <b className="stage-mission-nome-texto">{active.nome}</b> <span className="edit-icon-hint">✏️</span>
-                  </span>
-                )}
-                {active.branch && <span className="stage-mission-badge branch" title={`Branch: ${active.branch}`}>{active.branch}</span>}
-                <select
-                  className="stage-mission-badge mode stage-mode-select"
-                  value={active.modo ?? "livre"}
-                  title="Alterar modo de execução da missão"
-                  disabled={busy}
-                  onChange={(e) => {
-                    const novo = e.target.value;
-                    guarded(async () => {
-                      await mudarModo(active.id, novo);
-                      await recarregarMissoes(projectId);
-                    });
-                  }}
-                >
-                  <option value="livre">LIVRE</option>
-                  <option value="dirigido">DIRIGIDO</option>
-                  <option value="autonomo">AUTÔNOMO</option>
-                </select>
-              </div>
-              <div className="stage-topbar-actions">
-                <button
-                  type="button"
-                  className="btn mini"
-                  onClick={() => setVerMissao(true)}
-                  title="Ver detalhes da missão"
-                >
-                  Detalhes
-                </button>
-                <button
-                  type="button"
-                  className="btn mini solid"
-                  onClick={abrirEscolhaAgente}
-                  title="Adicionar agente ou terminal limpo"
-                >
-                  <Icon name="plus" size={12} /> Adicionar
-                </button>
-              </div>
-            </div>
-          )}
 
           {verMissao && active && <Modal title="Detalhes da missão" onClose={() => setVerMissao(false)}>
             <section className="mission-details">
@@ -834,6 +769,7 @@ export function App() {
                       effort: params.effort || undefined,
                       tarefa: params.tarefa,
                       role: params.role,
+                      label: params.label || role.label,
                       roleDefinition: params.roleDefinition,
                       runner: params.runner,
                       maestro: params.role === "maestro",
@@ -1266,7 +1202,7 @@ export function App() {
                       setConfirmacaoDestrutiva(null);
                     }}
                   >
-                    Confirmar Ação
+                    {confirmacaoDestrutiva.confirmar ?? "Confirmar Ação"}
                   </button>
                 </footer>
               </div>

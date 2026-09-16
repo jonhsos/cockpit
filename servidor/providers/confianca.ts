@@ -145,8 +145,13 @@ function confiarCodex(pasta: string): void {
   }
 }
 
+const jaConfiou = new Set<string>();
+
 export function confiar(cli: string, pasta: string): void {
+  const chave = `${cli}:${pasta}`;
+  if (jaConfiou.has(chave)) return;
   if (cli === "claude") confiarClaude(pasta);
   else if (cli === "agy") confiarAgy(pasta);
   else if (cli === "codex") confiarCodex(pasta);
+  jaConfiou.add(chave);
 }

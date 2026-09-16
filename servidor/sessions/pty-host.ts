@@ -138,6 +138,8 @@ interface HostPaneEntry {
   state: PaneState;
   ringBuffer: RingBuffer;
   tracker: PaneActivityTracker;
+  pendingOut: string;
+  flushTimer: ReturnType<typeof setTimeout> | null;
 }
 
 export class PtyHost {
@@ -312,6 +314,16 @@ export class PtyHost {
 
       const ringBuffer = new RingBuffer(DEFAULT_RING_BUFFER_CAPACITY);
       const tracker = new PaneActivityTracker(paneId, DEFAULT_SPARKLINE_SLOTS);
+      const flushOut = (target: HostPaneEntry) => {
+        if (target.flushTimer) {
+          clearTimeout(target.flushTimer);
+          target.flushTimer = null;
+        }
+        if (!target.pendingOut) return;
+        const data = target.pendingOut;
+        target.pendingOut = "";
+        this.broadcast({ type: "output", paneId: target.paneId, data });
+      };
 
       const state: PaneState = {
         paneId,
@@ -343,18 +355,35 @@ export class PtyHost {
         atividade: PaneActivityTracker.createInitialSparkline(DEFAULT_SPARKLINE_SLOTS),
       };
 
-      const entry: HostPaneEntry = { paneId, pty, state, ringBuffer, tracker };
+      const entry: HostPaneEntry = { paneId, pty, state, ringBuffer, tracker, pendingOut: "", flushTimer: null };
       this.entries.set(paneId, entry);
 
       // Listen to PTY data
       pty.onData((data: string) => {
         ringBuffer.write(data);
         tracker.recordOutput(data, state);
-        this.broadcast({ type: "output", paneId, data });
+        const live = this.entries.get(paneId);
+        if (!live) {
+          this.broadcast({ type: "output", paneId, data });
+          return;
+        }
+        live.pendingOut += data;
+        if (live.pendingOut.length >= 8192) {
+          flushOut(live);
+          return;
+        }
+        if (!live.flushTimer) {
+          live.flushTimer = setTimeout(() => {
+            const atual = this.entries.get(paneId);
+            if (atual) flushOut(atual);
+          }, 8);
+        }
       });
 
       // Listen to PTY exit
       pty.onExit(({ exitCode }) => {
+        const live = this.entries.get(paneId);
+        if (live) flushOut(live);
         const finalStatus = exitCode === 0 ? "dead" : "failed";
         state.connected = false;
         try {
@@ -417,6 +446,14 @@ export class PtyHost {
     }
 
     try {
+      if (entry.flushTimer) {
+        clearTimeout(entry.flushTimer);
+        entry.flushTimer = null;
+      }
+      if (entry.pendingOut) {
+        this.broadcast({ type: "output", paneId, data: entry.pendingOut });
+        entry.pendingOut = "";
+      }
       if (process.platform === "win32") {
         execFile("taskkill", ["/pid", String(entry.pty.pid), "/T", "/F"], () => {});
       } else {

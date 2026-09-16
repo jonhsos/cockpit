@@ -40,8 +40,11 @@ export class SecretRegistry {
 /**
  * Sanitize a single string in-memory
  */
+const CHEIRA_SEGREDO = /sk-|AIza|[Bb]earer|api[_-]?key|secret|password|access[_-]?token|auth[_-]?token/i;
+
 export function sanitize(text: string): string {
   if (!text || typeof text !== "string") return text;
+  if (!CHEIRA_SEGREDO.test(text) && SecretRegistry.getAll().size === 0) return text;
 
   let sanitized = text;
 

@@ -38,7 +38,7 @@ function tarefaPara(agent: string, brief: string, fase: string): string {
 /**
  * Sobe o primeiro agente na hora e escalona os demais. O espaçamento existe
  * por dois motivos: a Antigravity guarda o modelo escolhido num arquivo só, e
- * quatro CLIs subindo no mesmo instante brigam por CPU. Os painéis atrasados
+ * quatro CLIs no mesmo instante brigam por CPU — 400ms basta para abrir a fila. Os painéis atrasados
  * chegam ao navegador pelo evento "spawned", como qualquer outro.
  */
 function dispararFase(
@@ -59,7 +59,7 @@ function dispararFase(
           console.error("[cockpit] falhou ao subir", agent, err);
         }
       },
-      (i + 1) * 2000,
+      (i + 1) * 400,
     );
   });
 
