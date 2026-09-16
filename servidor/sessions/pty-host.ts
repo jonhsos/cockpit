@@ -349,7 +349,7 @@ export class PtyHost {
       // Listen to PTY data
       pty.onData((data: string) => {
         ringBuffer.write(data);
-        tracker.recordOutput(data.length, state);
+        tracker.recordOutput(data, state);
         this.broadcast({ type: "output", paneId, data });
       });
 

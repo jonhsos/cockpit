@@ -542,6 +542,7 @@ summary::-webkit-details-marker { display: none; }
 }
 /* Catálogo: cabeçalho e ações fixos; só a grade rola — assim a listagem
    não some quando o modal fica baixo. */
+.modal-window > .agent-picker-panel,
 .agent-picker-panel {
   display: flex;
   flex-direction: column;
@@ -557,7 +558,9 @@ summary::-webkit-details-marker { display: none; }
 .agent-picker-panel > .role-catalog-wizard {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .mission-objective { margin: 0; line-height: 1.65; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 .detail-list { margin: 0; }
@@ -1371,8 +1374,13 @@ select.stage-mode-select:hover { border-color: #58a6ff; }
   .agent-picker-panel {
     padding: 12px 14px 10px;
     gap: 10px;
-    max-height: none;
+    max-height: 100%;
     overflow: hidden;
+  }
+  .agent-picker-panel > .role-catalog-wizard {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;
   }
   .panel-heading h2 { font-size: 17px; }
   .panel-heading p { margin: 4px 0 0; font-size: 12px; }

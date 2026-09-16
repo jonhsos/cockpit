@@ -232,5 +232,19 @@ assert.equal(isPaneActive(state5.status), false);
 
 console.log("  ✓ PaneActivityTracker byte metrics, sparkline sliding, and idle transitions verified");
 
+console.log("  6. Verifying ANSI/keepalive output does not count as work...");
+const ansiTracker = new PaneActivityTracker("pane-ansi", DEFAULT_SPARKLINE_SLOTS, DEFAULT_IDLE_TIMEOUT_MS);
+const ansiState = createMockPaneState("waiting-user");
+ansiTracker.recordOutput("\x1b[>4;2m\x1b[?25l\x1b[0m", ansiState);
+assert.equal(ansiState.status, "waiting-user", "CSI keepalive must not mark pane working");
+assert.equal(ansiState.bytesOut > 0, true, "raw bytes still counted");
+const leftover = createMockPaneState("waiting-user");
+const leftoverTracker = new PaneActivityTracker("pane-da", DEFAULT_SPARKLINE_SLOTS, DEFAULT_IDLE_TIMEOUT_MS);
+leftoverTracker.recordOutput(">4;2m", leftover);
+assert.equal(leftover.status, "waiting-user", "DA leftover without ESC must not mark pane working");
+ansiTracker.recordOutput("Pronto no prompt\n", ansiState);
+assert.equal(ansiState.status, "working", "Visible agent text must mark pane working");
+console.log("  ✓ ANSI/keepalive ignored; visible text still counts as work");
+
 console.log("All check-pane-states.ts checks PASSED successfully!");
 process.exit(0);

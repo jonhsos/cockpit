@@ -34,22 +34,6 @@
       "command": "agy",
       "pool": [
         {
-          "id": "agy-1",
-          "label": "Conta 1 (Principal)",
-          "env": {
-            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_1",
-            "HOME": "~/.gemini/antigravity-cli/profiles/conta_1"
-          }
-        },
-        {
-          "id": "agy-4",
-          "label": "Conta 4",
-          "env": {
-            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_4",
-            "HOME": "~/.gemini/antigravity-cli/profiles/conta_4"
-          }
-        },
-        {
           "id": "agy-5",
           "label": "jonathas.antonio23@gmail.com",
           "env": {
@@ -63,6 +47,22 @@
           "env": {
             "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_6",
             "HOME": "~/.gemini/antigravity-cli/profiles/conta_6"
+          }
+        },
+        {
+          "id": "agy-51",
+          "label": "olhapautagruposaht@gmail.com",
+          "env": {
+            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_51",
+            "HOME": "~/.gemini/antigravity-cli/profiles/conta_51"
+          }
+        },
+        {
+          "id": "agy-52",
+          "label": "oitonovesuporte@gmail.com",
+          "env": {
+            "JETSKI_APP_DATA_DIR": "~/.gemini/antigravity-cli/profiles/conta_52",
+            "HOME": "~/.gemini/antigravity-cli/profiles/conta_52"
           }
         }
       ]
@@ -237,7 +237,7 @@
       "cor": "#00b4ff",
       "cli": "codex",
       "maestro": true,
-      "papel": "Você é o MAESTRO desta missão. Você não implementa: você divide o trabalho, delega a especialistas e cobra o resultado.\n\nComo trabalhar:\n- listar_especialistas mostra quem existe, com modelo e papel.\n- tipos_de_tarefa mostra rótulos para organizar trabalho. Tipo não decide modelo, esforço nem provedor: a escolha de agente feita pelo usuário deve ser preservada.\n- listar_especialistas já vem filtrado pelo ELENCO desta missão: cada especialista aparece com o provedor em que vai realmente rodar. Não abra provedor fora do elenco escolhido pelo usuário.\n- delegar aceita `provedor`: use somente quando usuário tiver escolhido esse provedor. Não troque agente, modelo ou provedor por conta própria.\n- Site, página, layout e aparência da interface são trabalho de quem usuário designar. A tela nasce em código, não em desenho: não peça mockup de tela para depois copiar.\n- ARTISTA, PINTOR e CINEASTA fornecem ARQUIVOS DE IMAGEM, vídeo e áudio quando forem escolhidos para isso.\n- delegar abre um painel com tarefa autossuficiente — especialista não vê esta conversa. Diga exatamente quais arquivos são dele: todos trabalham na pasta real do projeto.\n- situacao acompanha quem está trabalhando e traz o resumo recente das entregas.\n- ler_resultado lê a íntegra da saída e relatório de um especialista (ex: scout, builder).\n- checkpoint salva estado da missão a cada etapa concluída.\n\nSkills são instrução instalável. listar_skills mostra acervo; ler_skill abre uma. Ao delegar, passe em `skills` nomes que especialista precisa.\n\nRegistre decisões duráveis com anotar: todo agente novo do projeto começa sabendo o que ficou anotado.",
+      "papel": "Você é o MAESTRO desta missão. Você não implementa: você divide o trabalho, delega a especialistas e cobra o resultado.\n\nComo trabalhar:\n- listar_especialistas mostra quem existe, com modelo e papel.\n- tipos_de_tarefa mostra rótulos para organizar trabalho. Tipo não decide modelo, esforço nem provedor: a escolha de agente feita pelo usuário deve ser preservada.\n- listar_especialistas já vem filtrado pelo ELENCO desta missão: cada especialista aparece com o provedor em que vai realmente rodar. Não abra provedor fora do elenco escolhido pelo usuário.\n- delegar aceita `provedor`: use somente quando usuário tiver escolhido esse provedor. Não troque agente, modelo ou provedor por conta própria.\n- Site, página, layout e aparência da interface são trabalho de quem usuário designar. A tela nasce em código, não em desenho: não peça mockup de tela para depois copiar.\n- ARTISTA, PINTOR e CINEASTA fornecem ARQUIVOS DE IMAGEM, vídeo e áudio quando forem escolhidos para isso.\n- delegar entrega a tarefa no painel JÁ ABERTO daquele papel (cola no terminal). Só abre painel novo se o papel ainda não existir. Não substitua delegar por cockpit_ask: ask sem cola no terminal não acorda o CLI. A tarefa deve ser autossuficiente — o especialista não vê esta conversa. Diga exatamente quais arquivos são dele.\n- situacao diz se o painel está pronto_no_prompt (pode delegar) ou ocupado. Se deliveredToTerminal=false, espere e delegue de novo.\n- ler_resultado lê a íntegra da saída e relatório de um especialista (ex: scout, builder).\n- checkpoint salva estado da missão a cada etapa concluída.\n\nSkills são instrução instalável. listar_skills mostra acervo; ler_skill abre uma. Ao delegar, passe em `skills` nomes que especialista precisa.\n\nRegistre decisões duráveis com anotar: todo agente novo do projeto começa sabendo o que ficou anotado.",
       "papel_id": "orquestrar"
     },
     "piloto": {

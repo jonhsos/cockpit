@@ -4,6 +4,7 @@ import {
   normalizePaneStatus,
   transitionPane,
 } from "./pane-state.ts";
+import { hasSignificantTerminalOutput } from "./terminal-activity.ts";
 
 export const DEFAULT_SPARKLINE_SLOTS = 40;
 export const DEFAULT_IDLE_TIMEOUT_MS = 2000;
@@ -46,24 +47,31 @@ export class PaneActivityTracker {
 
   /**
    * Records outgoing terminal stream bytes.
+   * ANSI / keepalive-only chunks update byte counters but do not count as work.
    */
-  public recordOutput(bytes: number, state?: PaneState): void {
+  public recordOutput(data: string | number, state?: PaneState): void {
     const now = Date.now();
-    this.lastData = now;
+    const bytes = typeof data === "number" ? data : data.length;
+    const significant = typeof data === "number" ? bytes > 0 : hasSignificantTerminalOutput(data);
+
     this.bytesOut += bytes;
-    this.acumulado += bytes;
+    if (significant) {
+      this.lastData = now;
+      this.acumulado += bytes;
+    }
 
     if (state) {
       state.bytesOut = this.bytesOut;
       state.atualizadoEm = now;
 
-      // When active bytes are streaming, transition starting or waiting-user into working
-      const currentNorm = normalizePaneStatus(state.status);
-      if (currentNorm === "starting" || currentNorm === "waiting-user") {
-        try {
-          transitionPane(state, "working");
-        } catch {
-          // Best effort if in restricted state
+      if (significant) {
+        const currentNorm = normalizePaneStatus(state.status);
+        if (currentNorm === "starting" || currentNorm === "waiting-user") {
+          try {
+            transitionPane(state, "working");
+          } catch {
+            // Best effort if in restricted state
+          }
         }
       }
     }
@@ -102,7 +110,7 @@ export class PaneActivityTracker {
     const isIdle = now - this.lastData > this.idleTimeoutMs;
 
     // Automatic transition between working and waiting-user based on idle threshold
-    if (currentNorm === "working" && isIdle) {
+    if ((currentNorm === "working" || currentNorm === "starting") && isIdle) {
       try {
         transitionPane(state, "waiting-user");
       } catch {

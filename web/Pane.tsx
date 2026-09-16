@@ -15,6 +15,7 @@ import { Icon } from "./Icon.tsx";
 import { Mascote } from "./Mascote.tsx";
 import { nomeDoPainel } from "./rotulos.ts";
 import { roleDefinitionFor } from "./role-contract.ts";
+import { atalhoDeColar, atalhoDeCopiar, copiarTexto } from "./clipboard.ts";
 
 const BARRAS = 40;
 
@@ -195,6 +196,7 @@ export function Pane({
       cursorBlink: true,
       scrollback: 5000,
       allowProposedApi: true,
+      rightClickSelectsWord: false,
       smoothScrollDuration: 0,
       theme: {
         background: "#141414",
@@ -222,6 +224,47 @@ export function Pane({
     // Roda: não deixa a grade roubar o evento. No buffer normal o xterm
     // rola o scrollback. No alternativo (TUI): se há mouse tracking, o
     // xterm manda CSI; senão PageUp/PageDown ao PTY (setas corrompiam Grok).
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== "keydown") return true;
+      if (atalhoDeCopiar(ev)) {
+        if (!term.hasSelection()) return true;
+        void copiarTexto(term.getSelection());
+        return false;
+      }
+      if (atalhoDeColar(ev)) {
+        void navigator.clipboard.readText().then((texto) => {
+          if (texto) term.paste(texto);
+        }).catch(() => {});
+        return false;
+      }
+      return true;
+    });
+
+    const aoCopiar = (ev: ClipboardEvent) => {
+      if (!term.hasSelection()) return;
+      ev.preventDefault();
+      ev.clipboardData?.setData("text/plain", term.getSelection());
+    };
+    const aoColar = (ev: ClipboardEvent) => {
+      const texto = ev.clipboardData?.getData("text/plain");
+      if (!texto) return;
+      ev.preventDefault();
+      term.paste(texto);
+    };
+    const aoMenu = (ev: MouseEvent) => {
+      ev.preventDefault();
+      if (term.hasSelection()) {
+        void copiarTexto(term.getSelection());
+        return;
+      }
+      void navigator.clipboard.readText().then((texto) => {
+        if (texto) term.paste(texto);
+      }).catch(() => {});
+    };
+    area.addEventListener("copy", aoCopiar);
+    area.addEventListener("paste", aoColar);
+    area.addEventListener("contextmenu", aoMenu);
+
     term.attachCustomWheelEventHandler((ev) => {
       ev.stopPropagation();
       if (term.buffer.active.type !== "alternate") return false;
@@ -271,6 +314,9 @@ export function Pane({
       cancelled = true;
       observer.disconnect();
       offOutput?.();
+      area.removeEventListener("copy", aoCopiar);
+      area.removeEventListener("paste", aoColar);
+      area.removeEventListener("contextmenu", aoMenu);
       term.dispose();
       terminal.current = null;
       fitter.current = null;

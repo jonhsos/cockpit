@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { atalhoDeCopiar, copiarTexto } from "./clipboard.ts";
 
 /**
  * Quem abriu cada camada. Uma superficie pode trocar por outra ("Detalhar
@@ -26,7 +27,16 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   }, []);
 
   return createPortal(
-    <dialog ref={ref} className="modal-window" aria-label={title} onCancel={(event) => {
+    <dialog ref={ref} className="modal-window" aria-label={title} onWheel={(event) => event.stopPropagation()} onKeyDown={(event) => {
+      if (!atalhoDeCopiar(event)) return;
+      const alvo = event.target;
+      if (alvo instanceof HTMLElement && alvo.closest("input, textarea, [contenteditable=true]")) return;
+      const texto = window.getSelection()?.toString();
+      if (!texto) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void copiarTexto(texto);
+    }} onCancel={(event) => {
       event.preventDefault();
       onClose();
     }}>

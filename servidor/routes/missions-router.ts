@@ -100,22 +100,41 @@ export function createMissionsRouter(ctx: RouterContext): Router {
             });
             if (!guard.allowed) throw Error(guard.reason);
           }
-          const existingIdle = ctx.paneDispatcher.findAvailablePane(mission.id, String(args.agente));
-          if (existingIdle) {
-            const task = ctx.taskManager.createTask(mission.id, {
-              título: String(args.tarefa ?? "").slice(0, 80),
-              descrição: String(args.tarefa ?? ""),
-              papel: String(args.agente),
-              status: "todo",
-            });
-            ctx.paneDispatcher.dispatchToExistingPane(mission.id, task.id, existingIdle.paneId);
-            ctx.trackDelegation?.(mission.id, existingIdle.paneId, existingIdle.label || String(args.agente));
+          const requestedAgent = String(args.agente);
+          const existing = ctx.paneDispatcher.findExistingPane(mission.id, requestedAgent);
+          if (existing?.connected && existing.status !== "dead" && existing.status !== "failed") {
+            if (existing.status === "starting") {
+              throw Error(`Painel ${existing.label} (${existing.paneId}) ainda está inicializando. Espere e chame delegar de novo — não abra outro painel.`);
+            }
+            if (existing.canAcceptTask) {
+              const task = ctx.taskManager.createTask(mission.id, {
+                título: String(args.tarefa ?? "").slice(0, 80),
+                descrição: String(args.tarefa ?? ""),
+                papel: requestedAgent,
+                status: "todo",
+              });
+              const dispatched = ctx.paneDispatcher.dispatchToExistingPane(mission.id, task.id, existing.paneId);
+              ctx.trackDelegation?.(mission.id, existing.paneId, existing.label || requestedAgent);
+              res.json({
+                paneId: existing.paneId,
+                label: existing.label,
+                cli: existing.runner,
+                dispatchedToExisting: true,
+                taskId: task.id,
+                deliveredToTerminal: dispatched.deliveredToTerminal === true,
+              });
+              break;
+            }
+            const queued = ctx.bridge.ask("maestro", existing.paneId, String(args.tarefa ?? ""), undefined, mission.id);
             res.json({
-              paneId: existingIdle.paneId,
-              label: existingIdle.label,
-              cli: existingIdle.runner,
+              paneId: existing.paneId,
+              label: existing.label,
+              cli: existing.runner,
               dispatchedToExisting: true,
-              taskId: task.id,
+              queued: true,
+              deliveredToTerminal: false,
+              result: queued,
+              reason: `Painel ocupado${existing.activeTaskId ? ` com ${existing.activeTaskId}` : ""}. Tarefa foi para a inbox e NÃO foi colada no terminal. Chame delegar de novo quando situacao mostrar parado.`,
             });
             break;
           }
@@ -139,7 +158,7 @@ export function createMissionsRouter(ctx: RouterContext): Router {
           res.json(ctx.bridge.connect(String(args.origem), String(args.destino), mission.id));
           break;
         case "cockpit_ask":
-          res.json(ctx.bridge.ask(String(args.from ?? "maestro"), String(args.destino), String(args.tarefa), args.taskId ? String(args.taskId) : undefined, mission.id));
+          res.json(ctx.bridge.ask(String(args.from ?? "maestro"), String(args.destino), String(args.tarefa), args.taskId ? String(args.taskId) : undefined, mission.id, { force: Boolean(args.force) }));
           break;
         case "cockpit_reply":
           res.json(ctx.bridge.reply(String(args.from ?? "maestro"), String(args.destino), String(args.correlationId), String(args.resultado), Array.isArray(args.evidence) ? args.evidence : [], mission.id));
@@ -148,7 +167,7 @@ export function createMissionsRouter(ctx: RouterContext): Router {
           res.json(ctx.bridge.handoff(String(args.origem), String(args.destino), String(args.taskId), args.contexto ? String(args.contexto) : undefined, Boolean(args.force), mission.id));
           break;
         case "cockpit_inbox":
-          res.json(ctx.mailboxManager.getInbox(String(args.paneId ?? "maestro"), mission.id, args.naoLidas ? true : false));
+          res.json(ctx.bridge.inbox(String(args.paneId ?? args.painel ?? "maestro"), mission.id, Boolean(args.naoLidas)));
           break;
         default:
           throw Error("Ferramenta desconhecida.");
@@ -345,25 +364,43 @@ export function createMissionsRouter(ctx: RouterContext): Router {
         if (!guard.allowed) throw Error(guard.reason);
       }
 
-      // Check if idle existing pane matches
       const requestedAgent = String(req.body.agent ?? "");
-      const existingIdle = ctx.paneDispatcher.findAvailablePane(missionId, requestedAgent);
-      if (existingIdle) {
-        const task = ctx.taskManager.createTask(missionId, {
-          título: String(req.body.tarefa ?? "").slice(0, 80),
-          descrição: String(req.body.tarefa ?? ""),
-          papel: requestedAgent,
-          status: "todo",
-        });
-        ctx.paneDispatcher.dispatchToExistingPane(missionId, task.id, existingIdle.paneId);
-        ctx.trackDelegation?.(missionId, existingIdle.paneId, existingIdle.label || requestedAgent);
+      const existing = ctx.paneDispatcher.findExistingPane(missionId, requestedAgent);
+      if (existing?.connected && existing.status !== "dead" && existing.status !== "failed") {
+        if (existing.status === "starting") {
+          throw new Error(`Painel ${existing.label} (${existing.paneId}) ainda está inicializando. Espere e chame delegar de novo — não abra outro painel.`);
+        }
+        if (existing.canAcceptTask) {
+          const task = ctx.taskManager.createTask(missionId, {
+            título: String(req.body.tarefa ?? "").slice(0, 80),
+            descrição: String(req.body.tarefa ?? ""),
+            papel: requestedAgent,
+            status: "todo",
+          });
+          const dispatched = ctx.paneDispatcher.dispatchToExistingPane(missionId, task.id, existing.paneId);
+          ctx.trackDelegation?.(missionId, existing.paneId, existing.label || requestedAgent);
+          res.json({
+            paneId: existing.paneId,
+            label: existing.label,
+            cli: existing.runner,
+            dispatchedToExisting: true,
+            taskId: task.id,
+            deliveredToTerminal: dispatched.deliveredToTerminal === true,
+            skills: [],
+          });
+          return;
+        }
+        const queued = ctx.bridge.ask("maestro", existing.paneId, String(req.body.tarefa ?? ""), undefined, missionId);
         res.json({
-          paneId: existingIdle.paneId,
-          label: existingIdle.label,
-          cli: existingIdle.runner,
+          paneId: existing.paneId,
+          label: existing.label,
+          cli: existing.runner,
           dispatchedToExisting: true,
-          taskId: task.id,
+          queued: true,
+          deliveredToTerminal: false,
+          result: queued,
           skills: [],
+          reason: `Painel ocupado${existing.activeTaskId ? ` com ${existing.activeTaskId}` : ""}. Tarefa foi para a inbox e NÃO foi colada no terminal. Chame delegar de novo quando situacao mostrar parado.`,
         });
         return;
       }

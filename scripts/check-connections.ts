@@ -89,9 +89,13 @@ try {
     ],
   ]);
 
+  const writtenInputs: { id: string; data: string }[] = [];
   const paneProvider = {
     getPane: (id: string) => panes.get(id),
     listPanes: () => Array.from(panes.values()),
+    writePane: (id: string, data: string) => {
+      writtenInputs.push({ id, data });
+    },
   };
 
   const handoffManager = new HandoffManager(
@@ -158,6 +162,7 @@ try {
   };
 
   // Asking pane-bash
+  const writesBeforeBash = writtenInputs.length;
   const askResult = bridge.ask("pane-1", "pane-bash", "echo hello world", undefined, "m1");
   assert("id" in askResult);
   assert.equal(askResult.type, "ask");
@@ -167,6 +172,18 @@ try {
 
   // VERIFY: ZERO stdin bytes written to bash PTY!
   assert.equal(stdinBytesWritten, 0, "cockpit ask must NEVER write to bash stdin!");
+  assert.equal(writtenInputs.length, writesBeforeBash, "cockpit ask must NEVER write to bash stdin via writePane");
+
+  const specialistAsk = bridge.ask("maestro", "builder", "Implement auth", undefined, "m1");
+  assert("id" in specialistAsk);
+  assert.equal(specialistAsk.to, "pane-1");
+  assert.equal("deliveredToTerminal" in specialistAsk && specialistAsk.deliveredToTerminal, true);
+  assert.equal(writtenInputs.at(-1)?.id, "pane-1");
+  assert.match(writtenInputs.at(-1)?.data ?? "", /\x1b\[200~Implement auth/);
+  const byLabel = bridge.inbox("Builder", "m1");
+  assert.equal(byLabel.some((m) => m.task === "Implement auth"), true);
+
+  assert.throws(() => bridge.ask("pane-1", "pane-1", "loop", undefined, "m1"), /próprio painel/);
 
   // Empty task text must be rejected
   assert.throws(() => bridge.ask("pane-1", "pane-2", "   ", undefined, "m1"), /empty or whitespace/);

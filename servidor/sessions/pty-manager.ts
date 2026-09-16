@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFile } from "node:child_process";
@@ -18,6 +18,7 @@ import { getDefaultPaneStore } from "../persistence/index.ts";
 import { accountPool } from "../providers/account-pool.ts";
 import { getDshManager } from "./dsh-backend/dsh-manager.ts";
 import { checkDshAvailability } from "./dsh-backend/dsh-availability.ts";
+import { hasSignificantTerminalOutput } from "./terminal-activity.ts";
 
 function assertExecutorDisponivel(cli: string, backendOverride?: string): void {
   const backend = backendOverride ? parseCliBackend(backendOverride) : backendDo(cli);
@@ -210,6 +211,18 @@ export class PtyManager {
   /** Reaps DSH iniciados por killPty síncrono — flushDshKills() espera todos. */
   private pendingDshKills: Promise<void>[] = [];
   private agyMcpHomes = new Map<string, string>();
+  private grokMcpHomes = new Map<string, string>();
+
+  private mcpEnv(paneId: string, opts: SpawnOpts, agent: AgentSpec, maestro: boolean): Record<string, string> {
+    return {
+      COCKPIT_PORT: String(opts.porta),
+      COCKPIT_MISSION: opts.missionId ?? "",
+      COCKPIT_PROJECT: opts.projectId ?? "",
+      COCKPIT_AGENT: agent.label,
+      COCKPIT_PANE: paneId,
+      COCKPIT_MAESTRO: maestro ? "1" : "0",
+    };
+  }
 
   constructor(socketPath: string = getDefaultSocketPath()) {
     this.client = new PtyClient(socketPath);
@@ -247,14 +260,18 @@ export class PtyManager {
       const entry = this.ptys.get(paneId);
       if (entry) {
         this.registrarRunnerManual(entry, data);
-        entry.lastData = Date.now();
-        entry.acumulado += data.length;
         entry.state.bytesOut += data.length;
-        if (normalizePaneStatus(entry.state.status) === "starting" || normalizePaneStatus(entry.state.status) === "waiting-user") {
-          try {
-            transitionPane(entry.state, "working");
-          } catch {
-            // Ignored
+        const significant = hasSignificantTerminalOutput(data);
+        if (significant) {
+          entry.lastData = Date.now();
+          entry.acumulado += data.length;
+          const norm = normalizePaneStatus(entry.state.status);
+          if (norm === "starting" || norm === "waiting-user") {
+            try {
+              transitionPane(entry.state, "working");
+            } catch {
+              // Ignored
+            }
           }
         }
         if (entry.onOutput) entry.onOutput(data);
@@ -411,9 +428,9 @@ export class PtyManager {
     }
   }
 
-  private criarMcpAgyIsolado(paneId: string, opts: SpawnOpts, agent: AgentSpec): string {
-    const home = mkdtempSync(join(tmpdir(), "cockpit-agy-maestro-"));
-    const caminho = join(home, ".gemini", "config", "mcp_config.json");
+  /** Grava o MCP no perfil da conta. Não inventa HOME vazio — o token OAuth mora no HOME do perfil. */
+  private gravarMcpAgyNoPerfil(paneId: string, opts: SpawnOpts, agent: AgentSpec, maestro: boolean, profileDir: string): void {
+    const caminho = join(profileDir, ".gemini", "config", "mcp_config.json");
     mkdirSync(dirname(caminho), { recursive: true });
     writeFileSync(
       caminho,
@@ -423,12 +440,7 @@ export class PtyManager {
             cockpit: {
               command: process.execPath,
               args: [MCP_SCRIPT],
-              env: {
-                COCKPIT_PORT: String(opts.porta),
-                COCKPIT_MISSION: opts.missionId ?? "",
-                COCKPIT_PROJECT: opts.projectId ?? "",
-                COCKPIT_AGENT: agent.label,
-              },
+              env: this.mcpEnv(paneId, opts, agent, maestro),
             },
           },
         },
@@ -436,18 +448,51 @@ export class PtyManager {
         2,
       ),
     );
+  }
+
+  private criarMcpAgyIsolado(paneId: string, opts: SpawnOpts, agent: AgentSpec, maestro: boolean): string {
+    const home = mkdtempSync(join(tmpdir(), "cockpit-agy-mcp-"));
+    this.gravarMcpAgyNoPerfil(paneId, opts, agent, maestro, home);
     this.agyMcpHomes.set(paneId, home);
     return home;
   }
 
+  private criarMcpGrokIsolado(paneId: string, opts: SpawnOpts, agent: AgentSpec, maestro: boolean, realHome: string): string {
+    const home = mkdtempSync(join(tmpdir(), "cockpit-grok-mcp-"));
+    if (existsSync(realHome)) {
+      for (const nome of readdirSync(realHome)) {
+        if (nome === "config.toml") continue;
+        try {
+          symlinkSync(join(realHome, nome), join(home, nome));
+        } catch {
+          // Melhor pular um arquivo do que perder o MCP.
+        }
+      }
+    }
+    const original = existsSync(join(realHome, "config.toml"))
+      ? readFileSync(join(realHome, "config.toml"), "utf8")
+      : "";
+    const stripped = original.replace(/^\[mcp_servers\.cockpit\][\s\S]*?(?=^\[|\z)/gm, "").trimEnd();
+    const env = this.mcpEnv(paneId, opts, agent, maestro);
+    const envToml = Object.entries(env).map(([k, v]) => `${k} = ${JSON.stringify(v)}`).join(", ");
+    writeFileSync(
+      join(home, "config.toml"),
+      `${stripped}\n\n[mcp_servers.cockpit]\ncommand = ${JSON.stringify(process.execPath)}\nargs = ${JSON.stringify([MCP_SCRIPT])}\nenv = { ${envToml} }\nenabled = true\n`,
+    );
+    this.grokMcpHomes.set(paneId, home);
+    return home;
+  }
+
   private limparMcpAgy(paneId: string): void {
-    const home = this.agyMcpHomes.get(paneId);
-    if (!home) return;
-    this.agyMcpHomes.delete(paneId);
-    try {
-      rmSync(home, { recursive: true, force: true });
-    } catch {
-      // Best effort.
+    for (const map of [this.agyMcpHomes, this.grokMcpHomes]) {
+      const home = map.get(paneId);
+      if (!home) continue;
+      map.delete(paneId);
+      try {
+        rmSync(home, { recursive: true, force: true });
+      } catch {
+        // Best effort.
+      }
     }
   }
 
@@ -620,8 +665,8 @@ export class PtyManager {
         if (spec.model) args.push("--model", spec.model);
         if (spec.effort) args.push("--effort", spec.effort);
 
-        if (maestro && opts.missionId) {
-          const caminho = join(CASA, "mcp", `${opts.missionId}.json`);
+        if (opts.missionId) {
+          const caminho = join(CASA, "mcp", `${opts.missionId}-${paneId}.json`);
           mkdirSync(dirname(caminho), { recursive: true });
           writeFileSync(
             caminho,
@@ -630,12 +675,7 @@ export class PtyManager {
                 cockpit: {
                   command: process.execPath,
                   args: [MCP_SCRIPT],
-                  env: {
-                    COCKPIT_PORT: String(opts.porta),
-                    COCKPIT_MISSION: opts.missionId,
-                    COCKPIT_PROJECT: opts.projectId ?? "",
-                    COCKPIT_AGENT: spec.label,
-                  },
+                  env: this.mcpEnv(paneId, opts, spec, maestro),
                 },
               },
             }),
@@ -682,15 +722,10 @@ export class PtyManager {
         }
         if (spec.model) args.push("--model", spec.model);
         if (spec.effort) args.push("-c", `model_reasoning_effort=${JSON.stringify(spec.effort)}`);
-        if (maestro && opts.missionId) {
+        if (opts.missionId) {
           args.push("-c", `mcp_servers.cockpit.command=${JSON.stringify(process.execPath.replaceAll("\\", "/"))}`);
           args.push("-c", `mcp_servers.cockpit.args=${JSON.stringify([MCP_SCRIPT.replaceAll("\\", "/")])}`);
-          for (const [key, value] of Object.entries({
-            COCKPIT_PORT: String(opts.porta),
-            COCKPIT_MISSION: opts.missionId,
-            COCKPIT_PROJECT: opts.projectId ?? "",
-            COCKPIT_AGENT: spec.label,
-          })) {
+          for (const [key, value] of Object.entries(this.mcpEnv(paneId, opts, spec, maestro))) {
             args.push("-c", `mcp_servers.cockpit.env.${key}=${JSON.stringify(value)}`);
           }
         }
@@ -702,7 +737,11 @@ export class PtyManager {
         }
         if (spec.model) args.push("-m", spec.model);
         if (spec.effort) args.push("--reasoning-effort", spec.effort);
-        if (spec.papel) args.push("--rules", spec.papel);
+        const regras = [
+          spec.papel,
+          "Canal real: cockpit_list / cockpit_ask / cockpit_inbox. Se houver Maestro, reporte a ele; sem Maestro, fale com os colegas. Não simule conversa nem leia o código do Cockpit.",
+        ].filter((parte): parte is string => Boolean(parte?.trim()));
+        if (regras.length) args.push("--rules", regras.join("\n\n"));
       }
 
       const porArgumento = Boolean(promptInicial) && ["claude", "agy", "codex", "grok"].includes(familia);
@@ -716,18 +755,33 @@ export class PtyManager {
       argv = resolved.args;
       const rawCliEnv = { ...(config.clis[spec.cli]?.env ?? {}), ...(allocatedAccount?.env ?? {}) };
       const cliEnv = expandEnvPaths(rawCliEnv);
-      if (familia === "agy" && maestro && opts.missionId) {
-        const targetHome =
-          allocatedAccount?.env?.JETSKI_APP_DATA_DIR ||
+      if (familia === "agy" && opts.missionId) {
+        const perfil =
+          cliEnv.HOME ||
+          cliEnv.JETSKI_APP_DATA_DIR ||
           allocatedAccount?.env?.HOME ||
-          config.clis[spec.cli]?.env?.JETSKI_APP_DATA_DIR ||
-          config.clis[spec.cli]?.env?.HOME;
-        cliEnv.HOME = this.criarMcpAgyIsolado(paneId, opts, spec);
-        if (targetHome) {
-          cliEnv.JETSKI_APP_DATA_DIR = targetHome
-            .replace(/^~(?=$|\/)/, homedir())
-            .replace(/^\$HOME(?=$|\/)/, homedir());
+          allocatedAccount?.env?.JETSKI_APP_DATA_DIR ||
+          config.clis[spec.cli]?.env?.HOME ||
+          config.clis[spec.cli]?.env?.JETSKI_APP_DATA_DIR;
+        const perfilResolvido = perfil
+          ? perfil.replace(/^~(?=$|\/)/, homedir()).replace(/^\$HOME(?=$|\/)/, homedir())
+          : "";
+        if (perfilResolvido) {
+          this.gravarMcpAgyNoPerfil(paneId, opts, spec, maestro, perfilResolvido);
+          cliEnv.HOME = perfilResolvido;
+          if (!cliEnv.JETSKI_APP_DATA_DIR) cliEnv.JETSKI_APP_DATA_DIR = perfilResolvido;
+        } else {
+          cliEnv.HOME = this.criarMcpAgyIsolado(paneId, opts, spec, maestro);
         }
+      }
+      if (familia === "grok" && opts.missionId) {
+        const realHome =
+          cliEnv.GROK_HOME ||
+          allocatedAccount?.env?.GROK_HOME ||
+          config.clis[spec.cli]?.env?.GROK_HOME ||
+          join(homedir(), ".grok");
+        const resolvedHome = realHome.replace(/^~(?=$|\/)/, homedir()).replace(/^\$HOME(?=$|\/)/, homedir());
+        cliEnv.GROK_HOME = this.criarMcpGrokIsolado(paneId, opts, spec, maestro, resolvedHome);
       }
       const currentPath = process.env.PATH ?? "";
       const pathWithBin = pathComExecutaveisLocais(currentPath);
@@ -742,6 +796,7 @@ export class PtyManager {
         COCKPIT_PROJECT: opts.projectId ?? "",
         COCKPIT_AGENT: spec.label,
         COCKPIT_PANE: paneId,
+        COCKPIT_MAESTRO: maestro ? "1" : "0",
         COCKPIT_MAESTRO_BRIDGE: BRIDGE_SCRIPT,
       } as Record<string, string>;
     }
@@ -798,7 +853,18 @@ export class PtyManager {
       const emit = (data: string) => {
         entry.state.bytesOut += data.length;
         entry.state.atualizadoEm = Date.now();
-        entry.lastData = Date.now();
+        if (hasSignificantTerminalOutput(data)) {
+          entry.lastData = Date.now();
+          entry.acumulado += data.length;
+          const norm = normalizePaneStatus(entry.state.status);
+          if (norm === "starting" || norm === "waiting-user") {
+            try {
+              transitionPane(entry.state, "working");
+            } catch {
+              // Ignored
+            }
+          }
+        }
         if (entry.onOutput) entry.onOutput(data);
         for (const listener of this.globalOutputListeners) listener(paneId, data);
       };
@@ -885,6 +951,8 @@ export class PtyManager {
     if (!entry || entry.state.status === "dead" || entry.state.connected === false) return;
     this.registrarEntradaManual(entry, data);
     entry.state.bytesIn += data.length;
+    entry.lastData = Date.now();
+    entry.state.atualizadoEm = Date.now();
     if (getDshManager().has(paneId)) {
       getDshManager().write(paneId, data);
       return;
@@ -1012,14 +1080,13 @@ export class PtyManager {
 
         const isIdle = agora - entry.lastData > DEFAULT_IDLE_TIMEOUT_MS;
         const norm = normalizePaneStatus(entry.state.status);
-        const isDsh = getDshManager().has(entry.state.paneId) || entry.state.backend === "dsh";
-        if (norm === "working" && isIdle && !isDsh) {
+        if ((norm === "working" || norm === "starting") && isIdle) {
           try {
             transitionPane(entry.state, "waiting-user");
           } catch {
             // Ignored
           }
-        } else if (norm === "waiting-user" && !isIdle && entry.state.bytesOut > 0 && !isDsh) {
+        } else if (norm === "waiting-user" && !isIdle) {
           try {
             transitionPane(entry.state, "working");
           } catch {

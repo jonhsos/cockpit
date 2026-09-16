@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { config, salvarConfig } from "./config.ts";
 import { Continuity } from "./missions/continuity.ts";
-import { getPane, listPanes, initializePty, getDefaultPtyManager } from "./pty.ts";
+import { getPane, listPanes, initializePty, getDefaultPtyManager, writePty } from "./pty.ts";
 import { CASA, detachPane, listProjects } from "./state.ts";
 import { observar } from "./missions/watcher.ts";
 import { getDefaultBridge, getDefaultMailboxManager } from "./connections/index.ts";
@@ -34,7 +34,11 @@ const paneDispatcher = getPaneDispatcher({ taskManager, mailboxManager });
 const bridge = getDefaultBridge({
   mailboxManager,
   taskManager,
-  paneProvider: { getPane: (id) => getPane(id), listPanes: () => listPanes() },
+  paneProvider: {
+    getPane: (id) => getPane(id),
+    listPanes: () => listPanes(),
+    writePane: (id, data) => writePty(id, data),
+  },
 });
 
 // Coordinator & WebSocket Server

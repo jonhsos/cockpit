@@ -305,6 +305,31 @@ try {
   dispatcher.dispatchToExistingPane("m1", task7.id, "pane-attached-shell");
   assert.equal(writtenInputs.length, writesBeforeUnattachedShell + 1, "Attached CLI receives delegated task");
 
+  console.log("Test 10: Keepalive working without activeTask is not busy...");
+  panes.set("pane-keepalive", {
+    paneId: "pane-keepalive",
+    label: "EXPLORADOR",
+    role: "scout",
+    runner: "agy",
+    cli: "agy",
+    status: "working",
+    activeTaskId: null,
+    missionId: "m1",
+  });
+  const keepInfo = dispatcher.listAvailablePanes("m1").find((p) => p.paneId === "pane-keepalive");
+  assert.equal(keepInfo?.isBusy, false);
+  assert.equal(keepInfo?.canAcceptTask, true);
+  assert.equal(dispatcher.findAvailablePane("m1", "agy")?.paneId, "pane-keepalive");
+  const taskKeep = taskManager.createTask("m1", {
+    título: "Audit findings",
+    descrição: "Read-only audit",
+    status: "todo",
+  });
+  const keepRes = dispatcher.dispatchToExistingPane("m1", taskKeep.id, "pane-keepalive");
+  assert.equal(keepRes.ok, true);
+  assert.equal(keepRes.deliveredToTerminal, true);
+  assert.equal(writtenInputs[writtenInputs.length - 1].id, "pane-keepalive");
+
   panes.set("pane-disconnected", {
     paneId: "pane-disconnected",
     label: "Construtor",

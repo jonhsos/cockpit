@@ -6,6 +6,7 @@ import { MissionModeManager } from "./mission-modes.ts";
 import { PaneDispatcher, type DispatcherPaneProvider } from "./pane-dispatcher.ts";
 
 export * from "./mission-modes.ts";
+export * from "./pane-identity.ts";
 export * from "./pane-dispatcher.ts";
 export * from "./harness.ts";
 export * from "./politica-ia.ts";

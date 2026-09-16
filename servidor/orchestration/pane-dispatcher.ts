@@ -1,5 +1,12 @@
 import type { TaskManager } from "../tasks/task-manager.ts";
 import type { MailboxManager } from "../connections/mailbox-manager.ts";
+import {
+  correspondeAoAlvo,
+  formatarColaNoTerminal,
+  paneEstaOcupadoDeVerdade,
+  panePodeReceberColaNoTerminal,
+  shellPodeReceberTarefa,
+} from "./pane-identity.ts";
 
 export interface PaneDispatcherState {
   paneId: string;
@@ -29,62 +36,14 @@ export interface AvailablePaneInfo {
   attachedRunner: string | null;
 }
 
-const ROLE_ALIASES: Record<string, string> = {
-  maestro: "maestro",
-  orchestrator: "maestro",
-  orquestrador: "maestro",
-  scout: "scout",
-  explorer: "scout",
-  explorador: "scout",
-  pesquisador: "scout",
-  architect: "architect",
-  arquiteto: "architect",
-  planejador: "architect",
-  builder: "builder",
-  construtor: "builder",
-  executor: "builder",
-  integrador: "builder",
-  debugger: "debugger",
-  depurador: "debugger",
-  especialista: "debugger",
-  reviewer: "reviewer",
-  revisor: "reviewer",
-  verifier: "verifier",
-  verificador: "verifier",
-  testador: "verifier",
-  tester: "verifier",
-  auditor: "verifier",
-  finalizer: "finalizer",
-  finalizador: "finalizer",
-  documentador: "finalizer",
-  artista: "artista",
-  media: "artista",
-};
 
-function normalizarAlvo(value: string): string {
-  const normalized = value.trim().toLowerCase().replace(/[_-]+/g, " ");
-  return ROLE_ALIASES[normalized] ?? normalized;
-}
-
-function correspondeAoAlvo(pane: PaneDispatcherState, alvo: string): boolean {
-  const alvoNormalizado = normalizarAlvo(alvo);
-  return [pane.label, pane.role, pane.runner, pane.cli, pane.paneId]
-    .filter((value): value is string => Boolean(value))
-    .some((value) => normalizarAlvo(value) === alvoNormalizado);
-}
-
-function shellPodeReceberTarefa(pane: PaneDispatcherState): boolean {
-  const isBash = pane.cli === "bash" || pane.runner === "bash";
-  if (!isBash) return true;
-  if (pane.attachedRunner) return true;
-  return pane.role?.trim().toLowerCase() === "shell" && pane.label?.trim().toLowerCase() !== "shell";
-}
 
 export interface DispatchResult {
   ok: boolean;
   taskId: string;
   paneId: string;
   status: string;
+  deliveredToTerminal?: boolean;
 }
 
 export interface DispatcherPaneProvider {
@@ -118,10 +77,14 @@ export class PaneDispatcher {
 
     return missionPanes.map((p) => {
       const status = p.status || "waiting-user";
-      const isBusy = status === "working";
+      const isBusy = paneEstaOcupadoDeVerdade(p);
       const connected = p.connected !== false && status !== "dead" && status !== "failed";
-      const ready = status === "waiting-user" || status === "completed" || status === "idle";
-      const canAcceptTask = connected && ready && shellPodeReceberTarefa(p);
+      const ready =
+        connected &&
+        !isBusy &&
+        status !== "starting" &&
+        status !== "blocked";
+      const canAcceptTask = ready && shellPodeReceberTarefa(p);
 
       return {
         paneId: p.paneId,
@@ -143,6 +106,15 @@ export class PaneDispatcher {
     return this.listAvailablePanes(missionId).find(
       (pane) => pane.canAcceptTask && correspondeAoAlvo(pane, target),
     );
+  }
+
+  /** Painel existente do alvo, mesmo ocupado — para não abrir outro no modo dirigido. */
+  public findExistingPane(missionId: string, target: string): AvailablePaneInfo | undefined {
+    const matches = this.listAvailablePanes(missionId).filter((pane) => correspondeAoAlvo(pane, target));
+    if (matches.length === 0) return undefined;
+    const living = matches.filter((pane) => pane.connected);
+    const pool = living.length > 0 ? living : matches;
+    return pool.find((pane) => pane.canAcceptTask) ?? pool[0];
   }
 
   /**
@@ -177,7 +149,7 @@ export class PaneDispatcher {
       throw new Error(`Pane is dead or failed: cannot dispatch task to inactive pane`);
     }
 
-    if (currentStatus === "working") {
+    if (paneEstaOcupadoDeVerdade(pane)) {
       throw new Error(`Pane is busy: pane ${paneId} is currently working on task ${pane.activeTaskId || "another task"}`);
     }
 
@@ -206,21 +178,20 @@ export class PaneDispatcher {
       status: "unread",
     });
 
-    const isBash = pane.cli === "bash" || pane.runner === "bash";
-    const isSpecialistOrNonBash = shellPodeReceberTarefa(pane);
-
-    if (this.paneProvider.writePane && isSpecialistOrNonBash) {
-      const bracketedPrompt = `\x1b[200~${prompt}\x1b[201~\r`;
-      this.paneProvider.writePane(paneId, bracketedPrompt);
+    let deliveredToTerminal = false;
+    if (this.paneProvider.writePane && panePodeReceberColaNoTerminal({ ...pane, status: "waiting-user" })) {
+      this.paneProvider.writePane(paneId, formatarColaNoTerminal(prompt));
+      deliveredToTerminal = true;
     }
 
-    this.onEvent?.("pane:task_dispatched", { missionId, taskId, paneId });
+    this.onEvent?.("pane:task_dispatched", { missionId, taskId, paneId, deliveredToTerminal });
 
     return {
       ok: true,
       taskId,
       paneId,
       status: "in-progress",
+      deliveredToTerminal,
     };
   }
 }

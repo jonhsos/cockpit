@@ -5,7 +5,7 @@ import {
   getDefaultHandoffStore,
 } from "../persistence/index.ts";
 import { getTaskManager, type TaskManager } from "../tasks/index.ts";
-import { getPane, listPanes } from "../pty.ts";
+import { getPane, listPanes, writePty } from "../pty.ts";
 import { MailboxStore } from "./mailbox-store.ts";
 import { MailboxManager } from "./mailbox-manager.ts";
 import { ConnectionManager } from "./connection-manager.ts";
@@ -66,6 +66,7 @@ export function getDefaultBridge(options?: {
     const pp = options?.paneProvider ?? {
       getPane: (id: string) => getPane(id),
       listPanes: () => listPanes(),
+      writePane: (id: string, data: string) => writePty(id, data),
     };
     defaultBridge = new InterAgentBridge(mm, cm, hm, pp, tm);
   }

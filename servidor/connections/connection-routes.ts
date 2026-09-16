@@ -61,7 +61,14 @@ export function createConnectionRoutes(bridge: InterAgentBridge): Router {
       if (!to || !task) {
         throw new Error("to e task são obrigatórios");
       }
-      const result = bridge.ask(String(from || "user"), String(to), String(task), taskId ? String(taskId) : undefined, missionId);
+      const result = bridge.ask(
+        String(from || "user"),
+        String(to),
+        String(task),
+        taskId ? String(taskId) : undefined,
+        missionId,
+        { force: Boolean(body.force) },
+      );
       res.json({ ok: true, result });
     } catch (err) {
       fail(res, err);
@@ -122,7 +129,7 @@ export function createConnectionRoutes(bridge: InterAgentBridge): Router {
       const missionId = param(req.params.missionId);
       const paneId = param(req.params.paneId);
       const unreadOnly = req.query.unread === "1" || req.query.unread === "true";
-      const inbox = bridge.getMailboxManager().getInbox(paneId, missionId, unreadOnly);
+      const inbox = bridge.inbox(paneId, missionId, unreadOnly);
       res.json({ ok: true, inbox, total: inbox.length });
     } catch (err) {
       fail(res, err);

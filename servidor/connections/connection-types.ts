@@ -34,4 +34,6 @@ export interface PaneSummary {
   cwd: string;
   missionId: string | null;
   inboxCount?: number;
+  isBusy?: boolean;
+  canAcceptTask?: boolean;
 }

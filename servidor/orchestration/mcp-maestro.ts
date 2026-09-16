@@ -1,7 +1,7 @@
 /**
- * Servidor MCP (stdio) que o Claude Code sobe junto com um painel maestro.
- * Não faz trabalho nenhum: só empresta ao agente as alavancas do cockpit.
- * Fala JSON-RPC pelo stdin/stdout e chama a API HTTP do cockpit de volta.
+ * Servidor MCP (stdio) de cada painel da missão — Maestro e especialistas.
+ * Orquestração pesada (delegar, marketplace) só no Maestro.
+ * Comunicação entre painéis (list/ask/inbox/reply) em todos.
  */
 import { createInterface } from "node:readline";
 
@@ -9,6 +9,9 @@ const PORTA = process.env.COCKPIT_PORT ?? "3000";
 const MISSAO = process.env.COCKPIT_MISSION ?? "";
 const PROJETO = process.env.COCKPIT_PROJECT ?? "";
 const EU = process.env.COCKPIT_AGENT ?? "maestro";
+const EU_PANE = process.env.COCKPIT_PANE ?? "";
+const SOU_MAESTRO = process.env.COCKPIT_MAESTRO === "1";
+const QUEM = EU_PANE || EU;
 
 const base = `http://127.0.0.1:${PORTA}`;
 
@@ -28,18 +31,22 @@ type Tool = {
   description: string;
   inputSchema: Record<string, unknown>;
   run: (args: Record<string, string>) => Promise<string>;
+  /** Só o painel Maestro enxerga: evita scout/revisor saírem orquestrando. */
+  maestroOnly?: boolean;
 };
 
 const texto = (v: unknown) => JSON.stringify(v, null, 2);
 
 const TOOLS: Tool[] = [
   {
+    maestroOnly: true,
     name: "checkpoint",
     description: "Salva o resumo de continuidade da missão após cada etapa: objetivo, decisões, progresso, arquivos alterados, tarefas delegadas, testes e próximos passos. Permite que outro provedor continue sem recomeçar.",
     inputSchema: { type: "object", properties: { texto: { type: "string" } }, required: ["texto"], additionalProperties: false },
     run: async (args) => texto(await api(`/api/missions/${MISSAO}/checkpoint`, { texto: args.texto })),
   },
   {
+    maestroOnly: true,
     name: "listar_especialistas",
     description:
       "Lista os agentes disponíveis para delegação, já filtrados pelo elenco desta missão: cada um vem com o provedor e o modelo em que vai realmente rodar. Quem tem escopo declarado só aceita o trabalho descrito ali — não delegue código a ele. Chame antes de delegar.",
@@ -47,6 +54,7 @@ const TOOLS: Tool[] = [
     run: async () => texto(await api(`/api/missions/${MISSAO}/elenco`)),
   },
   {
+    maestroOnly: true,
     name: "tipos_de_tarefa",
     description:
       "Lista os tipos de tarefa do harness. Tipo descreve e organiza trabalho; não escolhe modelo, esforço ou provedor. Quem delega escolhe o agente, e o perfil daquele agente é preservado.",
@@ -57,13 +65,14 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    maestroOnly: true,
     name: "delegar",
     description:
-      "Abre um painel novo com um especialista e entrega uma tarefa a ele. A tarefa deve ser autossuficiente: o especialista não vê esta conversa. Ele trabalha na pasta real do projeto, compartilhada pela missão, então diga exatamente quais arquivos são dele para evitar colisão. Tipo é opcional e somente descreve trabalho; agente escolhido mantém modelo e esforço.",
+      "Entrega uma tarefa a um especialista JÁ ABERTO nesta missão (EXPLORADOR, REVISOR, CONSTRUTOR, etc.), colando o texto no terminal dele. Só abre painel novo se aquele papel ainda não existir e a missão permitir. Não use cockpit_ask no lugar disto: ask sozinho não acorda o CLI. A tarefa deve ser autossuficiente. Se a resposta disser deliveredToTerminal=false, o alvo está ocupado — espere situacao e chame de novo.",
     inputSchema: {
       type: "object",
       properties: {
-        agente: { type: "string", description: "id do especialista, ex: builder" },
+        agente: { type: "string", description: "id, rótulo ou papel: scout, EXPLORADOR, reviewer, p3-…" },
         tarefa: { type: "string", description: "instrução completa e autossuficiente" },
         skills: {
           type: "array",
@@ -74,7 +83,7 @@ const TOOLS: Tool[] = [
         tipo: {
           type: "string",
           description:
-            "tipo da tarefa: mecanico, explorar, implementar, site, arquitetura, auditoria, visual ou volume",
+            "tipo da tarefa: mecanico, explorar, implementar, site, arquitetura, auditoria, visual ou volume. Opcional.",
         },
         provedor: {
           type: "string",
@@ -82,7 +91,7 @@ const TOOLS: Tool[] = [
             "provedor em que este especialista deve rodar: claude, codex (GPT) ou agy (Gemini). Use para alternar Claude e GPT de propósito — o mesmo trabalho visto por dois modelos diferentes. Só vale se estiver no elenco da missão; fora dele o cockpit troca pelo provedor liberado.",
         },
       },
-      required: ["agente", "tarefa", "tipo"],
+      required: ["agente", "tarefa"],
       additionalProperties: false,
     },
     run: async (a) => {
@@ -93,17 +102,44 @@ const TOOLS: Tool[] = [
         tipo: a.tipo,
         provedor: a.provedor,
         skills,
-      })) as { paneId: string; label: string; cli: string; skills?: string[] };
+      })) as {
+        paneId: string;
+        label: string;
+        cli: string;
+        skills?: string[];
+        deliveredToTerminal?: boolean;
+        queued?: boolean;
+        reason?: string;
+        dispatchedToExisting?: boolean;
+      };
       const comSkills = r.skills?.length ? ` Carregou: ${r.skills.join(", ")}.` : "";
-      return `Painel ${r.paneId} aberto com ${r.label} (${r.cli}), tarefa do tipo "${a.tipo}" entregue.${comSkills}`;
+      if (r.queued && r.deliveredToTerminal === false) {
+        return `NÃO entregue no terminal. ${r.reason ?? "Painel ocupado."} Painel ${r.paneId} (${r.label}).`;
+      }
+      const onde = r.dispatchedToExisting ? "no painel existente" : "em painel novo";
+      const cola = r.deliveredToTerminal === false ? " Inbox só — o texto NÃO foi colado no terminal." : " Texto colado no terminal.";
+      return `Tarefa entregue ${onde}: ${r.paneId} ${r.label} (${r.cli}).${cola}${comSkills}`;
     },
   },
   {
     name: "situacao",
     description:
-      "Mostra os painéis da missão: quem está aberto, se está produzindo ou parado, tarefa atribuída, resumo da entrega recente e quanto já gastou. Use para saber o estado da missão e verificar conclusões de especialistas.",
+      "Mostra cada painel: status real (waiting-user = parado no prompt e pode receber delegar; working com tarefa = ocupado de verdade), se aceita tarefa agora, mensagens não lidas na inbox e tarefa ativa. Use depois de delegar para confirmar entrega.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     run: async () => {
+      const list = (await api(`/api/missions/${MISSAO}/cockpit/list`)) as {
+        panes: {
+          id: string;
+          label: string;
+          role: string;
+          runner: string;
+          status: string;
+          activeTaskId?: string | null;
+          inboxCount?: number;
+          isBusy?: boolean;
+          canAcceptTask?: boolean;
+        }[];
+      };
       const r = (await api(`/api/panes?missionId=${MISSAO}`)) as {
         panes: {
           paneId: string;
@@ -115,16 +151,25 @@ const TOOLS: Tool[] = [
           usage?: { custo: number };
         }[];
       };
+      const extra = new Map(list.panes.map((p) => [p.id, p]));
       return texto(
-        r.panes.map((p) => ({
-          painel: p.paneId,
-          funcao: p.label,
-          terminal: p.cli,
-          estado: p.status === "run" || p.status === "working" ? "produzindo" : "parado",
-          tarefa: p.tarefa ?? undefined,
-          entrega_recente: p.saida_recente ?? undefined,
-          custo: p.usage?.custo ?? 0,
-        })),
+        r.panes.map((p) => {
+          const c = extra.get(p.paneId);
+          const ocupado = c?.isBusy === true || ((p.status === "run" || p.status === "working") && Boolean(c?.activeTaskId));
+          return {
+            painel: p.paneId,
+            funcao: p.label,
+            papel: c?.role,
+            terminal: p.cli,
+            status: p.status,
+            estado: ocupado ? "ocupado" : p.status === "starting" ? "inicializando" : "pronto_no_prompt",
+            aceita_delegar: c?.canAcceptTask === true,
+            tarefa_ativa: c?.activeTaskId ?? p.tarefa ?? undefined,
+            inbox_nao_lida: c?.inboxCount ?? 0,
+            entrega_recente: p.saida_recente ?? undefined,
+            custo: p.usage?.custo ?? 0,
+          };
+        }),
       );
     },
   },
@@ -210,6 +255,7 @@ const TOOLS: Tool[] = [
     run: async () => texto(await api("/api/receitas")),
   },
   {
+    maestroOnly: true,
     name: "salvar_receita",
     description:
       "Guarda a formação que funcionou nesta missão como receita reutilizável. Passe só o que importa fixar.",
@@ -292,6 +338,7 @@ const TOOLS: Tool[] = [
 
   // ---------- marketplace ----------
   {
+    maestroOnly: true,
     name: "procurar_no_marketplace",
     description:
       "Procura skills e MCPs nos marketplaces conectados. Passe `busca` para filtrar por nome ou descrição.",
@@ -316,6 +363,7 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    maestroOnly: true,
     name: "instalar_skill",
     description:
       "Instala uma skill do marketplace no acervo do cockpit, deixando-a disponível para qualquer CLI. Passe o id do plugin e o nome da skill.",
@@ -331,7 +379,7 @@ const TOOLS: Tool[] = [
   // ---------- cockpit inter-agent communication tools ----------
   {
     name: "cockpit_list",
-    description: "Lista os painéis da missão com detalhes de papéis, executores, modelos, tarefas ativas e mensagens na caixa de entrada.",
+    description: "Lista os outros painéis desta missão (Agy, Grok, Codex, Claude…) com papel, status e inbox. Use antes de cockpit_ask. Você pode falar com qualquer um deles — não precisa de Maestro.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     run: async () => texto(await api(`/api/missions/${MISSAO}/cockpit/list`)),
   },
@@ -351,18 +399,20 @@ const TOOLS: Tool[] = [
   },
   {
     name: "cockpit_ask",
-    description: "Envia uma tarefa estruturada para a caixa de entrada (inbox) de um painel existente, sem injetar comandos no shell. Retorna correlationId.",
+    description:
+      "Fala com outro painel desta missão (ID, rótulo ou papel: EXPLORADOR, REVISOR, grok, p3-…). Cola o texto no terminal dele. Se deliveredToTerminal=false, ele está ocupado — espere e tente de novo. Não simule a conversa: esta tool é o canal real.",
     inputSchema: {
       type: "object",
       properties: {
-        destino: { type: "string", description: "ID do painel destinatário" },
+        destino: { type: "string", description: "ID, rótulo ou papel do destinatário (ex: EXPLORADOR, scout, p3-…)" },
         tarefa: { type: "string", description: "Instrução estruturada de trabalho" },
         taskId: { type: "string", description: "ID opcional da tarefa persistida associada" },
+        force: { type: "boolean", description: "Colar no terminal mesmo se o painel estiver ocupado" },
       },
       required: ["destino", "tarefa"],
       additionalProperties: false,
     },
-    run: async (a) => texto(await api(`/api/missions/${MISSAO}/cockpit/ask`, { from: EU, to: a.destino, task: a.tarefa, taskId: a.taskId })),
+    run: async (a) => texto(await api(`/api/missions/${MISSAO}/cockpit/ask`, { from: QUEM, to: a.destino, task: a.tarefa, taskId: a.taskId, force: String(a.force ?? "") === "true" })),
   },
   {
     name: "cockpit_reply",
@@ -377,9 +427,10 @@ const TOOLS: Tool[] = [
       required: ["destino", "correlationId", "resultado"],
       additionalProperties: false,
     },
-    run: async (a) => texto(await api(`/api/missions/${MISSAO}/cockpit/reply`, { from: EU, to: a.destino, correlationId: a.correlationId, result: a.resultado })),
+    run: async (a) => texto(await api(`/api/missions/${MISSAO}/cockpit/reply`, { from: QUEM, to: a.destino, correlationId: a.correlationId, result: a.resultado })),
   },
   {
+    maestroOnly: true,
     name: "cockpit_handoff",
     description: "Realiza a transferência estruturada (handoff) de uma tarefa e seu contexto de um painel para outro, anexando evidências.",
     inputSchema: {
@@ -404,7 +455,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "cockpit_inbox",
-    description: "Lê as mensagens recebidas na caixa de entrada deste painel.",
+    description: "Lê as mensagens da caixa de entrada deste painel (resolvido pelo ID do painel, não pelo rótulo).",
     inputSchema: {
       type: "object",
       properties: {
@@ -412,9 +463,13 @@ const TOOLS: Tool[] = [
       },
       additionalProperties: false,
     },
-    run: async (a) => texto(await api(`/api/missions/${MISSAO}/panes/${EU}/inbox${a.naoLidas ? "?unread=1" : ""}`)),
+    run: async (a) => {
+      return texto(await api(`/api/missions/${MISSAO}/panes/${encodeURIComponent(QUEM)}/inbox${a.naoLidas ? "?unread=1" : ""}`));
+    },
   },
 ];
+
+const TOOLS_ATIVAS = TOOLS.filter((t) => SOU_MAESTRO || !t.maestroOnly);
 
 // ---------- JSON-RPC ----------
 
@@ -447,13 +502,13 @@ createInterface({ input: process.stdin }).on("line", (linha) => {
   if (method === "tools/list") {
     responder(
       id,
-      { tools: TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) },
+      { tools: TOOLS_ATIVAS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) },
     );
     return;
   }
   if (method === "tools/call") {
     const nome = params?.name as string;
-    const tool = TOOLS.find((t) => t.name === nome);
+    const tool = TOOLS_ATIVAS.find((t) => t.name === nome);
     if (!tool) return falhar(id, `ferramenta desconhecida: ${nome}`);
     tool
       .run((params?.arguments ?? {}) as Record<string, string>)

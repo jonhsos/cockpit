@@ -134,6 +134,7 @@ export function RoleCatalog({
     : [];
   const contasElegiveis = contasPool.filter((account) => account.status === "livre" && account.authenticated !== false);
   const contasNaoAutenticadas = contasPool.filter((account) => account.authenticated === false);
+  const idsElegiveis = contasElegiveis.map((account) => account.id).join(",");
   const aiDisponivel = (runner: RunnerId) => {
     if (runner === "bash") return true;
     return providers.find((provider) => provider.id === runner)?.disponivel === true;
@@ -185,6 +186,12 @@ export function RoleCatalog({
     setSelectedModel((current) => current && availableModels.includes(current) ? current : firstModel(selectedProvider));
     setSelectedEffort((current) => current && availableEfforts.includes(current) ? current : "");
   }, [availableEfforts, availableModels, selectedProvider, selectedRunner]);
+
+  useEffect(() => {
+    if (selectedRunner === "bash") return;
+    const ids = idsElegiveis ? idsElegiveis.split(",") : [];
+    setPreferredAccountId((current) => (current && ids.includes(current) ? current : ids[0] ?? ""));
+  }, [idsElegiveis, selectedRunner]);
 
   const handleSelectRunner = (runner: RunnerId) => {
     if (!aiDisponivel(runner) || foraDoElenco(runner)) return;

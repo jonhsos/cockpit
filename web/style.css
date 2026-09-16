@@ -1273,15 +1273,21 @@ button, select, input, textarea { font: inherit; color: inherit; }
   background: var(--carta);
   color: var(--ink);
   box-shadow: 0 24px 90px #000b;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  user-select: text;
+  -webkit-user-select: text;
 }
 .modal-window::backdrop { background: #000b; }
 .modal-window > * {
   min-height: 0;
   max-height: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 .modal-window > .wizard,
 .modal-window > .config,
@@ -1866,7 +1872,7 @@ svg { flex-shrink: 0; vertical-align: middle; }
 }
 
 /* Janela sem abas: encolhe até o conteúdo em vez de esticar até o teto. */
-.modal-window > .ajustes.janela { height: auto; max-height: min(720px, calc(100dvh - 50px)); }
+.modal-window > .ajustes.janela { height: auto; max-height: min(720px, calc(100dvh - 50px)); overflow: auto; }
 .ajustes.janela .lista-skills { max-height: 44vh; }
 
 /* O cinza das divisas é para os vãos entre terminais, não para o fundo. */
