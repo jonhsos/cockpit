@@ -733,7 +733,6 @@ export class PtyManager {
           args.push("-c", `mcp_servers.${segmento}.enabled=false`);
         }
         if (spec.model) args.push("--model", spec.model);
-        if (spec.effort) args.push("-c", `model_reasoning_effort=${JSON.stringify(spec.effort)}`);
         if (opts.missionId) {
           args.push("-c", `mcp_servers.cockpit.command=${JSON.stringify(process.execPath.replaceAll("\\", "/"))}`);
           args.push("-c", `mcp_servers.cockpit.args=${JSON.stringify([MCP_SCRIPT.replaceAll("\\", "/")])}`);
