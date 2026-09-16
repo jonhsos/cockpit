@@ -310,6 +310,72 @@ button, summary { -webkit-tap-highlight-color: transparent; }
   line-height: 1.35;
 }
 
+/* ---------- Configuração de rotas DSH ---------- */
+.dsh-gateway-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dsh-gateway-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dsh-gateway-status {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--fio);
+  border-radius: 999px;
+  color: var(--ink-3);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.dsh-gateway-status.on {
+  border-color: rgba(63, 185, 80, .35);
+  background: rgba(46, 160, 67, .14);
+  color: #3fb950;
+}
+
+.dsh-gateway-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 6px 12px;
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.dsh-gateway-facts code {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.dsh-gateway-note {
+  padding: 8px 10px;
+  border-left: 2px solid var(--pane, #388bfd);
+  background: color-mix(in srgb, var(--pane, #388bfd) 8%, transparent);
+}
+
+.dsh-gateway-modelos {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.dsh-direct-api-heading {
+  margin-top: 4px;
+}
+
+.dsh-role-note {
+  padding: 8px 10px;
+  border-left: 2px solid #d29922;
+  background: rgba(210, 153, 34, .08);
+}
+
 .pane-badge.badge-backend {
   font-weight: 600;
   text-transform: uppercase;

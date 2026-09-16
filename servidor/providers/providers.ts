@@ -2,9 +2,9 @@ import { execFileSync } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
-import { config } from "../config.ts";
+import { config, modelosDoCli } from "../config.ts";
 import { chaveDaPonte, pontede } from "./ponte.ts";
-import { chaveDaDshApi, dshApiDoCli } from "./dsh-api.ts";
+import { chaveDaDshApi, dshApiDoCli, sincronizarCatalogoDshGateway } from "./dsh-api.ts";
 
 /**
  * Quais CLIs existem de verdade nesta máquina.
@@ -165,7 +165,7 @@ export function listarProviders(): Provider[] {
           }
         : {}),
       caminho,
-      modelos: config.modelos?.[id] ?? [],
+      modelos: modelosDoCli(id),
       efforts: config.efforts?.[id] ?? [],
       agentes: Object.entries(config.agents)
         .filter(([, a]) => a.cli === id)
@@ -178,6 +178,17 @@ export function listarProviders(): Provider[] {
       pool: accountPool.hasPool(id) ? accountPool.getView(id)[id] : undefined,
     };
   });
+}
+
+/**
+ * Retorna os provedores com o catálogo atual do gateway DSH quando ele
+ * estiver configurado. Se a descoberta falhar, mantém o catálogo salvo.
+ */
+export async function listarProvidersAtualizados(): Promise<Provider[]> {
+  if (Object.entries(config.clis).some(([id, cli]) => cli.backend === "dsh" && !dshApiDoCli(id))) {
+    await sincronizarCatalogoDshGateway();
+  }
+  return listarProviders();
 }
 
 export function providerDisponivel(id: string): boolean {

@@ -11,7 +11,8 @@
     "start": "vite build && node servidor/index.ts",
     "server": "node servidor/index.ts",
     "dev": "vite",
-    "test": "node scripts/testar.mjs"
+    "test": "node scripts/testar.mjs",
+    "security:secrets": "node scripts/check-no-hardcoded-secrets.mjs"
   },
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",

@@ -79,7 +79,14 @@ export function Ajustes({
       </nav>
 
       <div className="aba-corpo" role="tabpanel">
-        {aba === "provedores" && <Config onFechar={onFechar} onMudou={onMudou} missionId={missionId} />}
+        {aba === "provedores" && (
+          <Config
+            onFechar={onFechar}
+            onMudou={onMudou}
+            missionId={missionId}
+            onAbrirDshApis={() => setAba("dsh-apis")}
+          />
+        )}
         {aba === "dsh-apis" && <DshApis onMudou={onMudou} />}
         {aba === "gratis" && <Gratis onMudou={onMudou} />}
         {aba === "marketplace" && <Marketplace onMudou={onMudou} />}

@@ -15,6 +15,7 @@ import {
   redactSecrets,
   resolveHarnessContract,
 } from "./fixtures.mjs";
+import { TEST_SECRET_VALUES } from "../security-test-values.mjs";
 
 export function registerTier3Tests() {
   setTestScope(3, "T3.1", "Task + File Lock + Connection + Handoff Integration");
@@ -87,11 +88,11 @@ export function registerTier3Tests() {
         stdinBytes += taskText.length;
       }
     };
-    sendTask("bash", "Configure API_KEY=sk-123456789012345678901234");
+    sendTask("bash", `Configure API_KEY=${TEST_SECRET_VALUES.openAiProject}`);
     expect(stdinBytes).toBe(0);
 
     // 4. Output stream containing secret is sanitized
-    const rawOutput = "Configured provider with key sk-123456789012345678901234 on /bin/bash";
+    const rawOutput = `Configured provider with key ${TEST_SECRET_VALUES.openAiProject} on /bin/bash`;
     const sanitizedOutput = redactSecrets(rawOutput);
     expect(sanitizedOutput).toBe("Configured provider with key [REDACTED] on /bin/bash");
     expect(sanitizedOutput).toNotContain("sk-1234");
@@ -360,7 +361,7 @@ export function registerTier3Tests() {
     expect(isPathPermitted("/root/.ssh/id_rsa")).toBeFalsy();
 
     // Sensitive variable output sanitization
-    const logOutput = "Exported AWS_SECRET_ACCESS_KEY=sk-ant-api03-abcdef123456789012345678";
+    const logOutput = `Exported AWS_SECRET_ACCESS_KEY=${TEST_SECRET_VALUES.anthropicApi03}`;
     const safeOutput = redactSecrets(logOutput);
     expect(safeOutput).toBe("Exported AWS_SECRET_ACCESS_KEY=[REDACTED]");
   });

@@ -42,6 +42,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import express from "express";
+import { TEST_SECRET_VALUES } from "./security-test-values.mjs";
 import { AgyOnboardingService, AGY_OAUTH_CONFIG } from "../servidor/providers/agy-onboarding.ts";
 import { accountPool } from "../servidor/providers/account-pool.ts";
 import { createAccountPoolsRouter } from "../servidor/routes/account-pools-router.ts";
@@ -132,11 +133,11 @@ async function run() {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
-            access_token: `ya29.mock_token_${Date.now()}`,
+            access_token: `${TEST_SECRET_VALUES.oauthAccessToken}_${Date.now()}`,
             token_type: "Bearer",
-            refresh_token: `1//mock_refresh_${Date.now()}`,
+            refresh_token: `${TEST_SECRET_VALUES.oauthRefreshToken}_${Date.now()}`,
             expires_in: 3600,
-            id_token: "header.eyJlbWFpbCI6ImFkdmVyc2FyaWFsLm04QHRlc3RlLmNvbSJ9.signature",
+            id_token: TEST_SECRET_VALUES.jwt,
           }),
         );
         return;

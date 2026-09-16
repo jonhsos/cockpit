@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AuditLogger, REDACTED_MARKER } from "../servidor/security/index.ts";
+import { TEST_SECRET_VALUES } from "./security-test-values.mjs";
 
 console.log("Running check-security-audit.ts...");
 
@@ -12,7 +13,7 @@ try {
   const logger = new AuditLogger(testHome);
 
   // 1. Log with sensitive details: automatic sanitization before disk write
-  const rawKey = "sk-ant-api03-secretkey1234567890secretkey1234567890";
+  const rawKey = TEST_SECRET_VALUES.anthropicApi03;
   logger.logAction(
     "config:update",
     { type: "user", id: "admin-1" },

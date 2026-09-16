@@ -9,6 +9,7 @@ import { accountPool } from "../servidor/providers/account-pool.ts";
 import { createAccountPoolsRouter } from "../servidor/routes/account-pools-router.ts";
 import type { RouterContext } from "../servidor/routes/types.ts";
 import { config } from "../servidor/config.ts";
+import { TEST_SECRET_VALUES } from "./security-test-values.mjs";
 
 let falhas = 0;
 const ok = (cond: boolean, msg: string) => {
@@ -71,11 +72,11 @@ async function run() {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
-            access_token: "ya29.mock_access_token_loopback_test",
+            access_token: TEST_SECRET_VALUES.oauthAccessToken,
             token_type: "Bearer",
-            refresh_token: "1//mock_refresh_token_loopback_test",
+            refresh_token: TEST_SECRET_VALUES.oauthRefreshToken,
             expires_in: 3600,
-            id_token: "header.eyJlbWFpbCI6Im9uYm9hcmQubG9vcGJhY2tAdGVzdGUuY29tIn0.signature",
+            id_token: TEST_SECRET_VALUES.jwt,
           }),
         );
         return;
@@ -171,8 +172,8 @@ async function run() {
       ok(existsSync(tokenFile), "Arquivo antigravity-oauth-token criado no perfil");
       const tokenJson = JSON.parse(readFileSync(tokenFile, "utf8"));
       ok(tokenJson.auth_method === "consumer", "auth_method: consumer no token");
-      ok(tokenJson.token?.access_token === "ya29.mock_access_token_loopback_test", "access_token gravado com fidelidade");
-      ok(tokenJson.token?.refresh_token === "1//mock_refresh_token_loopback_test", "refresh_token gravado com fidelidade");
+      ok(tokenJson.token?.access_token === TEST_SECRET_VALUES.oauthAccessToken, "access_token gravado com fidelidade");
+      ok(tokenJson.token?.refresh_token === TEST_SECRET_VALUES.oauthRefreshToken, "refresh_token gravado com fidelidade");
 
       const settingsFile = join(sessState.account.profileDir, "settings.json");
       ok(existsSync(settingsFile), "Arquivo settings.json criado no perfil");

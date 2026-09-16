@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { TEST_SECRET_VALUES } from "./security-test-values.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "cockpit-dsh-api-"));
 const configPath = join(root, "cockpit.json");
-const apiKey = "deepseek-test-key-do-not-log";
+const apiKey = TEST_SECRET_VALUES.deepseekApiKey;
 const source = JSON.parse(readFileSync("cockpit.json", "utf8"));
 writeFileSync(configPath, JSON.stringify(source, null, 2));
 process.env.COCKPIT_CONFIG = configPath;
@@ -33,6 +34,9 @@ try {
   assert.equal(saved.provider, "deepseek-official");
   assert.equal(envDaDshApi("deepseek")[saved.chaveEnv], apiKey);
   assert.ok(!readFileSync(configPath, "utf8").includes(apiKey), "a chave não pode ir para cockpit.json");
+  assert.equal(statSync(join(root, "chaves.json")).mode & 0o777, 0o600, "o cofre deve ser legível somente pelo usuário");
+  assert.equal(statSync(join(root, "chave-mestra")).mode & 0o777, 0o600, "a chave mestra deve ser legível somente pelo usuário");
+  assert.equal(statSync(root).mode & 0o777, 0o700, "a pasta do cofre deve ser acessível somente pelo usuário");
 
   const route = listarDshApis().find((item) => item.id === "deepseek");
   assert.equal(route?.model, "deepseek-flash");

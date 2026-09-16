@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TEST_SECRET_VALUES } from "./security-test-values.mjs";
 import { contaAutenticada, accountPool } from "../servidor/providers/account-pool.ts";
 import { config, backendDo, parseCliBackend } from "../servidor/config.ts";
 import { DshManager, MAX_DSH_PROMPT_LENGTH } from "../servidor/sessions/dsh-backend/dsh-manager.ts";
@@ -224,7 +225,7 @@ try {
   ok(isCodexAuth === true, "Codex com auth.json detectado como autenticado");
 
   // Test Codex authenticated with OPENAI_API_KEY
-  const isCodexAuthKey = contaAutenticada("codex", { OPENAI_API_KEY: "sk-proj-test" });
+  const isCodexAuthKey = contaAutenticada("codex", { OPENAI_API_KEY: TEST_SECRET_VALUES.openAiProject });
   ok(isCodexAuthKey === true, "Codex com OPENAI_API_KEY detectado como autenticado");
 
   // Test Claude unauthenticated
@@ -236,7 +237,7 @@ try {
   // Adversarial: Claude isolated directory must remain unauthenticated even if process.env.ANTHROPIC_API_KEY is present
   const prevEnvKey = process.env.ANTHROPIC_API_KEY;
   try {
-    process.env.ANTHROPIC_API_KEY = "sk-ant-global-leak";
+    process.env.ANTHROPIC_API_KEY = TEST_SECRET_VALUES.anthropicApi03;
     const isClaudeIsolatedUnauth = contaAutenticada("claude", { CLAUDE_CONFIG_DIR: claudeUnauthConfig });
     ok(isClaudeIsolatedUnauth === false, "Claude com perfil isolado vazio não é mascarado por process.env.ANTHROPIC_API_KEY global");
   } finally {
@@ -245,7 +246,7 @@ try {
   }
 
   // Test Claude authenticated with ANTHROPIC_API_KEY
-  const isClaudeAuthKey = contaAutenticada("claude", { ANTHROPIC_API_KEY: "sk-ant-api03-test" });
+  const isClaudeAuthKey = contaAutenticada("claude", { ANTHROPIC_API_KEY: TEST_SECRET_VALUES.anthropicApi03 });
   ok(isClaudeAuthKey === true, "Claude com ANTHROPIC_API_KEY detectado como autenticado");
 
   // Test Claude authenticated with config directory .credentials.json

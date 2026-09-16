@@ -29,6 +29,7 @@ import {
   PermissionError,
   ApprovalManager,
 } from "../servidor/security/index.ts";
+import { TEST_SECRET_VALUES } from "./security-test-values.mjs";
 
 console.log("===============================================================");
 console.log("EMPIRICAL STRESS TEST: SECURITY & SANITIZER SUBSYSTEMS");
@@ -42,35 +43,35 @@ console.log(">>> [SECTION 1] StreamSanitizer Byte-Slice Fuzzing");
 const TEST_SECRETS = [
   {
     name: "Anthropic API Key (api03)",
-    token: ["sk-ant-api03", "0123456789abcdefghijklmnopqrstuvwxyz0123456789"].join("-"),
+    token: TEST_SECRET_VALUES.anthropicApi03,
   },
   {
     name: "Anthropic API Key (admin01)",
-    token: ["sk-ant-admin01", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqr"].join("-"),
+    token: TEST_SECRET_VALUES.anthropicAdmin01,
   },
   {
     name: "OpenAI Project Key",
-    token: ["sk-proj", "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP"].join("-"),
+    token: TEST_SECRET_VALUES.openAiProject,
   },
   {
     name: "OpenAI Admin Key",
-    token: ["sk-admin", "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP"].join("-"),
+    token: TEST_SECRET_VALUES.openAiAdmin,
   },
   {
     name: "OpenRouter API Key",
-    token: ["sk-or-v1", "0123456789abcdef".repeat(4)].join("-"),
+    token: TEST_SECRET_VALUES.openRouter,
   },
   {
     name: "Google Gemini API Key",
-    token: "AIza" + "SyA1234567890abcdef1234567890abcdef",
+    token: TEST_SECRET_VALUES.google,
   },
   {
     name: "Bearer Token",
-    token: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ",
+    token: TEST_SECRET_VALUES.bearer,
   },
   {
     name: "Custom Registered Literal Secret",
-    token: "SuperSecretCorporatePassword_9876543210!",
+    token: TEST_SECRET_VALUES.custom,
     isCustomLiteral: true,
   },
 ];

@@ -391,6 +391,7 @@ export class PtyManager {
     let maestro = opts.maestro ?? false;
     let allocatedAccount: { id: string; label: string; env: Record<string, string>; args: string[] } | null = null;
     let dshInitialPrompt = opts.tarefa;
+    let effectiveBackend: "pty" | "dsh" = "pty";
 
     let isBash = initialClean;
     if (opts.loginArgs) {
@@ -443,7 +444,8 @@ export class PtyManager {
       if (bundle.cli === "bash") {
         isBash = true;
       } else {
-        assertExecutorDisponivel(bundle.cli, opts.backend);
+        effectiveBackend = opts.backend ? parseCliBackend(opts.backend) : backendDo(bundle.cli);
+        assertExecutorDisponivel(bundle.cli, effectiveBackend);
       }
     }
 
@@ -481,7 +483,8 @@ export class PtyManager {
         custom: opts.roleDefinition,
       });
       dshInitialPrompt = promptInterno;
-      if (!isBash) {
+      effectiveBackend = opts.backend ? parseCliBackend(opts.backend) : backendDo(spec.cli);
+      if (effectiveBackend !== "dsh") {
         allocatedAccount = accountPool.acquire(spec.cli, paneId, opts.preferredAccountId);
       }
       const args: string[] = [...(spec.args ?? []), ...(allocatedAccount?.args ?? [])];
@@ -624,14 +627,6 @@ export class PtyManager {
         COCKPIT_MAESTRO_BRIDGE: BRIDGE_SCRIPT,
       } as Record<string, string>;
     }
-
-    const effectiveBackend = opts.loginArgs
-      ? "pty"
-      : isBash
-      ? "pty"
-      : opts.backend
-      ? parseCliBackend(opts.backend)
-      : backendDo(bundle.cli);
 
     const state: PaneState = {
       paneId,

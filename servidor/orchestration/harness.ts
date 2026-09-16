@@ -1,4 +1,4 @@
-import { config, type AgentSpec, type Elenco, type TipoTarefa } from "../config.ts";
+import { config, modelosDoCli, type AgentSpec, type Elenco, type TipoTarefa } from "../config.ts";
 import { execucaoDoPapel } from "./politica-ia.ts";
 import type { RoleContractInput } from "./roles.ts";
 import { providerDisponivel } from "../providers/providers.ts";
@@ -185,7 +185,7 @@ export function resolverHarness(pedido: Pedido): Harness {
   // agente. Zerar seria pior — sem modelo o CLI usa o que estiver salvo nele,
   // e um agente chamado ASTRA viraria "o que o Codex tiver guardado".
   //
-  const modelos = config.modelos?.[finalCli];
+  const modelos = modelosDoCli(finalCli);
   const efforts = config.efforts?.[finalCli];
 
   let finalModel = model;

@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { SecretRegistry } from "./sanitizer.ts";
@@ -18,11 +18,13 @@ function mestraPath(): string {
 
 function chaveMestra(): Buffer {
   const casa = getCASA();
-  mkdirSync(casa, { recursive: true });
+  mkdirSync(casa, { recursive: true, mode: 0o700 });
+  chmodSync(casa, 0o700);
   const mestra = mestraPath();
   if (!existsSync(mestra)) {
     writeFileSync(mestra, randomBytes(32), { mode: 0o600 });
   }
+  chmodSync(mestra, 0o600);
   return readFileSync(mestra);
 }
 
@@ -30,7 +32,9 @@ type Cofre = Record<string, { iv: string; tag: string; dado: string }>;
 
 function lerCofre(): Cofre {
   const caminho = cofrePath();
-  return existsSync(caminho) ? (JSON.parse(readFileSync(caminho, "utf8")) as Cofre) : {};
+  if (!existsSync(caminho)) return {};
+  chmodSync(caminho, 0o600);
+  return JSON.parse(readFileSync(caminho, "utf8")) as Cofre;
 }
 
 export function guardarChave(provedor: string, valor: string): void {
@@ -50,8 +54,10 @@ export function guardarChave(provedor: string, valor: string): void {
       dado: dado.toString("base64"),
     };
   }
-  mkdirSync(getCASA(), { recursive: true });
+  mkdirSync(getCASA(), { recursive: true, mode: 0o700 });
+  chmodSync(getCASA(), 0o700);
   writeFileSync(cofrePath(), JSON.stringify(cofre, null, 2), { mode: 0o600 });
+  chmodSync(cofrePath(), 0o600);
 }
 
 export function lerChave(provedor: string): string | null {

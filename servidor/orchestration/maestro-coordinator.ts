@@ -1,4 +1,4 @@
-import { config, type Elenco } from "../config.ts";
+import { config, modelosDoCli, type Elenco } from "../config.ts";
 import { Continuity, detectLimit, type LimitSignal } from "../missions/continuity.ts";
 import { readCodexQuota, type Quota } from "../providers/codex-quota.ts";
 import {
@@ -158,14 +158,15 @@ export class MaestroCoordinator {
 
   public presetsDoMaestro(): Record<string, { model: string; effort: string }> {
     const presets: Record<string, { model: string; effort: string }> = {};
-    for (const [id, modelos] of Object.entries(config.modelos ?? {})) {
+    for (const id of Object.keys(config.modelos ?? {})) {
+      const modelos = modelosDoCli(id);
       if (modelos && modelos.length > 0) {
         const effort = config.efforts?.[id]?.includes("high") ? "high" : (config.efforts?.[id]?.[0] ?? "medium");
         presets[id] = { model: modelos[0], effort };
       }
     }
     for (const { id } of listarPontes()) {
-      const model = config.modelos?.[id]?.[0];
+      const model = modelosDoCli(id)[0];
       const effort = config.efforts?.[id]?.includes("high") ? "high" : config.efforts?.[id]?.[0];
       if (model && effort) presets[id] = { model, effort };
     }
@@ -572,7 +573,7 @@ export class MaestroCoordinator {
     const porCli: Record<string, { model?: string; effort?: string }> = {};
     for (const [cli, fixo] of Object.entries(e.porCli ?? {})) {
       if (!clis.includes(cli) || !fixo) continue;
-      const model = config.modelos?.[cli]?.includes(String(fixo.model)) ? String(fixo.model) : undefined;
+      const model = modelosDoCli(cli).includes(String(fixo.model)) ? String(fixo.model) : undefined;
       const effort = config.efforts?.[cli]?.includes(String(fixo.effort)) ? String(fixo.effort) : undefined;
       if (model || effort) porCli[cli] = { ...(model && { model }), ...(effort && { effort }) };
     }

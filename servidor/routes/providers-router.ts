@@ -1,8 +1,8 @@
 import { Router } from "express";
 import type { RouterContext } from "./types.ts";
-import { parseCliBackend } from "../config.ts";
+import { modelosDoCli, parseCliBackend } from "../config.ts";
 import { resolverHarness, type Pedido } from "../orchestration/harness.ts";
-import { listarProviders, esquecerCache } from "../providers/providers.ts";
+import { listarProviders, listarProvidersAtualizados, esquecerCache } from "../providers/providers.ts";
 import { conectar, desconectar, criarAgente, testar, PRESETS, type Conexao } from "../providers/conectar.ts";
 import {
   listarPontes,
@@ -15,9 +15,12 @@ import {
   atualizarDshApiModelos,
   descobrirDshApiModelos,
   guardarChaveDshApi,
+  invalidarCatalogoDshGateway,
+  listarDshGateway,
   listarDshApis,
   removerDshApi,
   salvarDshApi,
+  atualizarDshGatewayModelos,
 } from "../providers/dsh-api.ts";
 import { lerCotas, esquecerCotas, aplicarSinal } from "../providers/cotas.ts";
 import { lerConsumo } from "../providers/consumo.ts";
@@ -39,11 +42,14 @@ export function createProvidersRouter(ctx: RouterContext): Router {
 
   // ---------- provedores ----------
 
-  router.get("/providers", (req, res) => {
+  router.get("/providers", async (req, res) => {
     // ?rescan=1 ignora a validade do cache: é o "procurar de novo" da tela,
     // para quando você acabou de instalar um CLI.
-    if (req.query.rescan === "1") esquecerCache();
-    res.json({ providers: listarProviders(), presets: PRESETS, autoAprovar: ctx.config.autoAprovar !== false });
+    if (req.query.rescan === "1") {
+      esquecerCache();
+      invalidarCatalogoDshGateway();
+    }
+    res.json({ providers: await listarProvidersAtualizados(), presets: PRESETS, autoAprovar: ctx.config.autoAprovar !== false });
   });
 
   router.post("/providers", (req, res) => {
@@ -95,6 +101,23 @@ export function createProvidersRouter(ctx: RouterContext): Router {
 
   // ---------- APIs diretas do DSH ----------
   router.get("/dsh-apis", (_req, res) => res.json({ apis: listarDshApis() }));
+
+  router.get("/dsh-gateway", (req, res) => {
+    listarDshGateway().then(
+      (status) => res.json({ gateway: status }),
+      (err: Error) => fail(res, err),
+    );
+  });
+
+  router.post("/dsh-gateway/modelos", (_req, res) => {
+    atualizarDshGatewayModelos().then(
+      (gateway) => {
+        esquecerCache();
+        res.json({ ok: true, gateway });
+      },
+      (err: Error) => fail(res, err),
+    );
+  });
 
   router.post("/dsh-apis/modelos", (req, res) => {
     descobrirDshApiModelos({
@@ -196,7 +219,7 @@ export function createProvidersRouter(ctx: RouterContext): Router {
     try {
       const id = req.params.id;
       const modelo = String(req.body.modelo ?? "");
-      const lista = ctx.config.modelos?.[id] ?? [];
+      const lista = modelosDoCli(id);
       if (!lista.includes(modelo)) throw Error(`"${modelo}" não está no catálogo de ${id}.`);
       ctx.config.modelos![id] = [modelo, ...lista.filter((m: string) => m !== modelo)];
       for (const agente of Object.values(ctx.config.agents) as any[]) {

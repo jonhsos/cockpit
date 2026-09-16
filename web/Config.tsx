@@ -41,10 +41,12 @@ interface OnboardUIState {
 export function Config({
   onFechar,
   onMudou,
+  onAbrirDshApis,
   missionId,
 }: {
   onFechar: () => void;
   onMudou: () => void;
+  onAbrirDshApis?: () => void;
   missionId?: string;
 }) {
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -320,7 +322,8 @@ export function Config({
                         <b>{p.id}</b>
                         {p.pool && (
                           <span className={`badge-pool${p.pool.emCooldown > 0 ? " tem-cooldown" : ""}`}>
-                            Pool: {p.pool.total} contas ({p.pool.total - p.pool.ativas - p.pool.emCooldown} livres · {p.pool.ativas} em uso{p.pool.emCooldown > 0 ? ` · ${p.pool.emCooldown} cooldown` : ""})
+                            {p.backend === "dsh" ? "Pool PTY" : "Pool"}: {p.pool.total} contas ({p.pool.total - p.pool.ativas - p.pool.emCooldown} livres · {p.pool.ativas} em uso{p.pool.emCooldown > 0 ? ` · ${p.pool.emCooldown} cooldown` : ""})
+                            {p.backend === "dsh" && " · não usado pelo DSH"}
                           </span>
                         )}
                       </div>
@@ -359,6 +362,16 @@ export function Config({
                             <option value="pty">pty (Terminal CLI tradicional)</option>
                           </select>
                         </div>
+                      )}
+                      {p.id === "codex" && onAbrirDshApis && (
+                        <button
+                          type="button"
+                          className="btn quiet"
+                          style={{ alignSelf: "flex-start", marginTop: "6px", fontSize: "11px" }}
+                          onClick={onAbrirDshApis}
+                        >
+                          Configurar DSH / API
+                        </button>
                       )}
                       {testes[p.id] && (
                         <span className={`prov-teste${testes[p.id]!.ok ? " ok" : " falhou"}`}>

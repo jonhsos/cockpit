@@ -17,6 +17,7 @@ import {
   TASK_STATUSES,
   PANE_STATUSES,
 } from "./fixtures.mjs";
+import { TEST_SECRET_VALUES } from "../security-test-values.mjs";
 
 export function registerTier1Tests() {
   // F1: Sovereign Clean Bash
@@ -1125,22 +1126,22 @@ export function registerTier1Tests() {
   // F41: Secret & Credential Redaction
   setTestScope(1, "F41", "Secret & Credential Redaction");
   test("F41.1: Redacts OpenAI sk- API keys from output strings", () => {
-    const raw = "Using key sk-1234567890abcdef1234567890 for auth";
+    const raw = `Using key ${TEST_SECRET_VALUES.openAiProject} for auth`;
     const redacted = redactSecrets(raw);
     expect(redacted).toBe("Using key [REDACTED] for auth");
   });
   test("F41.2: Redacts Bearer tokens from authorization headers", () => {
-    const raw = "Authorization: Bearer secret-token-xyz123456789";
+    const raw = `Authorization: ${TEST_SECRET_VALUES.bearer}`;
     const redacted = redactSecrets(raw);
     expect(redacted).toBe("Authorization: Bearer [REDACTED]");
   });
   test("F41.3: Redacts api_key key-value parameters", () => {
-    const raw = 'api_key: "super_secret_key_123456"';
+    const raw = `api_key: "${TEST_SECRET_VALUES.custom}"`;
     const redacted = redactSecrets(raw);
     expect(redacted).toContain("[REDACTED]");
   });
   test("F41.4: Redacts password/token configurations from logs", () => {
-    const raw = 'token = "my-secret-access-token-999"';
+    const raw = `token = "${TEST_SECRET_VALUES.genericToken}"`;
     const redacted = redactSecrets(raw);
     expect(redacted).toContain("[REDACTED]");
   });

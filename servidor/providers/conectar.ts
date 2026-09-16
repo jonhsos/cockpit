@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { config, salvarConfig } from "../config.ts";
+import { config, limparModelosRuntime, modelosDoCli, salvarConfig } from "../config.ts";
 import { listarProviders, esquecerCache, type Provider } from "./providers.ts";
 
 /**
@@ -94,7 +94,7 @@ export function criarAgente(providerId: string): { id: string; label: string } {
 
   const usadas = new Set(Object.values(config.agents).map((a) => a.cor));
   const cor = CORES.find((x) => !usadas.has(x)) ?? "#7d8894";
-  const modelo = config.modelos?.[providerId]?.[0];
+  const modelo = modelosDoCli(providerId)[0];
 
   config.agents[id] = {
     label: id.toUpperCase(),
@@ -124,6 +124,7 @@ export function conectar(c: Conexao): Provider {
   config.clis[id] = { command: c.comando.trim(), ...(c.args?.length ? { args: c.args } : {}) };
   config.modelos ??= {};
   if (c.modelos && c.modelos.length > 0) config.modelos[id] = c.modelos;
+  limparModelosRuntime(id);
   salvarConfig();
   esquecerCache();
 

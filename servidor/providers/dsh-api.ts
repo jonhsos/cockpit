@@ -1,8 +1,17 @@
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
-import { config, salvarConfig, type DshApiSpec } from "../config.ts";
+import { homedir } from "node:os";
+import {
+  config,
+  definirModelosRuntime,
+  limparModelosRuntime,
+  modelosDoCli,
+  salvarConfig,
+  type DshApiSpec,
+} from "../config.ts";
 import { chaveDe, guardarChave } from "../cofre.ts";
 import { getDshRepoPath } from "../sessions/dsh-backend/dsh-availability.ts";
+import { readCodexGatewayConfig, type CodexGatewayConfig } from "./codex-config.ts";
 import type { DshApiModel } from "../config.ts";
 
 const ID = /^[a-z0-9][a-z0-9_-]{0,62}$/i;
@@ -45,11 +54,30 @@ export type DshApiStatus = {
   chaveUrl: string | null;
 };
 
+export type DshGatewayStatus = {
+  configurado: boolean;
+  provider: string | null;
+  label: string | null;
+  baseURL: string | null;
+  api: DshApiProtocol | null;
+  model: string | null;
+  chaveEnv: string | null;
+  credencialDisponivel: boolean;
+  modelos: DshApiModel[];
+  erro: string | null;
+};
+
 const specDo = (id: string): DshApiSpec | null => config.clis[id]?.dshApi ?? null;
 const cofreId = (id: string) => `dsh-api:${id}`;
 const MAX_CATALOG_MODELS = 1000;
 const MODEL_ID = /^[^\0\r\n]{1,160}$/;
 const MAX_DISCOVERY_MS = 20_000;
+const MAX_GATEWAY_SYNC_MS = 5_000;
+const GATEWAY_CATALOG_TTL_MS = 60_000;
+const GATEWAY_CATALOG_FAILURE_TTL_MS = 10_000;
+
+let gatewayCatalogCache: { modelos: DshApiModel[]; expiresAt: number } | null = null;
+let gatewayCatalogRequest: Promise<DshApiModel[]> | null = null;
 
 type DshDeepSeekModule = {
   resolveAdapterOptions: (options: { apiKeyEnv?: string }) => { models?: readonly unknown[] };
@@ -143,6 +171,13 @@ function catalogoSeguro(value: readonly unknown[]): DshApiModel[] {
   return modelos;
 }
 
+function catalogoComPadraoPrimeiro(modelos: DshApiModel[], padrao: string | undefined): DshApiModel[] {
+  if (!padrao) return modelos;
+  const indice = modelos.findIndex((modelo) => modelo.id === padrao);
+  if (indice <= 0) return modelos;
+  return [modelos[indice]!, ...modelos.slice(0, indice), ...modelos.slice(indice + 1)];
+}
+
 function validarUrl(value: string | null | undefined): string | undefined {
   const clean = value?.trim();
   if (!clean) return undefined;
@@ -160,6 +195,40 @@ function validarUrl(value: string | null | undefined): string | undefined {
   return url.toString().replace(/\/$/, "");
 }
 
+function expandirHome(value: string): string {
+  return value
+    .trim()
+    .replace(/^~(?=$|\/)/, homedir())
+    .replace(/^\$HOME(?=$|\/)/, homedir());
+}
+
+function gatewayCodexGlobal(): { home: string; gateway: CodexGatewayConfig } | null {
+  const rawHome = config.clis.codex?.env?.CODEX_HOME?.trim() || process.env.CODEX_HOME?.trim();
+  if (!rawHome) return null;
+  const home = expandirHome(rawHome);
+  const gateway = readCodexGatewayConfig(home);
+  return gateway ? { home, gateway } : null;
+}
+
+function clisComGatewayDsh(): string[] {
+  return Object.entries(config.clis)
+    .filter(([id, cli]) => cli.backend === "dsh" && !dshApiDoCli(id))
+    .map(([id]) => id);
+}
+
+const statusGatewayVazio = (erro: string | null = null): DshGatewayStatus => ({
+  configurado: false,
+  provider: null,
+  label: null,
+  baseURL: null,
+  api: null,
+  model: null,
+  chaveEnv: null,
+  credencialDisponivel: false,
+  modelos: [],
+  erro,
+});
+
 function validarDiscoveryInput(input: DshApiDiscoveryInput): { provider: string; api?: DshApiProtocol; baseURL?: string; chave?: string } {
   const provider = limparTexto(input.provider, "Rota do DSH", 100);
   if (!PROVIDER.test(provider)) throw new Error("A rota do DSH aceita letras, números, hífen e sublinhado.");
@@ -174,7 +243,7 @@ function validarDiscoveryInput(input: DshApiDiscoveryInput): { provider: string;
   return { provider, ...(api ? { api } : {}), ...(baseURL ? { baseURL } : {}), ...(chave ? { chave } : {}) };
 }
 
-async function descobrirModelosDaRota(input: DshApiDiscoveryInput): Promise<DshApiModel[]> {
+async function descobrirModelosDaRota(input: DshApiDiscoveryInput, timeoutMs = MAX_DISCOVERY_MS): Promise<DshApiModel[]> {
   const route = validarDiscoveryInput(input);
   if (route.provider === "deepseek-official" && !route.api && !route.baseURL) {
     const { deepseek } = await dshModules();
@@ -186,7 +255,7 @@ async function descobrirModelosDaRota(input: DshApiDiscoveryInput): Promise<DshA
   }
   const { piAi } = await dshModules();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), MAX_DISCOVERY_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const discovered = await piAi.discoverModels({
       baseURL: route.baseURL,
@@ -198,6 +267,113 @@ async function descobrirModelosDaRota(input: DshApiDiscoveryInput): Promise<DshA
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function listarDshGateway(discoveryTimeoutMs = MAX_DISCOVERY_MS): Promise<DshGatewayStatus> {
+  let resolved: { home: string; gateway: CodexGatewayConfig } | null;
+  try {
+    resolved = gatewayCodexGlobal();
+  } catch (error) {
+    return statusGatewayVazio(error instanceof Error ? error.message : String(error));
+  }
+  if (!resolved) {
+    return statusGatewayVazio(
+      "Nenhum gateway DSH foi encontrado no CODEX_HOME global do Cockpit.",
+    );
+  }
+
+  const { gateway } = resolved;
+  const credencial = process.env[gateway.credentialEnv] ?? "";
+  let modelos: DshApiModel[] = [];
+  let erro: string | null = null;
+  if (!credencial) {
+    erro = `falta a credencial ${gateway.credentialEnv} no ambiente do servidor`;
+  } else {
+    try {
+      modelos = catalogoComPadraoPrimeiro(await descobrirModelosDaRota({
+        provider: gateway.provider,
+        api: gateway.api,
+        baseURL: gateway.baseUrl,
+        chave: credencial,
+      }, discoveryTimeoutMs), gateway.model);
+    } catch (error) {
+      erro = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  return {
+    configurado: true,
+    provider: gateway.provider,
+    label: gateway.provider,
+    baseURL: gateway.baseUrl,
+    api: gateway.api,
+    model: gateway.model ?? null,
+    chaveEnv: gateway.credentialEnv,
+    credencialDisponivel: Boolean(credencial),
+    modelos,
+    erro,
+  };
+}
+
+/**
+ * Atualiza somente o catálogo público do Codex. A credencial nunca é salva
+ * no cockpit.json e a rotação de contas continua sendo responsabilidade do
+ * gateway configurado no CODEX_HOME global.
+ */
+export async function atualizarDshGatewayModelos(): Promise<DshGatewayStatus> {
+  invalidarCatalogoDshGateway();
+  const status = await listarDshGateway();
+  if (!status.configurado) throw new Error(status.erro ?? "Gateway DSH não configurado.");
+  if (status.modelos.length === 0) {
+    throw new Error(status.erro ?? "O gateway DSH não retornou nenhum modelo.");
+  }
+  config.clis.codex ??= { command: "codex" };
+  config.clis.codex.backend = "dsh";
+  config.modelos ??= {};
+  config.modelos.codex = catalogoComPadraoPrimeiro(status.modelos, status.model ?? undefined).map(({ id }) => id);
+  limparModelosRuntime("codex");
+  salvarConfig();
+  return status;
+}
+
+export function invalidarCatalogoDshGateway(): void {
+  gatewayCatalogCache = null;
+  for (const cli of clisComGatewayDsh()) limparModelosRuntime(cli);
+}
+
+/**
+ * Descobre o catálogo do gateway uma vez por janela curta e disponibiliza-o
+ * para as respostas do Cockpit e para o resolvedor interno de harnesses.
+ * Falhas nunca apagam o catálogo salvo: a UI continua usando o fallback.
+ */
+export async function sincronizarCatalogoDshGateway(): Promise<DshApiModel[]> {
+  if (gatewayCatalogCache && gatewayCatalogCache.expiresAt > Date.now()) {
+    return gatewayCatalogCache.modelos;
+  }
+  if (gatewayCatalogRequest) return gatewayCatalogRequest;
+
+  gatewayCatalogRequest = listarDshGateway(MAX_GATEWAY_SYNC_MS)
+    .then((status) => {
+      const modelos = status.modelos;
+      gatewayCatalogCache = {
+        modelos,
+        expiresAt: Date.now() + (modelos.length > 0 ? GATEWAY_CATALOG_TTL_MS : GATEWAY_CATALOG_FAILURE_TTL_MS),
+      };
+      if (modelos.length > 0) {
+        const ids = modelos.map(({ id }) => id);
+        for (const cli of clisComGatewayDsh()) definirModelosRuntime(cli, ids);
+      }
+      return modelos;
+    })
+    .catch(() => {
+      gatewayCatalogCache = { modelos: [], expiresAt: Date.now() + GATEWAY_CATALOG_FAILURE_TTL_MS };
+      return [];
+    })
+    .finally(() => {
+      gatewayCatalogRequest = null;
+    });
+
+  return gatewayCatalogRequest;
 }
 
 export function dshApiDoCli(id: string): DshApiSpec | null {
@@ -222,7 +398,7 @@ export function listarDshApis(): DshApiStatus[] {
     .map(([id, cli]) => {
       const spec = cli.dshApi!;
       const chave = chaveDaDshApi(id);
-      const ids = config.modelos?.[id] ?? [];
+      const ids = modelosDoCli(id);
       const modelos = spec.modelos?.length
         ? spec.modelos
         : ids.map((modelId) => ({ id: modelId, name: modelId }));
@@ -309,6 +485,7 @@ export function salvarDshApi(input: DshApiInput): DshApiStatus {
   };
   config.modelos ??= {};
   config.modelos[id] = [model, ...modelos.map(({ id: modelId }) => modelId).filter((modelId) => modelId !== model)];
+  limparModelosRuntime(id);
   const chave = limparChave(input.chave ?? "");
   if (chave || !previous) guardarChave(cofreId(id), chave);
   salvarConfig();
@@ -327,6 +504,7 @@ export function removerDshApi(id: string): void {
   if (emUso.length) throw new Error(`Não dá para remover: ${emUso.map(([agent]) => agent).join(", ")} usam esta API.`);
   delete config.clis[id];
   if (config.modelos) delete config.modelos[id];
+  limparModelosRuntime(id);
   guardarChave(cofreId(id), "");
   salvarConfig();
 }

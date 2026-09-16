@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { config, salvarConfig, type PonteSpec } from "../config.ts";
+import { config, limparModelosRuntime, modelosDoCli, salvarConfig, type PonteSpec } from "../config.ts";
 import { chaveDe, guardarChave } from "../cofre.ts";
 import { CASA } from "../state.ts";
 
@@ -238,11 +238,12 @@ export async function sincronizarModelos(id: string, forcar = true): Promise<Mod
   // essa escolha: se o modelo em uso continua existindo, ele continua na
   // frente. Sem isto, um clique em "Atualizar modelos" mudava o modelo do
   // agente por baixo do pano.
-  const atual = config.modelos?.[id]?.[0];
+  const atual = modelosDoCli(id)[0];
   if (atual && lista.includes(atual)) lista = [atual, ...lista.filter((m) => m !== atual)];
 
   config.modelos ??= {};
   config.modelos[id] = lista;
+  limparModelosRuntime(id);
 
   // Um agente apontando para um modelo que saiu do ar trava o painel na
   // primeira chamada; realinhar aqui é mais barato que descobrir lá.
@@ -290,7 +291,7 @@ export async function statusPonte(
     falta,
     chaveUrl: p.spec.chaveUrl ?? null,
     modelos,
-    modelo: config.modelos?.[id]?.[0] ?? null,
+    modelo: modelosDoCli(id)[0] ?? null,
     agentes,
     catalogoEm: catalogoLidoEm(id),
     nota: p.spec.nota ?? null,
@@ -311,7 +312,7 @@ export async function testarPonte(id: string, modeloPedido?: string): Promise<Te
   const { valor } = chaveDaPonte(id);
   if (!valor) throw new Error(`ponha a chave de ${id} antes de testar`);
 
-  const modelo = modeloPedido || config.modelos?.[id]?.[0];
+  const modelo = modeloPedido || modelosDoCli(id)[0];
   if (!modelo) throw new Error("nenhum modelo escolhido para testar");
 
   const url = `${p.spec.base_url.replace(/\/$/, "")}/responses`;

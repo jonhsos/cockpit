@@ -22,6 +22,7 @@ import {
   type RunnerId,
 } from "../web/tipos.ts";
 import { TaskManager } from "../servidor/tasks/task-manager.ts";
+import { TEST_SECRET_VALUES } from "./security-test-values.mjs";
 import {
   InvalidTaskStateTransitionError,
   UnmetTaskDependencyError,
@@ -721,7 +722,7 @@ check("4.3 ClientManager Broadcasting: Socket error tolerance and secret redacti
   const taskOutputMsg = {
     type: "output",
     paneId: "p-1",
-    data: "Running task with key: sk-ant-api03-abcdef1234567890abcdef1234567890abcdef1234567890-test12345678",
+    data: `Running task with key: ${TEST_SECRET_VALUES.anthropicApi03}`,
   };
 
   clientMgr.broadcast(taskOutputMsg);

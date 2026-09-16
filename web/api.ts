@@ -230,6 +230,19 @@ export type DshApiModel = {
   maxTokens?: number;
 };
 
+export type DshGateway = {
+  configurado: boolean;
+  provider: string | null;
+  label: string | null;
+  baseURL: string | null;
+  api: "openai-completions" | "openai-responses" | "anthropic-messages" | null;
+  model: string | null;
+  chaveEnv: string | null;
+  credencialDisponivel: boolean;
+  modelos: DshApiModel[];
+  erro: string | null;
+};
+
 export type DshApiInput = {
   id: string;
   label: string;
@@ -783,6 +796,11 @@ export const salvarBackendProvider = (id: string, backend: "pty" | "dsh") =>
   );
 
 export const fetchDshApis = () => fetch("/api/dsh-apis").then(json<{ apis: DshApi[] }>);
+
+export const fetchDshGateway = () => fetch("/api/dsh-gateway").then(json<{ gateway: DshGateway }>);
+
+export const atualizarModelosDshGateway = () =>
+  post("/api/dsh-gateway/modelos", {}).then(json<{ ok: true; gateway: DshGateway }>);
 
 export const descobrirModelosDshApi = (api: DshApiInput) =>
   post("/api/dsh-apis/modelos", api).then(json<{ ok: true; modelos: DshApiModel[] }>);

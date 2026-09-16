@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import {
   atualizarModelosDshApi,
+  atualizarModelosDshGateway,
   descobrirModelosDshApi,
+  fetchDshGateway,
   fetchDshApis,
   removerDshApi,
   salvarChaveDshApi,
   salvarDshApi,
   type DshApi,
+  type DshGateway,
   type DshApiModel,
   type DshApiInput,
 } from "./api.ts";
@@ -38,10 +41,13 @@ export function DshApis({ onMudou }: { onMudou: () => void }) {
   const [ocupado, setOcupado] = useState(false);
   const [catalogoForm, setCatalogoForm] = useState<DshApiModel[]>([]);
   const [consultando, setConsultando] = useState(false);
+  const [gateway, setGateway] = useState<DshGateway | null>(null);
+  const [gatewayConsultando, setGatewayConsultando] = useState(false);
   const consultaAtual = useRef("");
 
   const recarregar = () => fetchDshApis().then((res) => setApis(res.apis), (err: Error) => setErro(err.message));
-  useEffect(() => { void recarregar(); }, []);
+  const recarregarGateway = () => fetchDshGateway().then((res) => setGateway(res.gateway), (err: Error) => setErro(err.message));
+  useEffect(() => { void recarregar(); void recarregarGateway(); }, []);
 
   const executar = async (acao: () => Promise<void>) => {
     setOcupado(true);
@@ -109,6 +115,22 @@ export function DshApis({ onMudou }: { onMudou: () => void }) {
     setCatalogoForm([]);
   };
 
+  const atualizarGateway = async () => {
+    setGatewayConsultando(true);
+    setErro(null);
+    try {
+      const result = await atualizarModelosDshGateway();
+      setGateway(result.gateway);
+      await recarregar();
+      onMudou();
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : String(err));
+      await recarregarGateway();
+    } finally {
+      setGatewayConsultando(false);
+    }
+  };
+
   const mudarRota = (patch: Partial<DshApiInput>) => {
     consultaAtual.current = "rota-alterada";
     setForm((current) => ({ ...current, ...patch, model: "", modelos: undefined }));
@@ -119,9 +141,52 @@ export function DshApis({ onMudou }: { onMudou: () => void }) {
     <div className="wizard-corpo dsh-apis">
       {erro && <div className="aviso">{erro}<button onClick={() => setErro(null)}>✕</button></div>}
       <section className="campo-bloco dsh-api-intro">
+        <span className="rotulo">Escolha como o DSH acessa o modelo</span>
+        <p className="dica">Você pode usar a API oficial do DeepSeek com sua própria chave ou o gateway configurado no Codex. O Shell limpo continua separado e nunca recebe a chave nem o contexto do DSH.</p>
+        <p className="dica sem-margem">A configuração da API fica nesta aba. Depois, selecione o executor criado em <b>Catálogo de Papéis</b> ou use <code>codex · dsh</code> para o OmniRoute.</p>
+      </section>
+
+      <section className="campo-bloco dsh-gateway-card">
+        <div className="dsh-gateway-heading">
+          <div>
+            <span className="rotulo">DSH via OmniRoute</span>
+            <p className="dica sem-margem">Usa o <code>CODEX_HOME</code> global do Cockpit e deixa a rotação das quatro contas para o OmniRoute.</p>
+          </div>
+          <span className={`dsh-gateway-status${gateway?.configurado && gateway.credencialDisponivel && gateway.modelos.length > 0 ? " on" : ""}`}>
+            {!gateway ? "verificando…" : !gateway.configurado ? "não configurado" : gateway.credencialDisponivel && gateway.modelos.length > 0 ? "conectado" : gateway.credencialDisponivel ? "sem catálogo" : "credencial ausente"}
+          </span>
+        </div>
+        {gateway?.configurado ? (
+          <>
+            <div className="dsh-gateway-facts">
+              <span>Rota <code>{gateway.provider}</code></span>
+              <span>URL <code>{gateway.baseURL}</code></span>
+              <span>Protocolo <code>{gateway.api}</code></span>
+              <span>Modelo padrão <code>{gateway.model ?? "não definido"}</code></span>
+            </div>
+            <p className="dica dsh-gateway-note">Neste modo, o pool de contas do Cockpit não escolhe nem substitui <code>CODEX_HOME</code>. O DSH conversa com o gateway global, e o OmniRoute decide qual conta usar.</p>
+            {gateway.erro && <p className="prov-instalar">{gateway.erro}</p>}
+            {gateway.modelos.length > 0 && (
+              <div className="dsh-modelos dsh-gateway-modelos">
+                <div className="dsh-modelos-cabecalho"><span><b>Modelos fornecidos pelo OmniRoute</b><small>{gateway.modelos.length} modelos confirmados</small></span></div>
+                <ul>{gateway.modelos.map((model) => <li key={model.id}><code>{model.id}</code>{model.name && model.name !== model.id && <span>{model.name}</span>}</li>)}</ul>
+              </div>
+            )}
+            <div className="form-acoes">
+              <button type="button" className="btn solid" disabled={ocupado || gatewayConsultando} onClick={() => void atualizarGateway()}>
+                {gatewayConsultando ? "Consultando OmniRoute…" : "Atualizar catálogo do OmniRoute"}
+              </button>
+              <span className="dica sem-margem">A chave não é exibida nem gravada no Cockpit.</span>
+            </div>
+          </>
+        ) : (
+          <p className="dica sem-margem">O Cockpit procura a configuração em <code>CODEX_HOME</code>. Para ativar este modo, o Codex precisa apontar para um gateway OpenAI-compatible, como o OmniRoute.</p>
+        )}
+      </section>
+
+      <section className="campo-bloco dsh-api-intro dsh-direct-api-heading">
         <span className="rotulo">APIs diretas do DSH</span>
-        <p className="dica">Cadastre a rota e o modelo aqui. O Cockpit cifra a chave, injeta-a somente no processo do painel DSH e mantém o Shell separado. Não é necessário abrir nem configurar a interface do DSH.</p>
-        <p className="dica sem-margem">Use uma rota nativa do DSH, como <code>deepseek-official</code>, sem URL/protocolo; ou informe URL e protocolo para qualquer gateway compatível que o DSH suporte.</p>
+        <p className="dica sem-margem">Este caminho não depende do OmniRoute: a chave é cifrada no cofre local e só é entregue ao processo DSH do painel selecionado.</p>
       </section>
 
       {apis.map((api) => {

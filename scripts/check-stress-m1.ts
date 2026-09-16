@@ -28,6 +28,7 @@ import assert from "node:assert";
 import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSync, utimesSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { TEST_SECRET_VALUES } from "./security-test-values.mjs";
 import { TaskManager } from "../servidor/tasks/task-manager.ts";
 import { FileOwnershipManager } from "../servidor/tasks/file-ownership.ts";
 import {
@@ -694,7 +695,7 @@ async function testDiskStoreStress(): Promise<void> {
   mkdirSync(dotfilesDir, { recursive: true });
   const envFile = join(dotfilesDir, ".env");
   const gitignoreFile = join(dotfilesDir, ".gitignore");
-  writeFileSync(envFile, "SECRET_KEY=12345", "utf8");
+  writeFileSync(envFile, `SECRET_KEY=${TEST_SECRET_VALUES.genericToken}`, "utf8");
   writeFileSync(gitignoreFile, "node_modules\n", "utf8");
 
   // Age them 10 minutes

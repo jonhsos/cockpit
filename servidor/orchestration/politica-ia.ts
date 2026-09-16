@@ -1,4 +1,4 @@
-import { config, type ExecucaoIA, type PoliticaIA } from "../config.ts";
+import { config, modelosDoCli, type ExecucaoIA, type PoliticaIA } from "../config.ts";
 
 export function execucaoDoPapel(agent: string): ExecucaoIA | undefined {
   if (config.agents[agent]?.cli === "bash") return undefined;
@@ -11,7 +11,7 @@ export function validarPoliticaIA(value: unknown): PoliticaIA {
   const p = value as PoliticaIA;
   if (!["padrao", "unica", "dividida"].includes(p.modo)) throw Error("Modo de IA inválido.");
   const validar = (e: ExecucaoIA): ExecucaoIA => {
-    if (!e || !config.clis[e.cli] || !config.modelos?.[e.cli]?.includes(e.model) || !config.efforts?.[e.cli]?.includes(e.effort)) throw Error("Provedor, modelo ou esforço inválido.");
+    if (!e || !config.clis[e.cli] || !modelosDoCli(e.cli).includes(e.model) || !config.efforts?.[e.cli]?.includes(e.effort)) throw Error("Provedor, modelo ou esforço inválido.");
     return { cli: e.cli, model: e.model, effort: e.effort };
   };
   if (p.modo === "unica") return { modo: p.modo, unica: validar(p.unica!) };

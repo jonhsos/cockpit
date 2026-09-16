@@ -142,6 +142,39 @@
           }
         }
       ]
+    },
+    "deepseek": {
+      "command": "codex",
+      "familia": "codex",
+      "backend": "dsh",
+      "dshApi": {
+        "provider": "deepseek-official",
+        "label": "DeepSeek API",
+        "chaveEnv": "COCKPIT_DSH_DEEPSEEK_API_KEY",
+        "chaveUrl": "https://platform.deepseek.com/api_keys",
+        "modelos": [
+          {
+            "id": "deepseek-flash",
+            "name": "DeepSeek-V41-Flash",
+            "contextWindow": 1000000
+          },
+          {
+            "id": "deepseek-v4-flash",
+            "name": "DeepSeek-V4-Flash",
+            "contextWindow": 1000000
+          },
+          {
+            "id": "deepseek-v4-pro",
+            "name": "DeepSeek-V4-Pro",
+            "contextWindow": 1000000
+          },
+          {
+            "id": "deepseek-v4-flash-vision-exp",
+            "name": "DeepSeek-V4-Flash-Vision-Exp",
+            "contextWindow": 1000000
+          }
+        ]
+      }
     }
   },
   "modelos": {
@@ -190,6 +223,12 @@
     "grok": [
       "grok-4.6",
       "grok-4.5"
+    ],
+    "deepseek": [
+      "deepseek-flash",
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "deepseek-v4-flash-vision-exp"
     ]
   },
   "agents": {
@@ -316,6 +355,13 @@
       "cli": "agy",
       "model": "gemini-3.8-flash-high",
       "papel": "Você roda pelo CLI agy. Faça o que for pedido no seu painel."
+    },
+    "deepseek": {
+      "label": "DEEPSEEK",
+      "cor": "#7d8894",
+      "cli": "deepseek",
+      "model": "deepseek-flash",
+      "papel": "Você roda pelo CLI deepseek. Faça o que for pedido no seu painel."
     }
   },
   "squads": {

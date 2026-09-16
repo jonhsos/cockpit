@@ -126,7 +126,8 @@ export function RoleCatalog({
     return [...new Set((selectedProvider?.modelos ?? []).map((model) => model.trim()).filter(Boolean))];
   }, [pontes, selectedProvider, selectedRunner]);
   const availableEfforts = selectedProvider?.efforts?.length ? selectedProvider.efforts : FALLBACK_EFFORTS;
-  const contasPool = selectedProvider?.pool?.contas ?? [];
+  const poolDoCockpitAtivo = selectedBackend === "pty";
+  const contasPool = poolDoCockpitAtivo ? selectedProvider?.pool?.contas ?? [] : [];
   const contasElegiveis = contasPool.filter((account) => account.status === "livre" && account.authenticated !== false);
   const contasNaoAutenticadas = contasPool.filter((account) => account.authenticated === false);
   const aiDisponivel = (runner: RunnerId) => {
@@ -301,6 +302,7 @@ export function RoleCatalog({
         <section className="catalog-step" aria-label="Revisão da configuração">
           <div className="step-header"><h3>Revise antes de abrir</h3><p>O contrato de {currentRole.label} será aplicado no backend a cada sessão de IA.</p></div>
           <div className="launch-summary"><div><span>Papel</span><b>{currentRole.label}</b><small>{currentRole.outcome}</small></div><div><span>Executor</span><b>{selectedRunner.toUpperCase()} · {selectedBackend.toUpperCase()}</b><small>O executor não redefine responsabilidades.</small></div></div>
+          {selectedBackend === "dsh" && <p className="dica dsh-role-note">Este painel usa o DSH. O pool de contas do Cockpit fica reservado ao PTY tradicional; no gateway, a rotação pertence ao provedor configurado.</p>}
           <label className="campo-bloco"><span className="rotulo">Modelo <em>opcional; vazio usa o padrão real do executor</em></span><select className="campo" value={selectedModel} onChange={(event) => { setSelectedModel(event.target.value); setCustomModel(""); }}><option value="">Padrão do executor</option>{availableModels.map((model) => <option key={model} value={model}>{model}</option>)}</select></label>
           <label className="campo-bloco"><span className="rotulo">Ou informar um modelo</span><input className="campo" value={customModel} onChange={(event) => setCustomModel(event.target.value)} placeholder="somente se o executor aceitar" maxLength={160} /></label>
           <label className="campo-bloco"><span className="rotulo">Esforço</span><select className="campo" value={selectedEffort} onChange={(event) => setSelectedEffort(event.target.value)}><option value="">Padrão do provedor</option>{availableEfforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></label>

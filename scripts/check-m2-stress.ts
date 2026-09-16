@@ -28,6 +28,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync, unlinkSync, rmSync, mkdirSync } from "node:fs";
 import net from "node:net";
+import { TEST_SECRET_VALUES } from "./security-test-values.mjs";
 import {
   RingBuffer,
   PtyHost,
@@ -145,7 +146,7 @@ async function testSuiteCleanBashInvariants(): Promise<void> {
     CLAUDE_CODE_ENTRYPOINT: "1",
     CLAUDECODE: "1",
     COCKPIT_MAESTRO_BRIDGE: "/tmp/fake-bridge.ts",
-    COCKPIT_MAESTRO_TOKEN: "secret-token-123",
+    COCKPIT_MAESTRO_TOKEN: TEST_SECRET_VALUES.genericToken,
     COCKPIT_TASK: "Injected task text",
     COCKPIT_PROMPT: "Injected system prompt",
     COCKPIT_INSTRUCTION: "You must follow instructions",

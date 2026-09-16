@@ -17,6 +17,7 @@ import {
   TASK_STATUSES,
   PANE_STATUSES,
 } from "./fixtures.mjs";
+import { TEST_SECRET_VALUES } from "../security-test-values.mjs";
 
 export function registerTier2Tests() {
   // F1: Sovereign Clean Bash (Boundaries)
@@ -1251,7 +1252,7 @@ export function registerTier2Tests() {
     expect(filtered).toHaveLength(1);
   });
   test("F40.b5: Sensitive parameters in audit log are sanitized", () => {
-    const entry = { token: "secret-token-123456789" };
+    const entry = { token: TEST_SECRET_VALUES.genericToken };
     const sanitized = { token: redactSecrets(entry.token) };
     expect(sanitized.token).not.toContain("secret-token");
   });
@@ -1260,12 +1261,12 @@ export function registerTier2Tests() {
   setTestScope(2, "F41", "Secret & Credential Redaction (Boundaries)");
   test("F41.b1: Token split across chunk boundary is sanitized when buffered", () => {
     const chunk1 = "Authorization: Bearer sk-";
-    const chunk2 = "1234567890abcdef12345678";
+    const chunk2 = TEST_SECRET_VALUES.openAiProject.slice(3);
     const combined = chunk1 + chunk2;
     expect(redactSecrets(combined)).toContain("[REDACTED]");
   });
   test("F41.b2: Multiple secrets on single line are all redacted", () => {
-    const line = "sk-11111111111111111111 and sk-22222222222222222222";
+    const line = `${TEST_SECRET_VALUES.openAiProject} and ${TEST_SECRET_VALUES.openAiAdmin}`;
     const redacted = redactSecrets(line);
     expect(redacted).toBe("[REDACTED] and [REDACTED]");
   });
@@ -1278,7 +1279,7 @@ export function registerTier2Tests() {
     expect(redactSecrets(undefined)).toBe(undefined);
   });
   test("F41.b5: Extremely long string with secrets sanitized in linear time", () => {
-    const longStr = "prefix " + "a".repeat(10000) + " sk-123456789012345678901234 " + "b".repeat(10000);
+    const longStr = `prefix ${"a".repeat(10000)} ${TEST_SECRET_VALUES.openAiProject} ${"b".repeat(10000)}`;
     const res = redactSecrets(longStr);
     expect(res).toContain("[REDACTED]");
   });
@@ -1570,7 +1571,7 @@ export function registerTier2Tests() {
   // F53: Modular Security Directory (Boundaries)
   setTestScope(2, "F53", "Modular Security Directory (Boundaries)");
   test("F53.b1: Overlapping secret patterns sanitized safely", () => {
-    const text = "Bearer sk-1234567890abcdef12345678";
+    const text = `Bearer ${TEST_SECRET_VALUES.openAiProject}`;
     const res = redactSecrets(text);
     expect(res).toBe("Bearer [REDACTED]");
   });
@@ -1590,7 +1591,7 @@ export function registerTier2Tests() {
     expect(redactSecrets(null)).toBe(null);
   });
   test("F53.b5: Long string with multiple secrets sanitized in linear time", () => {
-    const input = "Bearer token-12345678901234567890 and Bearer token-98765432109876543210";
+    const input = `Bearer ${TEST_SECRET_VALUES.genericToken} and Bearer ${TEST_SECRET_VALUES.genericToken}`;
     const out = redactSecrets(input);
     expect(out).toBe("Bearer [REDACTED] and Bearer [REDACTED]");
   });

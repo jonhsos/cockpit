@@ -24,6 +24,7 @@ import { InterAgentBridge, type PaneInfo } from "../servidor/connections/inter-a
 import { MissionModeManager } from "../servidor/orchestration/mission-modes.ts";
 import { PaneDispatcher } from "../servidor/orchestration/pane-dispatcher.ts";
 import { config } from "../servidor/config.ts";
+import { TEST_SECRET_VALUES } from "./security-test-values.mjs";
 
 console.log("===============================================================================");
 console.log("EMPIRICAL ADVERSARIAL CHALLENGER 2: Milestone M4 Verification Suite");
@@ -315,7 +316,7 @@ async function runAdversarialM4Suite(): Promise<void> {
     // 2.1 Secret Redaction in Real-Time WebSocket Output Broadcast
     console.log("  2.1 Verifying real-time secret sanitization in output broadcasts...");
     const secretOutput =
-      "Connected! Anthropic key: sk-ant-api03-abcdef1234567890abcdef1234567890, OpenAI key: sk-proj-1234567890abcdefghijklmnopqrstuvwxyz";
+      `Connected! Anthropic key: ${TEST_SECRET_VALUES.anthropicApi03}, OpenAI key: ${TEST_SECRET_VALUES.openAiProject}`;
     wsApp.broadcast({ type: "output", paneId: "p-sec", data: secretOutput });
 
     await new Promise((r) => setTimeout(r, 50));

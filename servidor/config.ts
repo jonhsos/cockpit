@@ -303,6 +303,30 @@ export const ler = (): CockpitConfig => {
  */
 export const config: CockpitConfig = ler();
 
+const modelosRuntime: Record<string, string[]> = {};
+
+/**
+ * Catálogos descobertos durante a execução não são configuração persistente.
+ * Isto permite que o gateway atualize a UI e as validações sem transformar
+ * uma simples abertura do Cockpit em uma gravação de catálogo possivelmente
+ * grande e já desatualizado no cockpit.json.
+ */
+export function modelosDoCli(id: string): string[] {
+  return modelosRuntime[id] ?? config.modelos?.[id] ?? [];
+}
+
+export function definirModelosRuntime(id: string, modelos: string[]): void {
+  modelosRuntime[id] = [...modelos];
+}
+
+export function limparModelosRuntime(id?: string): void {
+  if (id) {
+    delete modelosRuntime[id];
+    return;
+  }
+  for (const key of Object.keys(modelosRuntime)) delete modelosRuntime[key];
+}
+
 export function salvarConfig(): void {
   writeFileSync(ARQUIVO, JSON.stringify(config, null, 2) + "\n", "utf8");
 }
@@ -312,4 +336,5 @@ export function recarregarConfig(): void {
   const alvo = config as unknown as Record<string, unknown>;
   for (const k of Object.keys(alvo)) delete alvo[k];
   Object.assign(alvo, novo);
+  limparModelosRuntime();
 }

@@ -1,7 +1,8 @@
 import { Router } from "express";
 import type { RouterContext } from "./types.ts";
 import { validarPoliticaIA } from "../orchestration/politica-ia.ts";
-import { listarProviders } from "../providers/providers.ts";
+import { modelosDoCli } from "../config.ts";
+import { listarProvidersAtualizados } from "../providers/providers.ts";
 import { listarReceitas } from "../orchestration/receitas.ts";
 import { tiposDeTarefa } from "../orchestration/harness.ts";
 
@@ -11,12 +12,13 @@ export function createConfigRouter(ctx: RouterContext): Router {
   const fail = (res: any, err: unknown) =>
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
 
-  router.get("/config", (_req, res) => {
+  router.get("/config", async (_req, res) => {
+    const providers = await listarProvidersAtualizados();
     res.json({
       agents: ctx.config.agents,
       squads: ctx.config.squads,
       tarefas: tiposDeTarefa(),
-      providers: listarProviders(),
+      providers,
       receitas: listarReceitas(),
       autoAprovar: ctx.config.autoAprovar !== false,
     });
@@ -32,11 +34,12 @@ export function createConfigRouter(ctx: RouterContext): Router {
     }
   });
 
-  router.get("/politica-ia", (_req, res) => {
+  router.get("/politica-ia", async (_req, res) => {
+    const providers = await listarProvidersAtualizados();
     res.json({
       politica: ctx.config.politicaIA ?? { modo: "padrao" },
       agents: ctx.config.agents,
-      providers: listarProviders(),
+      providers,
     });
   });
 
@@ -67,7 +70,7 @@ export function createConfigRouter(ctx: RouterContext): Router {
       if (!presets[cli]) throw Error("Provedor inválido.");
       const model = String(req.body.model ?? presets[cli].model);
       const effort = String(req.body.effort ?? presets[cli].effort);
-      if (!ctx.config.modelos?.[cli]?.includes(model) || !ctx.config.efforts?.[cli]?.includes(effort)) {
+      if (!modelosDoCli(cli).includes(model) || !ctx.config.efforts?.[cli]?.includes(effort)) {
         throw Error("Modelo ou esforço inválido para o provedor.");
       }
       ctx.config.agents.maestro = { ...ctx.config.agents.maestro!, cli, model, effort, maestro: true };
