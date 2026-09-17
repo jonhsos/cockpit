@@ -140,6 +140,11 @@ ok(
   roleCatalogSrc.includes("Automático (pool escolhe)"),
   "seleção de conta inclui opção Automático"
 );
+ok(
+  roleCatalogSrc.includes('account.status !== "cooldown"') &&
+    roleCatalogSrc.includes('account.status === "ocupada" ? " · em uso"'),
+  "contas autenticadas em uso continuam na lista para reuso entre agentes"
+);
 
 const novaMissaoSrc = readFileSync(resolve("web/NovaMissao.tsx"), "utf8");
 ok(
