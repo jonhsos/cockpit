@@ -264,10 +264,9 @@ export function Pane({
         return false;
       }
       if (atalhoDeColar(ev)) {
-        void navigator.clipboard.readText().then((texto) => {
-          if (texto) term.paste(texto);
-        }).catch(() => {});
-        return false;
+        // Deixa o evento nativo `paste` (clipboardData) seguir — é o único
+        // caminho confiável quando o navegador nega clipboard.readText.
+        return true;
       }
       return true;
     });
@@ -281,36 +280,30 @@ export function Pane({
       const texto = ev.clipboardData?.getData("text/plain");
       if (!texto) return;
       ev.preventDefault();
+      ev.stopPropagation();
       colarNoXtermRef.current(texto);
     };
     const aoMenu = (ev: MouseEvent) => {
       ev.preventDefault();
       ev.stopPropagation();
       const temSelecao = term.hasSelection();
-      void colarTexto().then((texto) => {
+      // readText no mesmo gesto do clique direito; se o browser negar,
+      // abre Copiar/Colar em vez de fingir que colou.
+      const tentativa = navigator.clipboard.readText();
+      void tentativa.then((texto) => {
         if (texto) {
           colarNoXtermRef.current(texto);
           setMenuClip(null);
           return;
         }
         setMenuClip({ x: ev.clientX, y: ev.clientY, temSelecao });
+      }).catch(() => {
+        setMenuClip({ x: ev.clientX, y: ev.clientY, temSelecao });
       });
-    };
-    const aoMeio = (ev: MouseEvent) => {
-      if (ev.button !== 1) return;
-      ev.preventDefault();
-      void colarTexto().then((texto) => {
-        if (texto) colarNoXtermRef.current(texto);
-      });
-    };
-    const aoSelecao = () => {
-      if (term.hasSelection()) void copiarTexto(term.getSelection());
     };
     area.addEventListener("copy", aoCopiar);
     area.addEventListener("paste", aoColar);
     area.addEventListener("contextmenu", aoMenu, true);
-    area.addEventListener("auxclick", aoMeio);
-    term.onSelectionChange(aoSelecao);
 
     term.attachCustomWheelEventHandler((ev) => {
       ev.stopPropagation();
@@ -364,7 +357,6 @@ export function Pane({
       area.removeEventListener("copy", aoCopiar);
       area.removeEventListener("paste", aoColar);
       area.removeEventListener("contextmenu", aoMenu, true);
-      area.removeEventListener("auxclick", aoMeio);
       term.dispose();
       terminal.current = null;
       fitter.current = null;
@@ -483,6 +475,16 @@ export function Pane({
         if (!onArrastoSoltar || emFoco) return;
         event.preventDefault();
         onArrastoSoltar(pane.paneId);
+      }}
+      onPaste={(event) => {
+        const texto = event.clipboardData?.getData("text/plain");
+        if (!texto) return;
+        const alvo = event.target as HTMLElement | null;
+        if (alvo && (alvo.tagName === "TEXTAREA" || alvo.tagName === "INPUT") && alvo.closest(".pane-dsh-prompt")) {
+          return;
+        }
+        event.preventDefault();
+        colarNoXtermRef.current(texto);
       }}
       hidden={!visible || minimizado}
       data-pane-id={pane.paneId}

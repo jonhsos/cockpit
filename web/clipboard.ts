@@ -40,7 +40,7 @@ export function atalhoDeCopiar(event: Tecla): boolean {
 export function atalhoDeColar(event: Tecla): boolean {
   const ctrl = event.ctrlKey || event.metaKey;
   if (event.key === "Insert" && event.shiftKey && !ctrl && !event.altKey) return true;
-  if (ctrl && event.shiftKey && event.key.toLowerCase() === "v" && !event.altKey) return true;
+  if (ctrl && event.key.toLowerCase() === "v" && !event.altKey) return true;
   return false;
 }
 

@@ -15,7 +15,7 @@ assert.equal(atalhoDeCopiar(tecla({ key: "c", ctrlKey: true, altKey: true })), f
 
 assert.equal(atalhoDeColar(tecla({ key: "v", ctrlKey: true, shiftKey: true })), true);
 assert.equal(atalhoDeColar(tecla({ key: "Insert", shiftKey: true })), true);
-assert.equal(atalhoDeColar(tecla({ key: "v", ctrlKey: true })), false);
+assert.equal(atalhoDeColar(tecla({ key: "v", ctrlKey: true })), true);
 
 assert.equal(typeof copiarTexto, "function");
 assert.equal(typeof colarTexto, "function");
