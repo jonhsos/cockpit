@@ -81,6 +81,7 @@ export function Pane({
   onArrastoSobre,
   onArrastoSoltar,
   onArrastoFim,
+  onSelect,
 }: {
   pane: PaneState;
   spec: AgentSpec | undefined;
@@ -116,6 +117,7 @@ export function Pane({
   onArrastoSobre?: (paneId: string, depois: boolean) => void;
   onArrastoSoltar?: (paneId: string) => void;
   onArrastoFim?: () => void;
+  onSelect?: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const caixa = useRef<HTMLElement>(null);
@@ -249,9 +251,27 @@ export function Pane({
       if (isDshRef.current) return;
       send({ type: "input", paneId: pane.paneId, data });
     });
-    term.onResize(({ cols, rows }) =>
-      send({ type: "resize", paneId: pane.paneId, cols, rows }),
-    );
+
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    term.onResize(({ cols, rows }) => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        send({ type: "resize", paneId: pane.paneId, cols, rows });
+      }, 120);
+    });
+
+    const safeFit = () => {
+      if (cancelled || !terminal.current || !fitter.current || !host.current) return;
+      if (host.current.clientHeight <= 0 || host.current.clientWidth <= 0) return;
+      try {
+        const dims = fitter.current.proposeDimensions();
+        if (!dims || !dims.cols || !dims.rows || isNaN(dims.cols) || isNaN(dims.rows)) return;
+        if (dims.cols === terminal.current.cols && dims.rows === terminal.current.rows) return;
+        fitter.current.fit();
+      } catch {
+        // Ignora medições transitórias
+      }
+    };
 
     // Roda: não deixa a grade roubar o evento. No buffer normal o xterm
     // rola o scrollback. No alternativo (TUI): se há mouse tracking, o
@@ -341,17 +361,24 @@ export function Pane({
       const late = takeBufferedOutput(pane.paneId);
       for (const chunk of late) terminal.current.write(chunk);
       offOutput = onOutput(pane.paneId, (data) => terminal.current?.write(data));
-      if (area.clientHeight > 0 && area.clientWidth > 0) fit.fit();
+      if (area.clientHeight > 0 && area.clientWidth > 0) safeFit();
     })();
 
+    let rafId: number | null = null;
     const observer = new ResizeObserver(() => {
-      if (area.clientHeight > 0 && area.clientWidth > 0) fit.fit();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        safeFit();
+      });
     });
     observer.observe(area);
-    if (area.clientHeight > 0 && area.clientWidth > 0) fit.fit();
+    if (area.clientHeight > 0 && area.clientWidth > 0) safeFit();
 
     return () => {
       cancelled = true;
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      if (resizeTimer) clearTimeout(resizeTimer);
       observer.disconnect();
       offOutput?.();
       area.removeEventListener("copy", aoCopiar);
@@ -405,12 +432,19 @@ export function Pane({
     if (!visible || minimizado) return;
     const frame = requestAnimationFrame(() => {
       if (host.current && host.current.clientWidth > 0 && host.current.clientHeight > 0) {
-        fitter.current?.fit();
-        if (selecionado) terminal.current?.focus();
+        if (!terminal.current || !fitter.current) return;
+        try {
+          const dims = fitter.current.proposeDimensions();
+          if (dims && dims.cols && dims.rows && (dims.cols !== terminal.current.cols || dims.rows !== terminal.current.rows)) {
+            fitter.current.fit();
+          }
+        } catch {
+          // Ignora medições transitórias
+        }
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [visible, selecionado, minimizado, layoutEpoch, gridColumn, emFoco]);
+  }, [visible, minimizado, layoutEpoch, gridColumn, emFoco]);
 
   // Find active task for this pane
   const taskAtiva =
@@ -462,6 +496,7 @@ export function Pane({
       className={`pane${selecionado ? " selecionado" : ""}${emFoco ? " em-foco" : ""}${telaCheia ? " tela-cheia" : ""}${
         menuPapelAberto || detalhesAberto || menuClip ? " popover-aberto" : ""
       }${arrastando ? " arrastando" : ""}${alvoSoltar === "antes" ? " alvo-antes" : ""}${alvoSoltar === "depois" ? " alvo-depois" : ""}`}
+      onPointerDown={() => onSelect?.()}
       onDragOver={(event) => {
         if (!onArrastoSobre || emFoco) return;
         event.preventDefault();

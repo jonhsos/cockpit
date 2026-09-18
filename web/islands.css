@@ -323,15 +323,31 @@ button, summary { -webkit-tap-highlight-color: transparent; }
 .pane-term {
   flex: 1;
   min-height: 0;
-  padding: 4px 4px 4px 10px;
+  padding: 0;
   overflow: hidden;
   position: relative;
   overscroll-behavior: contain;
 }
-.pane-term .xterm { height: 100%; width: 100%; }
+.pane-term .xterm {
+  height: 100%;
+  width: 100%;
+  padding: 4px 6px 4px 8px;
+  box-sizing: border-box;
+}
 .pane-term .xterm-viewport {
-  overflow-y: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: #565656 transparent;
   overscroll-behavior: contain;
+}
+.pane-term .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+.pane-term .xterm-viewport::-webkit-scrollbar-thumb {
+  background: #565656;
+  border-radius: 4px;
+}
+.pane-term .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
 }
 .pane-term .xterm-screen { overflow: hidden; }
 
@@ -833,11 +849,18 @@ select.stage-mode-select:hover { border-color: #58a6ff; }
 }
 .pane-head-badges {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
   min-width: 0;
   width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.pane-head-badges::-webkit-scrollbar {
+  display: none;
 }
 .pane-head-actions {
   display: flex;

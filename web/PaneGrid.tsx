@@ -179,6 +179,7 @@ export function PaneGrid({
               visible={p.missionId === missionId}
               minimizado={minimizados.has(p.paneId)}
               selecionado={p.paneId === selectedId}
+              onSelect={() => onSelectPane?.(p.paneId)}
               temMaestroNaMissao={temMaestroNaMissao}
               connections={connections}
               tasks={tasks}

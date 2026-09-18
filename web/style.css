@@ -441,13 +441,33 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .pane-term {
   flex: 1;
   min-height: 0;
-  padding: 6px 0 0 10px;
+  padding: 0;
   overflow: hidden;
   position: relative;
   overscroll-behavior: contain;
 }
-.pane-term .xterm { height: 100%; width: 100%; }
-.pane-term .xterm-viewport { overflow-y: auto !important; }
+.pane-term .xterm {
+  height: 100%;
+  width: 100%;
+  padding: 4px 6px 4px 8px;
+  box-sizing: border-box;
+}
+.pane-term .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: #565656 transparent;
+  overscroll-behavior: contain;
+}
+.pane-term .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+.pane-term .xterm-viewport::-webkit-scrollbar-thumb {
+  background: #565656;
+  border-radius: 4px;
+}
+.pane-term .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.pane-term .xterm-screen { overflow: hidden; }
 
 /* ==========================================================================
    6. EDITOR
@@ -1413,6 +1433,7 @@ svg { flex-shrink: 0; vertical-align: middle; }
   grid-auto-rows: minmax(280px, 1fr);
   overflow: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   flex: 1;
   min-height: 0;
 }
@@ -1445,7 +1466,7 @@ svg { flex-shrink: 0; vertical-align: middle; }
 .pane:hover .fechar, .pane:focus-within .fechar { opacity: 1; }
 .pane-head .fechar:hover { color: var(--alerta); background: none; }
 
-.pane-term { padding: 3px 4px 4px 7px; }
+.pane-term { padding: 0; }
 
 /* ---- editor ---- */
 
