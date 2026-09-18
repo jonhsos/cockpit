@@ -3,6 +3,7 @@ import type { RouterContext } from "./types.ts";
 import { modelosDoCli, parseCliBackend } from "../config.ts";
 import { resolverHarness, type Pedido } from "../orchestration/harness.ts";
 import { listarProviders, listarProvidersAtualizados, esquecerCache } from "../providers/providers.ts";
+import { sincronizarModelosAgy } from "../providers/agy.ts";
 import { conectar, desconectar, criarAgente, testar, PRESETS, type Conexao } from "../providers/conectar.ts";
 import {
   listarPontes,
@@ -48,6 +49,11 @@ export function createProvidersRouter(ctx: RouterContext): Router {
     if (req.query.rescan === "1") {
       esquecerCache();
       invalidarCatalogoDshGateway();
+      try {
+        sincronizarModelosAgy();
+      } catch {
+        // CLI agy não disponível
+      }
     }
     res.json({ providers: await listarProvidersAtualizados(), presets: PRESETS, autoAprovar: ctx.config.autoAprovar !== false });
   });

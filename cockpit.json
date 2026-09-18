@@ -186,9 +186,17 @@
     "agy": [
       "gemini-3.8-flash-high",
       "gemini-3.8-flash-medium",
+      "gemini-3.8-flash-low",
+      "gemini-3.7-flash-high",
+      "gemini-3.7-flash-medium",
+      "gemini-3.7-flash-low",
+      "gemini-3.6-flash-high",
+      "gemini-3.6-flash-medium",
+      "gemini-3.6-flash-low",
       "gemini-3.1-pro-high",
-      "claude-opus-4-6-thinking",
+      "gemini-3.1-pro-low",
       "claude-sonnet-4-6",
+      "claude-opus-4-6-thinking",
       "gpt-oss-120b-medium"
     ],
     "codex": [
@@ -543,7 +551,7 @@
       "cacheRead": 0.1
     }
   },
-  "instrucoesGerais": "Nesta máquina NÃO existe API key do Gemini nem do Google AI — não tente usar GEMINI_API_KEY, @google/generative-ai ou chamadas HTTP à API do Gemini, porque vão falhar. O Gemini está disponível apenas pelo CLI `agy` (Antigravity), já autenticado. Use pelo terminal: `agy --model <modelo> -p \"seu pedido\"` para uma resposta única. Modelos: gemini-3.1-pro-high (raciocínio longo e imagens), gemini-3.8-flash-high (rápido), claude-opus-4-6-thinking, claude-sonnet-4-6, gpt-oss-120b-medium. Para gerar ou analisar imagens, o caminho é o `agy` com um modelo Gemini. Nesta máquina, site, front-end, layout e aparência de interface são trabalho do Claude e do GPT (Codex), decididos e escritos em código. O Gemini entra apenas para produzir os ARQUIVOS DE IMAGEM que vão dentro do produto — foto, ilustração, ícone, textura, render de objeto — e para descrever imagens. Ele não desenha telas, não propõe layout e não faz mockup de interface.",
+  "instrucoesGerais": "Nesta máquina NÃO existe API key do Gemini nem do Google AI — não tente usar GEMINI_API_KEY, @google/generative-ai ou chamadas HTTP à API do Gemini, porque vão falhar. O Gemini está disponível apenas pelo CLI `agy` (Antigravity), já autenticado. Use pelo terminal: `agy --model <modelo> -p \"seu pedido\"` para uma resposta única. Modelos: gemini-3.1-pro-high (raciocínio longo e imagens), gemini-3.8-flash-high (rápido), gemini-3.7-flash-high, claude-opus-4-6-thinking, claude-sonnet-4-6, gpt-oss-120b-medium. Para gerar ou analisar imagens, o caminho é o `agy` com um modelo Gemini. Nesta máquina, site, front-end, layout e aparência de interface são trabalho do Claude e do GPT (Codex), decididos e escritos em código. O Gemini entra apenas para produzir os ARQUIVOS DE IMAGEM que vão dentro do produto — foto, ilustração, ícone, textura, render de objeto — e para descrever imagens. Ele não desenha telas, não propõe layout e não faz mockup de interface.",
   "harness": {
     "tipos": {
       "mecanico": {

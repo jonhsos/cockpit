@@ -8,7 +8,7 @@ function Escolha({ value, providers, onChange }: { value: Execucao; providers: P
   const provider = providers.find(p => p.id === value.cli);
   return <div className="cartas">
     <label>Provedor<select className="campo" value={value.cli} onChange={e => { const p = providers.find(p => p.id === e.target.value)!; onChange({ cli: p.id, model: p.modelos[0]!, effort: p.efforts?.includes("high") ? "high" : p.efforts?.[0] ?? "high" }); }}>{providers.map(p => <option key={p.id} value={p.id}>{p.id}{p.disponivel ? "" : " (indisponível)"}</option>)}</select></label>
-    <label>Modelo<select className="campo" value={value.model} onChange={e => onChange({ ...value, model: e.target.value })}>{provider?.modelos.map(m => <option key={m}>{m}</option>)}</select></label>
+    <label>Modelo<select className="campo" value={value.model} onChange={e => onChange({ ...value, model: e.target.value })}>{provider?.modelos.map(m => { const label = provider.nomesModelos?.[m]; return <option key={m} value={m}>{label && label !== m ? `${label} (${m})` : m}</option>; })}</select></label>
     <label>Esforço<select className="campo" value={value.effort} onChange={e => onChange({ ...value, effort: e.target.value })}>{(provider?.efforts ?? ["low", "medium", "high"]).map(e => <option key={e}>{e}</option>)}</select></label>
   </div>;
 }

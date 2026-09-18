@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { accessSync, constants, statSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { config, modelosDoCli } from "../config.ts";
@@ -15,6 +15,7 @@ import { chaveDaDshApi, dshApiDoCli, sincronizarCatalogoDshGateway } from "./dsh
  */
 
 import { accountPool, type AccountPoolView } from "./account-pool.ts";
+import { obterMapaModelosAgy, sincronizarModelosAgy } from "./agy.ts";
 
 export type Provider = {
   id: string;
@@ -23,6 +24,8 @@ export type Provider = {
   disponivel: boolean;
   caminho: string | null;
   modelos: string[];
+  /** Nomes de exibição amigáveis dos modelos (id -> label legível) */
+  nomesModelos?: Record<string, string>;
   /** Níveis de esforço aceitos — a tela precisa para fixar um. */
   efforts: string[];
   agentes: string[];
@@ -46,6 +49,83 @@ const COMO_INSTALAR: Record<string, string> = {
   codex: "npm i -g @openai/codex",
   grok: "curl -sSfL https://x.ai/grok/install.sh | sh",
 };
+
+const CODEX_MODELOS_PADRAO: Record<string, string> = {
+  "gpt-6-astra": "GPT-6 Astra",
+  "gpt-reserve": "GPT-Reserve",
+  "gpt-5.6-sol": "GPT-5.6 Sol",
+  "gpt-5.6-terra": "GPT-5.6 Terra",
+  "gpt-5.6-luna": "GPT-5.6 Luna",
+  "gpt-5.5": "GPT-5.5",
+  "codex-auto-review": "Codex Auto Review",
+};
+
+export function obterMapaModelosCodex(): Record<string, string> {
+  const res: Record<string, string> = { ...CODEX_MODELOS_PADRAO };
+  try {
+    const cachePath = join(homedir(), ".codex", "models_cache.json");
+    if (existsSync(cachePath)) {
+      const data = JSON.parse(readFileSync(cachePath, "utf8"));
+      if (Array.isArray(data.models)) {
+        for (const m of data.models) {
+          const id = m.id || m.slug;
+          const name = m.name || m.display_name || m.title;
+          if (id && name) res[id] = name;
+        }
+      }
+    }
+  } catch {
+    // Sem cache
+  }
+  return res;
+}
+
+const GROK_MODELOS_PADRAO: Record<string, string> = {
+  "grok-4.6": "Grok 4.6",
+  "grok-4.5": "Grok 4.5",
+};
+
+export function obterMapaModelosGrok(): Record<string, string> {
+  const res: Record<string, string> = { ...GROK_MODELOS_PADRAO };
+  try {
+    const cachePath = join(homedir(), ".grok", "models_cache.json");
+    if (existsSync(cachePath)) {
+      const data = JSON.parse(readFileSync(cachePath, "utf8"));
+      if (data.models && typeof data.models === "object") {
+        for (const [id, item] of Object.entries<any>(data.models)) {
+          const name = item?.info?.name || item?.name;
+          if (id && name) res[id] = name;
+        }
+      }
+    }
+  } catch {
+    // Sem cache
+  }
+  return res;
+}
+
+const CLAUDE_MODELOS_PADRAO: Record<string, string> = {
+  "opus": "Claude Opus (Claude 3.7 / 4)",
+  "sonnet": "Claude Sonnet (Claude 3.7)",
+  "haiku": "Claude Haiku",
+  "claude-opus-4-6-thinking": "Claude Opus 4.6 (Thinking)",
+  "claude-sonnet-4-6": "Claude Sonnet 4.6",
+};
+
+export function obterMapaModelos(id: string, spec: (typeof config.clis)[string]): Record<string, string> | undefined {
+  if (id === "agy") return obterMapaModelosAgy();
+  if (id === "codex") return obterMapaModelosCodex();
+  if (id === "grok") return obterMapaModelosGrok();
+  if (id === "claude") return { ...CLAUDE_MODELOS_PADRAO };
+  if (spec.dshApi?.modelos) {
+    const res: Record<string, string> = {};
+    for (const m of spec.dshApi.modelos) {
+      if (m.id && m.name) res[m.id] = m.name;
+    }
+    return res;
+  }
+  return undefined;
+}
 
 /**
  * O PATH muda quando você instala um CLI com o cockpit aberto, então a
@@ -166,6 +246,7 @@ export function listarProviders(): Provider[] {
         : {}),
       caminho,
       modelos: modelosDoCli(id),
+      nomesModelos: obterMapaModelos(id, spec),
       efforts: config.efforts?.[id] ?? [],
       agentes: Object.entries(config.agents)
         .filter(([, a]) => a.cli === id)
@@ -187,6 +268,13 @@ export function listarProviders(): Provider[] {
 export async function listarProvidersAtualizados(): Promise<Provider[]> {
   if (Object.entries(config.clis).some(([id, cli]) => cli.backend === "dsh" && !dshApiDoCli(id))) {
     await sincronizarCatalogoDshGateway();
+  }
+  if (config.clis["agy"]) {
+    try {
+      sincronizarModelosAgy();
+    } catch {
+      // CLI agy não disponível ou sem login: segue com catálogo padrão
+    }
   }
   return listarProviders();
 }

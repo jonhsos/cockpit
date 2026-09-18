@@ -89,7 +89,7 @@ export function Maestro({ missionId, onClose, onChanged }: { missionId: string |
             )}
           </div>
         )}
-        <label className="campo-bloco"><span className="rotulo">Modelo do maestro</span><select className="campo" value={model} onChange={e => setModel(e.target.value)}>{status.providers.find(p => p.id === cli)?.modelos.map(m => <option key={m}>{m}</option>)}</select></label>
+        <label className="campo-bloco"><span className="rotulo">Modelo do maestro</span><select className="campo" value={model} onChange={e => setModel(e.target.value)}>{(() => { const prov = status.providers.find(p => p.id === cli); return prov?.modelos.map(m => { const label = prov.nomesModelos?.[m]; return <option key={m} value={m}>{label && label !== m ? `${label} (${m})` : m}</option>; }); })()}</select></label>
         <label className="campo-bloco"><span className="rotulo">Esforço</span><select className="campo" value={effort} onChange={e => setEffort(e.target.value)}>{["low", "medium", "high", ...(cli === "codex" ? ["xhigh", "max", "ultra"] : cli === "claude" ? ["xhigh", "max"] : [])].map(e => <option key={e}>{e}</option>)}</select></label>
         <label className="ressalva"><input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} /> Continuar automaticamente em outro provedor quando houver limite.</label>
         <p className="dica">Com até 10% restante, o maestro troca após o próximo checkpoint. Se um painel bloquear, retoma a tarefa dele com o histórico disponível. Claude e AGY dependem de avisos explícitos do terminal. A troca usa modelos fortes; confira testes e entregas após a retomada.</p>

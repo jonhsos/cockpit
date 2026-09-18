@@ -199,6 +199,8 @@ export type Provider = {
   disponivel: boolean;
   caminho: string | null;
   modelos: string[];
+  /** Nomes de exibição amigáveis dos modelos (id -> label legível) */
+  nomesModelos?: Record<string, string>;
   /** Pode faltar quando o servidor ainda é de uma versão anterior. */
   efforts?: string[];
   agentes: string[];

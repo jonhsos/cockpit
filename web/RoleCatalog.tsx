@@ -128,6 +128,21 @@ export function RoleCatalog({
     return [...new Set((selectedProvider?.modelos ?? []).map((model) => model.trim()).filter(Boolean))];
   }, [pontes, selectedProvider, selectedRunner]);
   const availableEfforts = selectedProvider?.efforts?.length ? selectedProvider.efforts : FALLBACK_EFFORTS;
+
+  const modelDisplayName = (model: string): string => {
+    if (!model) return "";
+    if (selectedProvider?.nomesModelos?.[model]) {
+      return selectedProvider.nomesModelos[model];
+    }
+    if (selectedRunner === "openrouter") {
+      const bridge = pontes.find((item) => item.id === "openrouter");
+      const found = bridge?.modelos?.find((m) => (typeof m === "object" ? m.id === model : false));
+      if (found && typeof found === "object" && found.nome) {
+        return found.nome;
+      }
+    }
+    return model;
+  };
   const poolDoCockpitAtivo = selectedBackend === "pty";
   const contasPool = poolDoCockpitAtivo
     ? poolAtualizado?.contas ?? selectedProvider?.pool?.contas ?? []
@@ -268,7 +283,7 @@ export function RoleCatalog({
         <button type="button" className={`crumb${etapa === 2 ? " active" : ""}${etapa > 2 ? " completed" : ""}`} onClick={() => setEtapa(2)}>
           <span className="crumb-num">2</span><span className="crumb-text">Execução <b>{selectedRunner === "bash" ? "SHELL limpo" : selectedRunner.toUpperCase()}</b></span>
         </button>
-        {selectedRunner !== "bash" && <><span className="crumb-sep">›</span><button type="button" className={`crumb${etapa === 3 ? " active" : ""}`} onClick={() => setEtapa(3)}><span className="crumb-num">3</span><span className="crumb-text">Revisão <b>{customModel || selectedModel || "padrão"}</b></span></button></>}
+        {selectedRunner !== "bash" && <><span className="crumb-sep">›</span><button type="button" className={`crumb${etapa === 3 ? " active" : ""}`} onClick={() => setEtapa(3)}><span className="crumb-num">3</span><span className="crumb-text">Revisão <b>{customModel || (selectedModel ? modelDisplayName(selectedModel) : "padrão")}</b></span></button></>}
       </nav>
 
       {etapa === 1 && !criandoCustom && (
@@ -345,7 +360,14 @@ export function RoleCatalog({
           <div className="step-header"><h3>Revise antes de abrir</h3><p>O contrato de {currentRole.label} será aplicado no backend a cada sessão de IA.</p></div>
           <div className="launch-summary"><div><span>Papel</span><b>{currentRole.label}</b><small>{currentRole.outcome}</small></div><div><span>Executor</span><b>{selectedRunner.toUpperCase()} · {selectedBackend.toUpperCase()}</b><small>O executor não redefine responsabilidades.</small></div></div>
           {selectedBackend === "dsh" && <p className="dica dsh-role-note">Este painel usa o DSH. O pool de contas do Cockpit fica reservado ao PTY tradicional; no gateway, a rotação pertence ao provedor configurado.</p>}
-          <label className="campo-bloco"><span className="rotulo">Modelo <em>opcional; vazio usa o padrão real do executor</em></span><select className="campo" value={selectedModel} onChange={(event) => { setSelectedModel(event.target.value); setCustomModel(""); }}><option value="">Padrão do executor</option>{availableModels.map((model) => <option key={model} value={model}>{model}</option>)}</select></label>
+          <label className="campo-bloco"><span className="rotulo">Modelo <em>opcional; vazio usa o padrão real do executor</em></span><select className="campo" value={selectedModel} onChange={(event) => { setSelectedModel(event.target.value); setCustomModel(""); }}><option value="">Padrão do executor</option>{availableModels.map((model) => {
+            const label = modelDisplayName(model);
+            return (
+              <option key={model} value={model}>
+                {label && label !== model ? `${label} (${model})` : model}
+              </option>
+            );
+          })}</select></label>
           <label className="campo-bloco"><span className="rotulo">Ou informar um modelo</span><input className="campo" value={customModel} onChange={(event) => setCustomModel(event.target.value)} placeholder="somente se o executor aceitar" maxLength={160} /></label>
           <label className="campo-bloco"><span className="rotulo">Esforço</span><select className="campo" value={selectedEffort} onChange={(event) => setSelectedEffort(event.target.value)}><option value="">Padrão do provedor</option>{availableEfforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></label>
           {contasNaoAutenticadas.length > 0 && <div className="aviso-contas-auth"><div className="auth-warning-heading"><b>Autenticação pendente</b><span aria-live="polite">{loginMsg}</span></div>{selectedRunner === "codex" && <p className="auth-help">O login do Codex usa autenticação por dispositivo e grava a sessão na pasta desta conta.</p>}{contasNaoAutenticadas.map((account) => <div className="auth-account-row" key={account.id}><span><b>{account.label || account.id}</b><code>{account.id}</code></span><button type="button" className="btn mini" onClick={async () => { setLoginMsg(`Abrindo login para ${account.label || account.id}…`); try { const result = await openLoginTerminal(selectedRunner, account.id, missionId); if (!result.ok) throw new Error(result.error || "falha ao abrir"); setLoginMsg("Terminal de login aberto; conclua a autenticação nele"); } catch (error) { setLoginMsg(error instanceof Error ? error.message : String(error)); } }}>Fazer login</button></div>)}</div>}

@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { definirModelosRuntime } from "../config.ts";
 import { resolverExecutavel } from "./providers.ts";
 
 /**
@@ -48,8 +49,8 @@ export function materializarPerfilAgy(profileDir: string | undefined): void {
 let mapa: Map<string, string> | null = null;
 
 /** id do modelo -> nome de exibição, que é o que o settings.json guarda. */
-function carregarModelos(): Map<string, string> {
-  if (mapa) return mapa;
+export function carregarModelos(forcar = false): Map<string, string> {
+  if (mapa && !forcar) return mapa;
   mapa = new Map();
   try {
     const executavel = resolverExecutavel("agy");
@@ -57,7 +58,7 @@ function carregarModelos(): Map<string, string> {
     const saida = execFileSync(executavel, ["models"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
-      timeout: 30_000,
+      timeout: 15_000,
     });
     for (const linha of saida.split(/\r?\n/)) {
       const [id, nome] = linha.split("\t");
@@ -69,7 +70,7 @@ function carregarModelos(): Map<string, string> {
   return mapa;
 }
 
-const MODELOS_PADRAO: Record<string, string> = {
+export const MODELOS_PADRAO: Record<string, string> = {
   "gemini-3.8-flash-high": "Gemini 3.8 Flash (High)",
   "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Medium)",
   "gemini-3.8-flash-low": "Gemini 3.8 Flash (Low)",
@@ -84,7 +85,52 @@ const MODELOS_PADRAO: Record<string, string> = {
   "claude-sonnet-4-6": "Claude Sonnet 4.6 (Thinking)",
   "claude-opus-4-6-thinking": "Claude Opus 4.6 (Thinking)",
   "gpt-oss-120b-medium": "GPT-OSS 120B (Medium)",
+  // Aliases comuns para conveniência
+  "gemini-3.7-high": "Gemini 3.7 Flash (High)",
+  "gemini-3.7": "Gemini 3.7 Flash (High)",
+  "gemini-3.8-high": "Gemini 3.8 Flash (High)",
+  "gemini-3.8": "Gemini 3.8 Flash (High)",
+  "gemini-3.1-high": "Gemini 3.1 Pro (High)",
+  "gemini-3.1": "Gemini 3.1 Pro (High)",
 };
+
+export function obterMapaModelosAgy(): Record<string, string> {
+  const map = carregarModelos();
+  const res: Record<string, string> = { ...MODELOS_PADRAO };
+  for (const [id, nome] of map.entries()) {
+    res[id] = nome;
+  }
+  return res;
+}
+
+export function modelosAgy(): string[] {
+  const map = carregarModelos();
+  if (map.size > 0) {
+    return Array.from(map.keys());
+  }
+  return [
+    "gemini-3.8-flash-high",
+    "gemini-3.8-flash-medium",
+    "gemini-3.8-flash-low",
+    "gemini-3.7-flash-high",
+    "gemini-3.7-flash-medium",
+    "gemini-3.7-flash-low",
+    "gemini-3.6-flash-high",
+    "gemini-3.6-flash-medium",
+    "gemini-3.6-flash-low",
+    "gemini-3.1-pro-high",
+    "gemini-3.1-pro-low",
+    "claude-sonnet-4-6",
+    "claude-opus-4-6-thinking",
+    "gpt-oss-120b-medium",
+  ];
+}
+
+export function sincronizarModelosAgy(): string[] {
+  const modelos = modelosAgy();
+  definirModelosRuntime("agy", modelos);
+  return modelos;
+}
 
 function resolverCaminhosSettings(targetHome?: string): string[] {
   if (!targetHome) return [SETTINGS];
@@ -109,7 +155,17 @@ function resolverCaminhosSettings(targetHome?: string): string[] {
 
 export function definirModelo(modelId: string | undefined, targetHome?: string): void {
   if (!modelId) return;
-  const nome = MODELOS_PADRAO[modelId] ?? mapa?.get(modelId) ?? modelId;
+  const mapaCarregado = carregarModelos();
+  let nome = MODELOS_PADRAO[modelId] ?? mapaCarregado.get(modelId);
+  if (!nome) {
+    const todosNomes = new Set([...Object.values(MODELOS_PADRAO), ...mapaCarregado.values()]);
+    if (todosNomes.has(modelId)) {
+      nome = modelId;
+    } else {
+      const match = Array.from(todosNomes).find((n) => n.toLowerCase() === modelId.toLowerCase());
+      nome = match ?? modelId;
+    }
+  }
   if (!nome) return;
 
   const caminhos = resolverCaminhosSettings(targetHome);
