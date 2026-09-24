@@ -20,6 +20,7 @@ export * from "./handoff-manager.ts";
 export * from "./inter-agent-bridge.ts";
 export * from "./connection-routes.ts";
 export * from "./cockpit-cli.ts";
+export * from "./rede.ts";
 
 let defaultMailboxManager: MailboxManager | null = null;
 let defaultConnectionManager: ConnectionManager | null = null;

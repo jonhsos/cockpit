@@ -8,7 +8,7 @@ try {
   config.politicaIA = { modo: "padrao" };
   const baseline = resolverHarness({ agent: "builder", tipo: "implementar" });
   console.log("Regra visual anterior (sem personalização):", resolverHarness({ agent: "luna", tipo: "visual" }).cli);
-  const sol = { cli: "codex", model: "gpt-5.6-sol", effort: "high" };
+  const sol = { cli: "codex", model: "gpt-6-sol", effort: "high" };
   config.politicaIA = validarPoliticaIA({ modo: "unica", unica: sol });
   for (const [agent, spec] of Object.entries(config.agents)) {
     if (spec.cli === "bash") continue;

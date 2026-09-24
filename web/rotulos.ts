@@ -58,3 +58,37 @@ export function estadoDoPainel(pane: PaneState, conectado: boolean): string {
   if (!conectado) return "Sem conexão";
   return pane.status === "run" ? "Em atividade" : pane.status === "dead" ? "Encerrado" : "Sem atividade recente";
 }
+
+export function formatarTempoSessao(ms: number): string {
+  if (!ms || ms <= 0 || isNaN(ms)) return "0s";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const segRestantes = s % 60;
+  if (m < 60) return segRestantes > 0 ? `${m}m ${segRestantes}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const minRestantes = m % 60;
+  return minRestantes > 0 ? `${h}h ${minRestantes}m` : `${h}h`;
+}
+
+export function formatarTempoCompleto(ms: number): string {
+  if (!ms || ms <= 0 || isNaN(ms)) return "0s";
+  const totalS = Math.floor(ms / 1000);
+  const h = Math.floor(totalS / 3600);
+  const m = Math.floor((totalS % 3600) / 60);
+  const s = totalS % 60;
+  const partes: string[] = [];
+  if (h > 0) partes.push(`${h}h`);
+  if (m > 0 || h > 0) partes.push(`${m}m`);
+  partes.push(`${s}s`);
+  return partes.join(" ");
+}
+
+export function formatarHoraInicio(timestamp: number): string {
+  if (!timestamp) return "—";
+  try {
+    return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch {
+    return "—";
+  }
+}

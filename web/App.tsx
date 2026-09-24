@@ -255,6 +255,11 @@ export function App() {
           setPanes((prev) =>
             prev.some((p) => p.paneId === msg.pane.paneId) ? prev : [...prev, msg.pane],
           );
+          if (activeIdRef.current) {
+            void fetchConnections(activeIdRef.current).then((res) => {
+              if (res.ok && res.connections) setConnections(res.connections);
+            }).catch(() => {});
+          }
           void recarregarMissoes(projectIdRef.current);
           break;
         case "exit":
@@ -408,6 +413,7 @@ export function App() {
         plano.skills,
         plano.receita,
         plano.elenco,
+        plano.modo,
       );
       await recarregarMissoes(projectId);
       setActiveId(m.id);

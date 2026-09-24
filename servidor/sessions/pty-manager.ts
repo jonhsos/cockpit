@@ -6,16 +6,16 @@ import { dirname, join } from "node:path";
 import { execFile } from "node:child_process";
 
 import { config, backendDo, parseCliBackend, type AgentSpec } from "../config.ts";
-import { CASA } from "../state.ts";
+import { CASA, getMission } from "../state.ts";
 import { confiar } from "../confianca.ts";
-import { definirModelo, materializarPerfilAgy } from "../agy.ts";
+import { definirModelo, materializarPerfilAgy, appDataDirDoAgy } from "../agy.ts";
 import { resolverHarness, type Pedido } from "../harness.ts";
 import { identidadeVisualDoPapel, promptInicialDoPapel, roleContractFor, type RoleContractInput } from "../orchestration/roles.ts";
 import { pathComExecutaveisLocais, providerDisponivel, resolverExecutavel } from "../providers.ts";
 import { argsDaPonte, envDaPonte, pontede } from "../ponte.ts";
 import { dshApiDoCli, envDaDshApi } from "../providers/dsh-api.ts";
 import { getDefaultPaneStore } from "../persistence/index.ts";
-import { accountPool } from "../providers/account-pool.ts";
+import { accountPool, garantirDiretoriosDeConta } from "../providers/account-pool.ts";
 import { getDshManager } from "./dsh-backend/dsh-manager.ts";
 import { checkDshAvailability } from "./dsh-backend/dsh-availability.ts";
 import { hasSignificantTerminalOutput } from "./terminal-activity.ts";
@@ -448,10 +448,65 @@ export class PtyManager {
         2,
       ),
     );
+
+    // Grava regras do Cockpit para o AGY no perfil
+    try {
+      const rulesDir = join(profileDir, ".gemini", "rules");
+      mkdirSync(rulesDir, { recursive: true });
+      const regrasAgy = [
+        `# DIRETRIZES DO COCKPIT (${agent.label.toUpperCase()})`,
+        agent.papel || "",
+        "",
+        "## REGRA MANDATÓRIA DE ORQUESTRAÇÃO E DELEGAÇÃO:",
+        "- NUNCA utilize ferramentas internas de subagentes do seu CLI (como define_subagent, invoke_subagent, manage_subagents).",
+        "- Seus especialistas e agentes NÃO são subagentes locais: são as janelas/painéis reais abertos na missão do Cockpit (Explorador, Arquiteto, Construtor, Revisor, Verificador, Depurador, Finalizador, etc.).",
+        "- Toda delegação e comunicação entre agentes DEVE ser feita exclusivamente através das ferramentas MCP do Cockpit (delegar, cockpit_ask, cockpit_list, cockpit_inbox).",
+      ].filter(Boolean).join("\n");
+      writeFileSync(join(rulesDir, "cockpit.md"), regrasAgy);
+    } catch {
+      // Ignora falha de gravação de regras auxiliares
+    }
   }
 
-  private criarMcpAgyIsolado(paneId: string, opts: SpawnOpts, agent: AgentSpec, maestro: boolean): string {
+  private criarMcpAgyIsolado(paneId: string, opts: SpawnOpts, agent: AgentSpec, maestro: boolean, realHome?: string): string {
     const home = mkdtempSync(join(tmpdir(), "cockpit-agy-mcp-"));
+    if (realHome && existsSync(realHome)) {
+      for (const nome of readdirSync(realHome)) {
+        if (nome === ".gemini") {
+          const geminiHome = join(home, ".gemini");
+          mkdirSync(geminiHome, { recursive: true });
+          const realGemini = join(realHome, ".gemini");
+          for (const sub of readdirSync(realGemini)) {
+            if (sub === "config" || sub === "rules") {
+              const subHome = join(geminiHome, sub);
+              mkdirSync(subHome, { recursive: true });
+              const realSub = join(realGemini, sub);
+              for (const f of readdirSync(realSub)) {
+                if (sub === "config" && f === "mcp_config.json") continue;
+                if (sub === "rules" && f === "cockpit.md") continue;
+                try {
+                  symlinkSync(join(realSub, f), join(subHome, f));
+                } catch {
+                  // Best effort
+                }
+              }
+            } else {
+              try {
+                symlinkSync(join(realGemini, sub), join(geminiHome, sub));
+              } catch {
+                // Best effort
+              }
+            }
+          }
+        } else {
+          try {
+            symlinkSync(join(realHome, nome), join(home, nome));
+          } catch {
+            // Best effort
+          }
+        }
+      }
+    }
     this.gravarMcpAgyNoPerfil(paneId, opts, agent, maestro, home);
     this.agyMcpHomes.set(paneId, home);
     return home;
@@ -566,6 +621,7 @@ export class PtyManager {
       argv = resolvedLogin.args;
       const cliConfigEnv = config.clis[cliTarget]?.env ?? {};
       const accountEnv = expandEnvPaths({ ...cliConfigEnv, ...(allocatedAccount?.env ?? {}) });
+      garantirDiretoriosDeConta(accountEnv);
       if (familiaDo(cliTarget) === "agy") {
         materializarPerfilAgy(accountEnv.HOME || accountEnv.JETSKI_APP_DATA_DIR);
       }
@@ -639,12 +695,14 @@ export class PtyManager {
         spec.label = visualDoPapel.label;
         spec.cor = visualDoPapel.cor;
       }
+      const mission = opts.missionId ? getMission(opts.missionId) : null;
       const promptInicial = promptInicialDoPapel({
         role: opts.role,
         agent: opts.agent,
         objetivo: opts.objetivo,
         tarefa: opts.tarefa,
         custom: opts.roleDefinition,
+        modo: mission?.modo,
       });
       dshInitialPrompt = promptInicial;
       effectiveBackend = opts.backend ? parseCliBackend(opts.backend) : backendDo(spec.cli);
@@ -676,6 +734,14 @@ export class PtyManager {
         }
         if (spec.model) args.push("--model", spec.model);
         if (spec.effort) args.push("--effort", spec.effort);
+
+        const regrasClaude = [
+          spec.papel,
+          "Canal real do Cockpit: cockpit_list / cockpit_ask / cockpit_inbox / delegar. As outras janelas da missão são os verdadeiros especialistas (Explorador, Arquiteto, Construtor, Revisor, Verificador, etc.). NUNCA crie subagentes internos do seu próprio CLI; use sempre as ferramentas do Cockpit. Não simule conversa nem leia o código do Cockpit.",
+        ].filter((parte): parte is string => Boolean(parte?.trim()));
+        if (regrasClaude.length && !args.includes("--append-system-prompt")) {
+          args.push("--append-system-prompt", regrasClaude.join("\n\n"));
+        }
 
         if (opts.missionId) {
           const caminho = join(CASA, "mcp", `${opts.missionId}-${paneId}.json`);
@@ -733,6 +799,16 @@ export class PtyManager {
           args.push("-c", `mcp_servers.${segmento}.enabled=false`);
         }
         if (spec.model) args.push("--model", spec.model);
+        if (spec.effort) {
+          args.push("-c", `model_reasoning_effort=${JSON.stringify(spec.effort)}`);
+        }
+        const regrasCodex = [
+          spec.papel,
+          "Canal real do Cockpit: cockpit_list / cockpit_ask / cockpit_inbox / delegar. As outras janelas da missão são os verdadeiros especialistas (Explorador, Arquiteto, Construtor, Revisor, Verificador, etc.). NUNCA crie subagentes internos do seu próprio CLI; use sempre as ferramentas do Cockpit.",
+        ].filter((parte): parte is string => Boolean(parte?.trim()));
+        if (regrasCodex.length) {
+          args.push("-c", `developer_instructions=${JSON.stringify(regrasCodex.join("\n\n"))}`);
+        }
         if (opts.missionId) {
           args.push("-c", `mcp_servers.cockpit.command=${JSON.stringify(process.execPath.replaceAll("\\", "/"))}`);
           args.push("-c", `mcp_servers.cockpit.args=${JSON.stringify([MCP_SCRIPT.replaceAll("\\", "/")])}`);
@@ -750,7 +826,7 @@ export class PtyManager {
         if (spec.effort) args.push("--reasoning-effort", spec.effort);
         const regras = [
           spec.papel,
-          "Canal real: cockpit_list / cockpit_ask / cockpit_inbox. Se houver Maestro, reporte a ele; sem Maestro, fale com os colegas. Não simule conversa nem leia o código do Cockpit.",
+          "Canal real do Cockpit: cockpit_list / cockpit_ask / cockpit_inbox / delegar. As outras janelas da missão são os verdadeiros especialistas (Explorador, Arquiteto, Construtor, Revisor, Verificador, etc.). NUNCA crie subagentes internos do seu próprio CLI; use sempre as ferramentas do Cockpit. Não simule conversa nem leia o código do Cockpit.",
         ].filter((parte): parte is string => Boolean(parte?.trim()));
         if (regras.length) args.push("--rules", regras.join("\n\n"));
       }
@@ -766,6 +842,7 @@ export class PtyManager {
       argv = resolved.args;
       const rawCliEnv = { ...(config.clis[spec.cli]?.env ?? {}), ...(allocatedAccount?.env ?? {}) };
       const cliEnv = expandEnvPaths(rawCliEnv);
+      garantirDiretoriosDeConta(cliEnv);
       if (familia === "agy") {
         const perfil =
           cliEnv.HOME ||
@@ -779,10 +856,13 @@ export class PtyManager {
           : "";
         if (perfilResolvido) {
           materializarPerfilAgy(perfilResolvido);
-          cliEnv.HOME = perfilResolvido;
-          if (!cliEnv.JETSKI_APP_DATA_DIR) cliEnv.JETSKI_APP_DATA_DIR = perfilResolvido;
+          if (!cliEnv.JETSKI_APP_DATA_DIR) {
+            cliEnv.JETSKI_APP_DATA_DIR = appDataDirDoAgy(perfilResolvido);
+          }
           if (opts.missionId) {
-            this.gravarMcpAgyNoPerfil(paneId, opts, spec, maestro, perfilResolvido);
+            cliEnv.HOME = this.criarMcpAgyIsolado(paneId, opts, spec, maestro, perfilResolvido);
+          } else {
+            cliEnv.HOME = perfilResolvido;
           }
         } else if (opts.missionId) {
           cliEnv.HOME = this.criarMcpAgyIsolado(paneId, opts, spec, maestro);

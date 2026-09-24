@@ -49,7 +49,7 @@ const TOOLS: Tool[] = [
     maestroOnly: true,
     name: "listar_especialistas",
     description:
-      "Lista os agentes disponíveis para delegação, já filtrados pelo elenco desta missão: cada um vem com o provedor e o modelo em que vai realmente rodar. Quem tem escopo declarado só aceita o trabalho descrito ali — não delegue código a ele. Chame antes de delegar.",
+      "Lista os especialistas reais abertos ou disponíveis para delegação nas janelas desta missão, com seus papéis, provedores e modelos. NUNCA crie subagentes internos do seu próprio CLI: delegue sempre para estes especialistas da missão via 'delegar' ou 'cockpit_ask'. Chame antes de delegar.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     run: async () => texto(await api(`/api/missions/${MISSAO}/elenco`)),
   },
@@ -68,7 +68,7 @@ const TOOLS: Tool[] = [
     maestroOnly: true,
     name: "delegar",
     description:
-      "Entrega uma tarefa a um especialista JÁ ABERTO nesta missão (EXPLORADOR, REVISOR, CONSTRUTOR, etc.), colando o texto no terminal dele. Só abre painel novo se aquele papel ainda não existir e a missão permitir. Não use cockpit_ask no lugar disto: ask sozinho não acorda o CLI. A tarefa deve ser autossuficiente. Se a resposta disser deliveredToTerminal=false, o alvo está ocupado — espere situacao e chame de novo.",
+      "Entrega uma tarefa a um especialista JÁ ABERTO nesta missão (EXPLORADOR, REVISOR, CONSTRUTOR, VERIFICADOR, etc.), colando o texto no terminal dele. Esta é a ferramenta oficial de delegação do Cockpit. REGRA OBRIGATÓRIA: NUNCA utilize subagentes do seu próprio CLI (como define_subagent, invoke_subagent); delegue SEMPRE através desta ferramenta para os painéis reais abertos no Cockpit. Só abre painel novo se aquele papel ainda não existir e a missão permitir. Não use cockpit_ask no lugar disto: ask sozinho não acorda o CLI. A tarefa deve ser autossuficiente. Após delegar, NÃO faça polling nem fique enviando mensagens repetidas de checagem. Aguarde em silêncio: o Cockpit acordará você automaticamente com a entrega completa assim que o especialista terminar. Se a resposta disser deliveredToTerminal=false, o alvo está ocupado — espere situacao e chame de novo.",
     inputSchema: {
       type: "object",
       properties: {
@@ -199,7 +199,7 @@ const TOOLS: Tool[] = [
   {
     name: "anotar",
     description:
-      "Grava um fato na memória compartilhada do projeto. Todo agente que abrir depois — nesta missão ou em qualquer outra do mesmo projeto — recebe essa anotação. Use para decisões, convenções e armadilhas do código. Não use para status ou log de progresso.",
+      "Grava um fato na memória compartilhada do projeto. Todo agente que abrir depois — nesta missão ou em qualquer outra do mesmo projeto — recebe essa anotação. Use para decisões, convenções e armadilhas do código. Não use para status ou log de progresso. NUNCA anote orientações para usar subagentes do CLI (como invoke_subagent), pois no Cockpit a orquestração ocorre exclusivamente através dos painéis abertos.",
     inputSchema: {
       type: "object",
       properties: { texto: { type: "string", description: "o fato, em uma ou duas frases" } },
@@ -379,7 +379,7 @@ const TOOLS: Tool[] = [
   // ---------- cockpit inter-agent communication tools ----------
   {
     name: "cockpit_list",
-    description: "Lista os outros painéis desta missão (Agy, Grok, Codex, Claude…) com papel, status e inbox. Use antes de cockpit_ask. Você pode falar com qualquer um deles — não precisa de Maestro.",
+    description: "Lista os outros painéis e janelas reais de especialistas desta missão (Agy, Grok, Codex, Claude… com papéis EXPLORADOR, ARQUITETO, CONSTRUTOR, REVISOR, VERIFICADOR, etc.) com status e inbox. NUNCA crie subagentes do seu CLI: use esta lista para identificar as janelas abertas e delegar para elas via 'delegar' ou 'cockpit_ask'.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     run: async () => texto(await api(`/api/missions/${MISSAO}/cockpit/list`)),
   },
@@ -400,7 +400,7 @@ const TOOLS: Tool[] = [
   {
     name: "cockpit_ask",
     description:
-      "Fala com outro painel desta missão (ID, rótulo ou papel: EXPLORADOR, REVISOR, grok, p3-…). Cola o texto no terminal dele. Se deliveredToTerminal=false, ele está ocupado — espere e tente de novo. Não simule a conversa: esta tool é o canal real.",
+      "Fala com outro painel/janela aberto nesta missão (ID, rótulo ou papel: EXPLORADOR, REVISOR, CONSTRUTOR, VERIFICADOR, grok, p3-…). Cola o texto no terminal dele. Os verdadeiros agentes da missão são as janelas/painéis reais do Cockpit, NUNCA subagentes locais ou internos do CLI. Se deliveredToTerminal=false, ele está ocupado — espere e tente de novo. Não simule a conversa e não crie subagentes: esta tool é o canal real.",
     inputSchema: {
       type: "object",
       properties: {

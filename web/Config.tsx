@@ -59,6 +59,7 @@ export function Config({
   const [poolAberto, setPoolAberto] = useState<Record<string, boolean>>({});
   const [onboardSessions, setOnboardSessions] = useState<Record<string, OnboardUIState | null>>({});
   const [novaConta, setNovaConta] = useState<Record<string, { id: string; label: string; envKey: string; envVal: string } | null>>({});
+  const [mostrarAvancado, setMostrarAvancado] = useState<Record<string, boolean>>({});
   const [novo, setNovo] = useState<{ id: string; comando: string; modelos: string } | null>(null);
 
   const recarregar = (rescan = false) =>
@@ -453,7 +454,7 @@ export function Config({
                                 </span>
                                 <b>{c.label || c.id}</b>
                                 <code style={{ color: "var(--ink-4)", fontSize: "11px" }}>{c.id}</code>
-                                {c.authenticated === false && (
+                                {c.authenticated === false ? (
                                   <span
                                     className="badge-auth-aviso"
                                     style={{
@@ -469,19 +470,41 @@ export function Config({
                                       gap: "4px",
                                     }}
                                   >
-                                    ⚠️ Não autenticada
+                                    ⚠️ Não conectada
+                                  </span>
+                                ) : (
+                                  <span
+                                    style={{
+                                      background: "rgba(46, 160, 67, 0.15)",
+                                      color: "#3fb950",
+                                      border: "1px solid rgba(46, 160, 67, 0.3)",
+                                      borderRadius: "4px",
+                                      padding: "1px 6px",
+                                      fontSize: "10.5px",
+                                      fontWeight: 600,
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "3px",
+                                    }}
+                                  >
+                                    ✓ Conectada
                                   </span>
                                 )}
                               </div>
                               <div className="conta-pool-detalhes">
                                 {c.env && Object.entries(c.env).length > 0 ? (
-                                  Object.entries(c.env).map(([k, v]) => (
-                                    <span key={k}>
-                                      <code>{k}</code>={v}
-                                    </span>
-                                  ))
+                                  <details style={{ fontSize: "11px", color: "var(--ink-4)" }}>
+                                    <summary style={{ cursor: "pointer", userSelect: "none" }}>Perfil isolado</summary>
+                                    <div style={{ marginTop: "3px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                                      {Object.entries(c.env).map(([k, v]) => (
+                                        <span key={k}>
+                                          <code>{k}</code>={v}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </details>
                                 ) : (
-                                  <span>Configuração padrão</span>
+                                  <span style={{ fontSize: "11px", color: "var(--ink-4)" }}>Perfil padrão</span>
                                 )}
                                 {c.lastLimitDetail && (
                                   <span style={{ color: "var(--alerta)" }}>Motivo: {c.lastLimitDetail}</span>
@@ -490,12 +513,22 @@ export function Config({
                             </div>
 
                             <div className="conta-pool-acoes">
-                              {c.authenticated === false && (
+                              {c.status === "ocupada" && (
+                                <button
+                                  className="btn quiet"
+                                  style={{ fontSize: "11px", padding: "2px 8px" }}
+                                  title="Ir para o terminal onde esta conta está rodando"
+                                  onClick={onFechar}
+                                >
+                                  {c.authenticated === false ? "Ir para terminal ↗" : "Ver terminal ↗"}
+                                </button>
+                              )}
+                              {c.authenticated === false && c.status !== "ocupada" && (
                                 <button
                                   className="btn solid"
                                   disabled={ocupado}
                                   style={{ fontSize: "11px", padding: "2px 8px", background: "#238636" }}
-                                  title={`Abrir terminal configurado para autenticar esta conta (${p.id} login)`}
+                                  title={`Abrir terminal e autenticar esta conta agora (${p.id} login)`}
                                   onClick={() =>
                                     guardado(async () => {
                                       await openLoginTerminal(p.id, c.id, missionId);
@@ -503,7 +536,7 @@ export function Config({
                                     })
                                   }
                                 >
-                                  🔑 Fazer Login
+                                  🔑 Conectar agora
                                 </button>
                               )}
                               {c.status === "cooldown" && (
@@ -683,14 +716,31 @@ export function Config({
                           </button>
                         ) : (
                           novaConta[p.id] ? (
-                            <div className="form-inline" style={{ marginTop: "6px" }}>
-                              <span style={{ fontSize: "12px", color: "var(--ink-2)", fontWeight: 500 }}>
-                                Adicionar nova conta ao pool de {p.id.toUpperCase()}
-                              </span>
+                          <div
+                            className="form-inline"
+                            style={{
+                              marginTop: "8px",
+                              background: "rgba(255, 255, 255, 0.03)",
+                              padding: "12px",
+                              borderRadius: "6px",
+                              border: "1px solid var(--borda, rgba(255, 255, 255, 0.1))",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "8px",
+                              width: "100%",
+                              boxSizing: "border-box",
+                            }}
+                          >
+                            <span style={{ fontSize: "12px", color: "var(--ink-1)", fontWeight: 600 }}>
+                              Conectar nova conta de {p.id.toUpperCase()}
+                            </span>
+                            <div style={{ display: "flex", gap: "8px", alignItems: "center", width: "100%" }}>
                               <input
                                 className="campo"
-                                placeholder="Rótulo / Nome da conta (ex: Conta Extra)"
+                                placeholder="Nome / Identificador (ex: Pessoal, Trabalho)"
                                 value={novaConta[p.id]?.label ?? ""}
+                                style={{ flex: 1 }}
+                                autoFocus
                                 onChange={(e) =>
                                   setNovaConta((st) => ({
                                     ...st,
@@ -698,85 +748,121 @@ export function Config({
                                   }))
                                 }
                               />
-                              {novaConta[p.id]?.envKey && (
-                                <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "11px", color: "var(--ink-3)" }}>
-                                  <span>
-                                    Pasta isolada (<code>{novaConta[p.id]?.envKey}</code>)
-                                  </span>
-                                  <input
-                                    className="campo"
-                                    style={{ fontSize: "11px" }}
-                                    value={novaConta[p.id]?.envVal ?? ""}
-                                    onChange={(e) =>
-                                      setNovaConta((st) => ({
-                                        ...st,
-                                        [p.id]: {
-                                          ...(st[p.id] || { id: "", label: "", envKey: "", envVal: "" }),
-                                          envVal: e.target.value,
-                                        },
-                                      }))
-                                    }
-                                  />
-                                </label>
-                              )}
-                              <div className="form-acoes">
-                                <button
-                                  className="btn quiet"
-                                  onClick={() => setNovaConta((st) => ({ ...st, [p.id]: null }))}
-                                >
-                                  Cancelar
-                                </button>
-                                <button
-                                  className="btn solid"
-                                  disabled={ocupado || !novaConta[p.id]?.label.trim()}
-                                  onClick={() =>
-                                    guardado(async () => {
-                                      const item = novaConta[p.id]!;
-                                      const env: Record<string, string> = {};
-                                      if (item.envKey && item.envVal.trim()) {
-                                        env[item.envKey] = item.envVal.trim();
-                                      }
-                                      await addAccountToPool(p.id, {
-                                        id: item.id.trim(),
-                                        label: item.label.trim(),
-                                        env: Object.keys(env).length > 0 ? env : undefined,
-                                      });
-                                      setNovaConta((st) => ({ ...st, [p.id]: null }));
-                                    })
-                                  }
-                                >
-                                  Salvar conta
-                                </button>
-                              </div>
                             </div>
-                          ) : (
-                            <button
-                              className="btn quiet"
-                              style={{ alignSelf: "flex-start", fontSize: "12px" }}
-                              onClick={() => {
-                                const used = new Set((p.pool?.contas ?? []).map((c) => c.id));
-                                let nextNum = 1;
-                                for (const c of p.pool?.contas ?? []) {
-                                  const m = new RegExp(`^${p.id}-(\\d+)$`).exec(c.id);
-                                  if (m) nextNum = Math.max(nextNum, parseInt(m[1], 10) + 1);
+
+                            {novaConta[p.id]?.envKey && (
+                              <details style={{ fontSize: "11px", color: "var(--ink-4)", marginTop: "4px" }}>
+                                <summary style={{ cursor: "pointer", userSelect: "none" }}>Opções avançadas (personalizar diretório isolado)</summary>
+                                <div style={{ marginTop: "6px" }}>
+                                  <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "11px", color: "var(--ink-3)" }}>
+                                    <span>
+                                      Pasta isolada (<code>{novaConta[p.id]?.envKey}</code>):
+                                    </span>
+                                    <input
+                                      className="campo"
+                                      style={{ fontSize: "11px" }}
+                                      value={novaConta[p.id]?.envVal ?? ""}
+                                      onChange={(e) =>
+                                        setNovaConta((st) => ({
+                                          ...st,
+                                          [p.id]: {
+                                            ...(st[p.id] || { id: "", label: "", envKey: "", envVal: "" }),
+                                            envVal: e.target.value,
+                                          },
+                                        }))
+                                      }
+                                    />
+                                  </label>
+                                </div>
+                              </details>
+                            )}
+
+                            <div className="form-acoes" style={{ marginTop: "6px", display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                              <button
+                                className="btn solid"
+                                disabled={ocupado || !novaConta[p.id]?.label.trim()}
+                                style={{ background: "#238636", color: "#fff", fontWeight: 600, fontSize: "12px" }}
+                                title="Salva e abre o terminal de login na hora"
+                                onClick={() =>
+                                  guardado(async () => {
+                                    const item = novaConta[p.id]!;
+                                    const env: Record<string, string> = {};
+                                    if (item.envKey && item.envVal.trim()) {
+                                      env[item.envKey] = item.envVal.trim();
+                                    }
+                                    await addAccountToPool(p.id, {
+                                      id: item.id.trim(),
+                                      label: item.label.trim(),
+                                      env: Object.keys(env).length > 0 ? env : undefined,
+                                    });
+                                    setNovaConta((st) => ({ ...st, [p.id]: null }));
+                                    await openLoginTerminal(p.id, item.id.trim(), missionId);
+                                    onFechar();
+                                  })
                                 }
-                                while (used.has(`${p.id}-${nextNum}`)) nextNum++;
-                                const defaultKey =
-                                  p.id === "codex" ? "CODEX_HOME" : p.id === "grok" ? "GROK_HOME" : "CLI_HOME";
-                                setNovaConta((st) => ({
-                                  ...st,
-                                  [p.id]: {
-                                    id: `${p.id}-${nextNum}`,
-                                    label: `Conta ${nextNum}`,
-                                    envKey: defaultKey,
-                                    envVal: `~/.${p.id}-acc${nextNum}`,
-                                  },
-                                }));
-                              }}
-                            >
-                              + Adicionar conta ao pool
-                            </button>
-                          )
+                              >
+                                🔑 Conectar conta agora
+                              </button>
+                              <button
+                                className="btn quiet"
+                                disabled={ocupado || !novaConta[p.id]?.label.trim()}
+                                style={{ fontSize: "11px" }}
+                                title="Salva a conta no pool sem abrir o login imediatamente"
+                                onClick={() =>
+                                  guardado(async () => {
+                                    const item = novaConta[p.id]!;
+                                    const env: Record<string, string> = {};
+                                    if (item.envKey && item.envVal.trim()) {
+                                      env[item.envKey] = item.envVal.trim();
+                                    }
+                                    await addAccountToPool(p.id, {
+                                      id: item.id.trim(),
+                                      label: item.label.trim(),
+                                      env: Object.keys(env).length > 0 ? env : undefined,
+                                    });
+                                    setNovaConta((st) => ({ ...st, [p.id]: null }));
+                                  })
+                                }
+                              >
+                                Salvar sem conectar
+                              </button>
+                              <button
+                                className="btn quiet"
+                                style={{ fontSize: "11px" }}
+                                onClick={() => setNovaConta((st) => ({ ...st, [p.id]: null }))}
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            className="btn solid"
+                            style={{ alignSelf: "flex-start", fontSize: "12px", marginTop: "4px" }}
+                            onClick={() => {
+                              const used = new Set((p.pool?.contas ?? []).map((c) => c.id));
+                              let nextNum = 1;
+                              for (const c of p.pool?.contas ?? []) {
+                                const m = new RegExp(`^${p.id}-(\\d+)$`).exec(c.id);
+                                if (m) nextNum = Math.max(nextNum, parseInt(m[1], 10) + 1);
+                              }
+                              while (used.has(`${p.id}-${nextNum}`)) nextNum++;
+                              const defaultKey =
+                                p.id === "codex" ? "CODEX_HOME" : p.id === "grok" ? "GROK_HOME" : "CLI_HOME";
+                              setNovaConta((st) => ({
+                                ...st,
+                                [p.id]: {
+                                  id: `${p.id}-${nextNum}`,
+                                  label: `Conta ${nextNum}`,
+                                  envKey: defaultKey,
+                                  envVal: `~/.${p.id}-acc${nextNum}`,
+                                },
+                              }));
+                            }}
+                          >
+                            + Conectar nova conta ao pool
+                          </button>
+                        )
                         )
                       )}
                     </div>

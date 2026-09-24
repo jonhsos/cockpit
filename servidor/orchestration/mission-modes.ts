@@ -10,7 +10,7 @@ export function normalizeMissionMode(mode: unknown): MissionMode {
   if (typeof mode === "string") {
     const m = mode.trim().toLowerCase();
     if (m === "dirigido") return "dirigido";
-    if (m === "autonomo" || m === "autônomo") return "autonomo";
+    if (m === "autonomo" || m === "autônomo" || m === "agentico" || m === "agêntico") return "autonomo";
   }
   return "livre";
 }

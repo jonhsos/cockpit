@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { RouterContext } from "./types.ts";
-import { accountPool, argumentosDeLogin } from "../providers/account-pool.ts";
+import { accountPool, argumentosDeLogin, garantirDiretoriosDeConta } from "../providers/account-pool.ts";
 import { AgyOnboardingService } from "../providers/agy-onboarding.ts";
 import { getMission, listMissions, listProjects } from "../state.ts";
 import { listPanes } from "../pty.ts";
@@ -218,6 +218,9 @@ export function createAccountPoolsRouter(ctx: RouterContext): Router {
       const account = accounts.find((a) => a.id === accountId);
       if (!account) {
         throw new Error(`Conta "${accountId}" não encontrada no pool de ${cli}`);
+      }
+      if (account.env) {
+        garantirDiretoriosDeConta(account.env);
       }
 
       let missionId = typeof req.body?.missionId === "string" && req.body.missionId.trim() ? req.body.missionId.trim() : undefined;

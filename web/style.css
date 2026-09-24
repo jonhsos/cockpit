@@ -454,18 +454,22 @@ button, select, input, textarea { font: inherit; color: inherit; }
 }
 .pane-term .xterm-viewport {
   scrollbar-width: thin;
-  scrollbar-color: #565656 transparent;
+  scrollbar-color: #6e7681 rgba(0, 0, 0, 0.2);
   overscroll-behavior: contain;
 }
 .pane-term .xterm-viewport::-webkit-scrollbar {
-  width: 8px;
+  width: 10px;
 }
 .pane-term .xterm-viewport::-webkit-scrollbar-thumb {
-  background: #565656;
-  border-radius: 4px;
+  background: #6e7681;
+  border-radius: 5px;
+  border: 2px solid #141414;
+}
+.pane-term .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: #8b949e;
 }
 .pane-term .xterm-viewport::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(0, 0, 0, 0.25);
 }
 .pane-term .xterm-screen { overflow: hidden; }
 

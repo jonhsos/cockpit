@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from "react";
 import { Icon } from "./Icon.tsx";
-import { corDoPainel, estadoDoPainel, nomeDoPainel, sementeDoPainel } from "./rotulos.ts";
+import {
+  corDoPainel,
+  estadoDoPainel,
+  nomeDoPainel,
+  sementeDoPainel,
+  formatarTempoSessao,
+  formatarHoraInicio,
+} from "./rotulos.ts";
 import { Mascote } from "./Mascote.tsx";
 import type { AgentSpec, Mission, PaneState, Project } from "./api.ts";
 import {
@@ -106,6 +113,12 @@ export function Lateral({
   const missoesOrdenadas = aplicarOrdem(idsMissoes, ordemMissoes)
     .map((id) => missions.find((m) => m.id === id))
     .filter((m): m is Mission => Boolean(m));
+
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setAgora(Date.now()), 5000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => onOrdem(() => setOrdemTick((n) => n + 1)), []);
 
@@ -317,10 +330,15 @@ export function Lateral({
                       className="agent-row-nome"
                       aria-current={selectedId === p.paneId && activeId === m.id ? "true" : undefined}
                       onClick={() => onSelectPane(m.id, p.paneId)}
-                      title={`${nome} · ${estadoDoPainel(p, connected)}`}
+                      title={`${nome} · ${estadoDoPainel(p, connected)}${p.iniciadoEm ? ` · Sessão: ${formatarTempoSessao(agora - p.iniciadoEm)} (iniciada às ${formatarHoraInicio(p.iniciadoEm)})` : ""}`}
                     >
                       <Mascote semente={sementeDoPainel(p)} cor={corDoPainel(p)} estado={connected ? p.status : "off"} tamanho={20} />
                       <span>{nome}</span>
+                      {p.iniciadoEm ? (
+                        <span className="agent-row-uptime" title={`Sessão iniciada às ${formatarHoraInicio(p.iniciadoEm)}`}>
+                          {formatarTempoSessao(agora - p.iniciadoEm)}
+                        </span>
+                      ) : null}
                     </button>
                   </div>
                   );

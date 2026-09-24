@@ -76,7 +76,7 @@
     },
     "codex": {
       "command": "codex",
-      "backend": "pty",
+      "backend": "dsh",
       "env": {
         "CODEX_HOME": "/home/jj/.jion"
       },
@@ -108,6 +108,13 @@
           "label": "adv.barbaralacerda@gmail.com",
           "env": {
             "CODEX_HOME": "/home/jj/.codex-acc4"
+          }
+        },
+        {
+          "id": "codex-5",
+          "label": "Conta 5",
+          "env": {
+            "CODEX_HOME": "/home/jj/.codex-acc5"
           }
         }
       ]
@@ -179,9 +186,17 @@
   },
   "modelos": {
     "claude": [
+      "fable",
       "opus",
       "sonnet",
-      "haiku"
+      "haiku",
+      "claude-fable-5",
+      "claude-opus-5",
+      "claude-opus-4-8",
+      "claude-sonnet-5",
+      "claude-haiku-4-5",
+      "claude-opus-4-6-thinking",
+      "claude-sonnet-4-6"
     ],
     "agy": [
       "gemini-3.8-flash-high",
@@ -201,34 +216,42 @@
     ],
     "codex": [
       "gpt-6-astra",
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "gpt-reserve",
       "gpt-5.6-sol",
       "gpt-5.6-terra",
       "gpt-5.6-luna",
-      "gpt-reserve",
-      "gpt-5.5"
+      "gpt-5.5",
+      "codex-auto-review"
     ],
     "openrouter": [
       "openrouter/free",
-      "thinkingmachines/inkling-small:free",
-      "thinkingmachines/inkling:free",
-      "nvidia/nemotron-3-ultra-550b-a55b:free",
-      "nvidia/nemotron-3.5-lightning:free",
-      "dots-studio/dots-3-note-preview:free",
-      "google/gemma-4-26b-a4b-it:free",
-      "google/gemma-4-31b-it:free",
+      "qwen/qwen3.8-27b:free",
+      "inclusionai/ling-3.0-flash-vl:free",
       "inclusionai/ling-3.0-flash-fin:free",
       "inclusionai/ling-3.0-flash-sante:free",
-      "inclusionai/ling-3.0-flash-vl:free",
       "nex-agi/nex-n2.5-mini:free",
       "nex-agi/nex-n2.5-pro:free",
-      "nvidia/nemotron-3-super-120b-a12b:free",
+      "dots-studio/dots-3-note-preview:free",
+      "liquid/lfm-2.5-2.6b:free",
+      "nvidia/nemotron-3.5-lightning:free",
+      "thinkingmachines/inkling-small:free",
+      "thinkingmachines/inkling:free",
       "poolside/laguna-s-2.1:free",
       "poolside/laguna-xs-2.1:free",
       "cohere/north-mini-code:free",
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
       "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      "liquid/lfm-2.5-2.6b:free"
+      "nvidia/nemotron-3-super-120b-a12b:free",
+      "google/gemma-4-26b-a4b-it:free",
+      "google/gemma-4-31b-it:free",
+      "z-ai/glm-5.2:free",
+      "nvidia/nemotron-3.5-content-safety:free"
     ],
     "grok": [
+      "grok-4.7",
+      "grok-4.7-build-fast",
       "grok-4.6",
       "grok-4.5"
     ],
@@ -245,7 +268,7 @@
       "cor": "#00b4ff",
       "cli": "codex",
       "maestro": true,
-      "papel": "Você é o MAESTRO desta missão. Você não implementa: você divide o trabalho, delega a especialistas e cobra o resultado.\n\nComo trabalhar:\n- listar_especialistas mostra quem existe, com modelo e papel.\n- tipos_de_tarefa mostra rótulos para organizar trabalho. Tipo não decide modelo, esforço nem provedor: a escolha de agente feita pelo usuário deve ser preservada.\n- listar_especialistas já vem filtrado pelo ELENCO desta missão: cada especialista aparece com o provedor em que vai realmente rodar. Não abra provedor fora do elenco escolhido pelo usuário.\n- delegar aceita `provedor`: use somente quando usuário tiver escolhido esse provedor. Não troque agente, modelo ou provedor por conta própria.\n- Site, página, layout e aparência da interface são trabalho de quem usuário designar. A tela nasce em código, não em desenho: não peça mockup de tela para depois copiar.\n- ARTISTA, PINTOR e CINEASTA fornecem ARQUIVOS DE IMAGEM, vídeo e áudio quando forem escolhidos para isso.\n- delegar entrega a tarefa no painel JÁ ABERTO daquele papel (cola no terminal). Só abre painel novo se o papel ainda não existir. Não substitua delegar por cockpit_ask: ask sem cola no terminal não acorda o CLI. A tarefa deve ser autossuficiente — o especialista não vê esta conversa. Diga exatamente quais arquivos são dele.\n- situacao diz se o painel está pronto_no_prompt (pode delegar) ou ocupado. Se deliveredToTerminal=false, espere e delegue de novo.\n- ler_resultado lê a íntegra da saída e relatório de um especialista (ex: scout, builder).\n- checkpoint salva estado da missão a cada etapa concluída.\n\nSkills são instrução instalável. listar_skills mostra acervo; ler_skill abre uma. Ao delegar, passe em `skills` nomes que especialista precisa.\n\nRegistre decisões duráveis com anotar: todo agente novo do projeto começa sabendo o que ficou anotado.",
+      "papel": "Você é o MAESTRO / ORQUESTRADOR desta missão no Cockpit. Você não implementa: você divide o trabalho, delega aos especialistas abertos nas janelas do Cockpit e cobra o resultado.\n\nREGRA MANDATÓRIA: NUNCA crie ou use ferramentas de subagentes do seu CLI (como define_subagent, invoke_subagent, etc.). Seus agentes são SEMPRE e EXCLUSIVAMENTE as janelas e painéis reais abertos na missão do Cockpit (EXPLORADOR, ARQUITETO, CONSTRUTOR, REVISOR, VERIFICADOR, etc.).\n\nComo trabalhar:\n- listar_especialistas ou cockpit_list mostra quem existe na missão, com modelo e papel.\n- tipos_de_tarefa mostra rótulos para organizar trabalho. Tipo não decide modelo, esforço nem provedor: a escolha de agente feita pelo usuário deve ser preservada.\n- listar_especialistas já vem filtrado pelo ELENCO desta missão: cada especialista aparece com o provedor em que vai realmente rodar. Não abra provedor fora do elenco escolhido pelo usuário.\n- delegar (ou cockpit_ask) entrega a tarefa no painel JÁ ABERTO daquele papel (cola no terminal). NUNCA substitua por subagentes internos do CLI. Só abre painel novo se o papel ainda não existir e a missão permitir. A tarefa deve ser autossuficiente — o especialista não vê esta conversa. Diga exatamente quais arquivos são dele.\n- situacao diz se o painel está pronto_no_prompt (pode delegar) ou ocupado. Se deliveredToTerminal=false, espere e delegue de novo.\n- ler_resultado lê a íntegra da saída e relatório de um especialista (ex: scout, builder, verifier).\n- checkpoint salva estado da missão a cada etapa concluída.\n\nSkills são instrução instalável. listar_skills mostra acervo; ler_skill abre uma. Ao delegar, passe em `skills` nomes que especialista precisa.\n\nRegistre decisões duráveis com anotar: todo agente novo do projeto começa sabendo o que ficou anotado. NUNCA anote orientações para usar subagentes do CLI.",
       "papel_id": "orquestrar"
     },
     "piloto": {
@@ -320,18 +343,18 @@
       "label": "TERRA",
       "cor": "#6fc3a0",
       "cli": "codex",
-      "model": "gpt-5.6-terra",
+      "model": "gpt-6-sol",
       "effort": "medium",
-      "papel": "Você é o TERRA, rodando GPT-5.6 Terra pelo Codex. Implementação do dia a dia, equilibrando velocidade e cuidado.",
+      "papel": "Você é o TERRA, rodando GPT-6 Sol pelo Codex. Implementação do dia a dia, equilibrando velocidade e cuidado.",
       "papel_id": "executar"
     },
     "luna": {
       "label": "LUNA",
       "cor": "#b9a2e0",
       "cli": "codex",
-      "model": "gpt-5.6-luna",
+      "model": "gpt-6-luna",
       "effort": "low",
-      "papel": "Você é o LUNA, rodando GPT-5.6 Luna pelo Codex. Volume e trabalho mecânico: renomear, mover, formatar, aplicar padrão já decidido.",
+      "papel": "Você é o LUNA, rodando GPT-6 Luna pelo Codex. Volume e trabalho mecânico: renomear, mover, formatar, aplicar padrão já decidido.",
       "papel_id": "executar"
     },
     "pintor": {
@@ -567,7 +590,7 @@
             "effort": "low"
           },
           "codex": {
-            "model": "gpt-5.6-luna",
+            "model": "gpt-6-luna",
             "effort": "low"
           },
           "openrouter": {
@@ -589,7 +612,7 @@
             "effort": "low"
           },
           "codex": {
-            "model": "gpt-5.6-luna",
+            "model": "gpt-6-luna",
             "effort": "low"
           },
           "openrouter": {
@@ -611,7 +634,7 @@
             "effort": "medium"
           },
           "codex": {
-            "model": "gpt-5.6-terra",
+            "model": "gpt-6-sol",
             "effort": "medium"
           },
           "openrouter": {
@@ -651,7 +674,7 @@
             "effort": "high"
           },
           "codex": {
-            "model": "gpt-5.6-terra",
+            "model": "gpt-6-sol",
             "effort": "medium"
           }
         }
@@ -768,6 +791,11 @@
       "high"
     ],
     "grok": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "deepseek": [
       "low",
       "medium",
       "high"

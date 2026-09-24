@@ -5,27 +5,8 @@
  * Implements the 5 verbs: list, connect, ask, reply, handoff, inbox
  */
 
-const port = process.env.COCKPIT_PORT || "3000";
-const defaultMission = process.env.COCKPIT_MISSION || "default";
-const defaultPane = process.env.COCKPIT_PANE || "user";
-const baseUrl = `http://127.0.0.1:${port}`;
-
 const args = process.argv.slice(2);
 const verb = args[0];
-
-if (!verb || verb === "help" || verb === "--help" || verb === "-h") {
-  console.log(`Cockpit Inter-Agent CLI
-Usage:
-  cockpit list [--format=json] [--mission=<id>]
-  cockpit connect <A> <B> [--mission=<id>]
-  cockpit ask <PANE> <tarefa> [--task-id=<id>] [--mission=<id>]
-  cockpit reply <PANE> <resultado> [--correlation-id=<id>] [--mission=<id>]
-  cockpit handoff <A> <B> <taskId> [context] [--force] [--mission=<id>]
-  cockpit inbox [--unread] [--pane=<id>] [--mission=<id>]
-  cockpit resultado <PANE> [--mission=<id>]
-`);
-  process.exit(0);
-}
 
 function getFlag(name) {
   for (const a of args) {
@@ -38,6 +19,25 @@ function getFlag(name) {
 
 function hasFlag(name) {
   return args.some((a) => a === `--${name}` || a.startsWith(`--${name}=`));
+}
+
+const port = getFlag("port") || process.env.COCKPIT_PORT || process.env.COCKPIT_PORTA || process.env.PORT || "3000";
+const defaultMission = process.env.COCKPIT_MISSION || "default";
+const defaultPane = process.env.COCKPIT_PANE || "user";
+const baseUrl = `http://127.0.0.1:${port}`;
+
+if (!verb || verb === "help" || verb === "--help" || verb === "-h") {
+  console.log(`Cockpit Inter-Agent CLI
+Usage:
+  cockpit list [--format=json] [--mission=<id>] [--port=<n>]
+  cockpit connect <A> <B> [--mission=<id>] [--port=<n>]
+  cockpit ask <PANE> <tarefa> [--task-id=<id>] [--mission=<id>] [--port=<n>]
+  cockpit reply <PANE> <resultado> [--correlation-id=<id>] [--mission=<id>] [--port=<n>]
+  cockpit handoff <A> <B> <taskId> [context] [--force] [--mission=<id>] [--port=<n>]
+  cockpit inbox [--unread] [--pane=<id>] [--mission=<id>] [--port=<n>]
+  cockpit resultado <PANE> [--mission=<id>] [--port=<n>]
+`);
+  process.exit(0);
 }
 
 const missionId = getFlag("mission") || defaultMission;

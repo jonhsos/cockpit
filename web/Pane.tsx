@@ -2,7 +2,18 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { discardBufferedOutput, onOutput, send, takeBufferedOutput } from "./socket.ts";
-import { fetchPaneReplay, postPanePrompt, openLoginTerminal, type AgentSpec, type Usage } from "./api.ts";
+import {
+  fetchPaneReplay,
+  postPanePrompt,
+  openLoginTerminal,
+  fetchCotas,
+  fetchAccountPools,
+  type AgentSpec,
+  type Usage,
+  type Cota,
+  type AccountPoolView,
+} from "./api.ts";
+import { QuotaProgressCard } from "./Redline.tsx";
 import {
   type PaneState,
   type Connection,
@@ -13,7 +24,14 @@ import {
 } from "./tipos.ts";
 import { Icon } from "./Icon.tsx";
 import { Mascote } from "./Mascote.tsx";
-import { corDoPainel, nomeDoPainel, sementeDoPainel } from "./rotulos.ts";
+import {
+  corDoPainel,
+  nomeDoPainel,
+  sementeDoPainel,
+  formatarTempoSessao,
+  formatarTempoCompleto,
+  formatarHoraInicio,
+} from "./rotulos.ts";
 import { roleDefinitionFor } from "./role-contract.ts";
 import { atalhoDeColar, atalhoDeCopiar, colarTexto, copiarTexto } from "./clipboard.ts";
 
@@ -39,13 +57,6 @@ function Spark({ atividade }: { atividade: number[] }) {
       ))}
     </span>
   );
-}
-
-function desdeQuando(ms: number): string {
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.round(s / 60)}min`;
-  return `${Math.round(s / 3600)}h`;
 }
 
 export function Pane({
@@ -134,6 +145,7 @@ export function Pane({
   const [menuPapelAberto, setMenuPapelAberto] = useState(false);
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const [detalhesAberto, setDetalhesAberto] = useState(false);
+  const [trocandoConta, setTrocandoConta] = useState(false);
   const roleBtnRef = useRef<HTMLButtonElement>(null);
   const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
   const [detalhesPos, setDetalhesPos] = useState<{ top: number; right: number } | null>(null);
@@ -228,7 +240,7 @@ export function Pane({
       fontSize: 13,
       lineHeight: 1.35,
       cursorBlink: true,
-      scrollback: 5000,
+      scrollback: 10000,
       allowProposedApi: true,
       rightClickSelectsWord: false,
       smoothScrollDuration: 0,
@@ -273,9 +285,7 @@ export function Pane({
       }
     };
 
-    // Roda: não deixa a grade roubar o evento. No buffer normal o xterm
-    // rola o scrollback. No alternativo (TUI): se há mouse tracking, o
-    // xterm manda CSI; senão PageUp/PageDown ao PTY (setas corrompiam Grok).
+    // Teclado: atalhos de copiar/colar e navegação por scroll (Shift+PageUp/Down/Home/End)
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.type !== "keydown") return true;
       if (atalhoDeCopiar(ev)) {
@@ -287,6 +297,24 @@ export function Pane({
         // Deixa o evento nativo `paste` (clipboardData) seguir — é o único
         // caminho confiável quando o navegador nega clipboard.readText.
         return true;
+      }
+      if (ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+        if (ev.key === "PageUp") {
+          term.scrollPages(-1);
+          return false;
+        }
+        if (ev.key === "PageDown") {
+          term.scrollPages(1);
+          return false;
+        }
+        if (ev.key === "Home") {
+          term.scrollToTop();
+          return false;
+        }
+        if (ev.key === "End") {
+          term.scrollToBottom();
+          return false;
+        }
       }
       return true;
     });
@@ -325,10 +353,31 @@ export function Pane({
     area.addEventListener("paste", aoColar);
     area.addEventListener("contextmenu", aoMenu, true);
 
+    // Rolagem por mouse/trackpad:
+    // No buffer normal (onde rodam Claude, Codex, Bash, etc.): sempre rola o scrollback
+    // do terminal diretamente, evitando que mouse tracking do CLI bloqueie o scroll.
+    // No buffer alternativo (TUI como vim, htop, less, grok): se houver mouse tracking,
+    // envia ao PTY, a menos que Shift esteja pressionado; se não houver mouse tracking, envia PageUp/Down.
     term.attachCustomWheelEventHandler((ev) => {
       ev.stopPropagation();
-      if (term.buffer.active.type !== "alternate") return false;
+
+      const passos = Math.max(1, Math.min(8, Math.round(Math.abs(ev.deltaY) / 30) || 1));
+
+      if (term.buffer.active.type === "normal") {
+        term.scrollLines(ev.deltaY < 0 ? -passos : passos);
+        ev.preventDefault();
+        return true;
+      }
+
+      // Buffer alternativo (TUI):
+      if (ev.shiftKey) {
+        term.scrollLines(ev.deltaY < 0 ? -passos : passos);
+        ev.preventDefault();
+        return true;
+      }
+
       if (term.modes.mouseTrackingMode !== "none") return false;
+
       const viewport = area.querySelector(".xterm-viewport") as HTMLElement | null;
       if (viewport && viewport.scrollHeight > viewport.clientHeight + 2) {
         const subindo = ev.deltaY < 0;
@@ -338,9 +387,9 @@ export function Pane({
         if (pode) return false;
       }
       ev.preventDefault();
-      const passos = Math.min(4, Math.max(1, Math.round(Math.abs(ev.deltaY) / 100)));
+      const passosTui = Math.min(4, Math.max(1, Math.round(Math.abs(ev.deltaY) / 100)));
       const seq = ev.deltaY < 0 ? "\x1b[5~" : "\x1b[6~";
-      for (let i = 0; i < passos; i++) send({ type: "input", paneId: pane.paneId, data: seq });
+      for (let i = 0; i < passosTui; i++) send({ type: "input", paneId: pane.paneId, data: seq });
       return true;
     });
 
@@ -485,6 +534,33 @@ export function Pane({
     }
   };
 
+  // Session live uptime ticker (updates live every second)
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const [cota, setCota] = useState<Cota | null>(null);
+  const [pool, setPool] = useState<AccountPoolView | null>(null);
+  useEffect(() => {
+    if (!detalhesAberto) return;
+    void fetchCotas().then((res) => {
+      const c = res.cotas?.find((item) => item.cli === pane.cli);
+      if (c) setCota(c);
+    }).catch(() => {});
+    void fetchAccountPools().then((res) => {
+      const p = res.pools?.[pane.cli];
+      if (p) setPool(p);
+    }).catch(() => {});
+  }, [detalhesAberto, pane.cli]);
+
+  const inicio = pane.iniciadoEm || agora;
+  const tempoDecorrido = Math.max(0, agora - inicio);
+  const tempoSessaoCurto = formatarTempoSessao(tempoDecorrido);
+  const tempoSessaoCompleto = formatarTempoCompleto(tempoDecorrido);
+  const horaInicio = formatarHoraInicio(inicio);
+
   const roleId = pane.role || (pane.maestro ? "maestro" : pane.agent);
   const roleName = roleDefinitionFor(roleId).label;
 
@@ -551,7 +627,7 @@ export function Pane({
                 <Icon name="grip" size={12} />
               </span>
             ) : null}
-            <Mascote semente={sementeDoPainel(pane)} cor={corDoPainel(pane)} estado={pane.status} tamanho={22} />
+            <Mascote semente={sementeDoPainel(pane)} cor={corDoPainel(pane)} estado={pane.status} tamanho={20} />
             {renomeando ? (
               <input
                 autoFocus
@@ -649,13 +725,13 @@ export function Pane({
                 {usage && usage.turnos > 0 ? (
                   <span
                     className="meter"
-                    title={`${compacto(usage.in + usage.cacheWrite + usage.cacheRead)} entrada · ${compacto(usage.out)} saída · ${usage.turnos} turnos em ${usage.model ?? "—"}`}
+                    title={`${compacto(usage.in + usage.cacheWrite + usage.cacheRead)} entrada · ${compacto(usage.out)} saída · ${usage.turnos} turnos em ${usage.model ?? "—"} · Sessão ativa há ${tempoSessaoCompleto}`}
                   >
-                    ${usage.custo.toFixed(2)}
+                    ${usage.custo.toFixed(2)} · ⏱️ {tempoSessaoCurto}
                   </span>
                 ) : (
-                  <span className="meter" title="tempo desde que o painel abriu">
-                    {desdeQuando(Date.now() - pane.iniciadoEm)}
+                  <span className="meter" title={`Sessão iniciada às ${horaInicio} (${tempoSessaoCompleto})`}>
+                    ⏱️ {tempoSessaoCurto}
                   </span>
                 )}
                 <span className="dica">
@@ -663,6 +739,12 @@ export function Pane({
                 </span>
 
                 <div className="pane-meta-summary" style={{ display: "flex", flexDirection: "column", gap: 5, borderTop: "1px solid #30363d", paddingTop: 8, fontSize: 11.5 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ color: "var(--ink-3)" }}>Duração da sessão:</span>
+                    <span style={{ fontWeight: 600, color: "var(--ink)" }} title={`Iniciado em ${new Date(inicio).toLocaleString()}`}>
+                      ⏱️ {tempoSessaoCompleto} <span style={{ color: "var(--ink-3)", fontWeight: 400, fontSize: 11 }}>(iniciado às {horaInicio})</span>
+                    </span>
+                  </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                     <span style={{ color: "var(--ink-3)" }}>Papel:</span>
                     <span style={{ fontWeight: 600, color: "var(--ink)" }}>{roleName}</span>
@@ -679,27 +761,87 @@ export function Pane({
                       </span>
                     </div>
                   )}
-                  {(pane.accountLabel || pane.accountId) && (
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                      <span style={{ color: "var(--ink-3)" }}>Conta:</span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ color: "var(--ink)", textAlign: "right", wordBreak: "break-word" }}>
-                          {pane.accountLabel || pane.accountId}
-                          {pane.accountPinned ? " · fixada" : ""}
-                        </span>
-                        <button
-                          type="button"
-                          className="btn mini quiet"
-                          style={{ padding: "1px 6px", fontSize: "10.5px" }}
-                          onClick={async () => {
-                            setDetalhesAberto(false);
-                            await openLoginTerminal(pane.cli, pane.accountId!, pane.missionId ?? undefined);
-                          }}
-                          title="Abrir terminal de login para esta conta"
-                        >
-                          🔑 Login
-                        </button>
+                  {(pane.accountLabel || pane.accountId || (pool && pool.contas.length > 0)) && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                        <span style={{ color: "var(--ink-3)" }}>Conta:</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ color: "var(--ink)", textAlign: "right", wordBreak: "break-word", fontWeight: 600 }}>
+                            {pane.accountLabel || pane.accountId || "Automático"}
+                            {pane.accountPinned ? " · fixada" : ""}
+                          </span>
+                          {pane.accountId && (
+                            <button
+                              type="button"
+                              className="btn mini quiet"
+                              style={{ padding: "1px 6px", fontSize: "10.5px" }}
+                              onClick={async () => {
+                                setDetalhesAberto(false);
+                                await openLoginTerminal(pane.cli, pane.accountId!, pane.missionId ?? undefined);
+                              }}
+                              title="Abrir terminal de login para esta conta"
+                            >
+                              🔑 Login
+                            </button>
+                          )}
+                        </div>
                       </div>
+
+                      {pool && pool.contas.length > 1 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                          <select
+                            className="campo"
+                            style={{ fontSize: 11, padding: "2px 6px", flex: 1 }}
+                            defaultValue=""
+                            disabled={trocandoConta}
+                            onChange={async (e) => {
+                              const targetAccId = e.target.value;
+                              if (!targetAccId || !pane.missionId) return;
+                              setTrocandoConta(true);
+                              try {
+                                if (pane.maestro) {
+                                  await fetch(`/api/missions/${pane.missionId}/maestro`, {
+                                    method: "POST",
+                                    headers: { "content-type": "application/json" },
+                                    body: JSON.stringify({
+                                      cli: pane.cli,
+                                      preferredAccountId: targetAccId,
+                                      accountPinned: true,
+                                    }),
+                                  });
+                                } else {
+                                  send({
+                                    type: "spawn",
+                                    agent: pane.agent,
+                                    missionId: pane.missionId,
+                                    cli: pane.cli,
+                                    model: pane.model,
+                                    effort: pane.effort,
+                                    role: pane.role,
+                                    label: pane.label,
+                                    preferredAccountId: targetAccId,
+                                    accountPinned: true,
+                                    backend: pane.backend,
+                                  });
+                                  send({ type: "kill", paneId: pane.paneId });
+                                }
+                                setDetalhesAberto(false);
+                              } catch (err) {
+                                alert(`Falha ao trocar conta: ${String(err)}`);
+                              } finally {
+                                setTrocandoConta(false);
+                              }
+                            }}
+                          >
+                            <option value="" disabled>Trocar para outra conta do pool...</option>
+                            {pool.contas.map((acc) => (
+                              <option key={acc.id} value={acc.id} disabled={acc.id === pane.accountId}>
+                                {acc.label || acc.id} {acc.id === pane.accountId ? "(atual)" : acc.status === "ocupada" ? `(ocupada · ${acc.painelLabel || "painel"})` : acc.status === "cooldown" ? "(cooldown)" : "(livre)"}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
                   )}
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -718,6 +860,12 @@ export function Pane({
                     </div>
                   )}
                 </div>
+
+                {(cota || pool) && (
+                  <div style={{ borderTop: "1px solid #30363d", paddingTop: 8 }}>
+                    <QuotaProgressCard cota={cota ?? undefined} pool={pool ?? undefined} showPoolList={false} />
+                  </div>
+                )}
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid #30363d", paddingTop: 10 }}>
                   <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-2)" }}>
@@ -806,7 +954,7 @@ export function Pane({
           </div>
         </div>
 
-        {/* Linha 2: badges — quebram de linha em janela estreita, nunca somem. */}
+        {/* Linha 2: badges — quebram de linha em janela estreita, nunca somem nem cortam. */}
         <div className="pane-head-badges">
           <div className="pane-role-container">
             <button
@@ -826,9 +974,9 @@ export function Pane({
                 });
               }}
             >
-              {pane.maestro ? <Icon name="team" size={12} /> : null}
-              <span>{roleName}</span>
-              <Icon name="chevron" size={10} />
+              {pane.maestro ? <Icon name="team" size={11} /> : null}
+              <span className="role-label-text">{roleName}</span>
+              <Icon name="chevron" size={9} />
             </button>
 
             {menuPapelAberto && popoverPos && (
@@ -876,7 +1024,7 @@ export function Pane({
             className={`pane-badge badge-backend ${isDsh ? "dsh" : "pty"}`}
             title={`Backend de execução: ${isDsh ? "DSH (SDK headless / subagentes)" : "PTY (Terminal interativo CLI)"}`}
           >
-            {isDsh ? "⚡ dsh" : "📟 pty"}
+            {isDsh ? "dsh" : "pty"}
           </span>
 
           {pane.accountLabel && (
@@ -884,7 +1032,8 @@ export function Pane({
               className="pane-badge badge-account"
               title={`Conta do pool: ${pane.accountLabel}${pane.accountPinned ? " (fixada)" : ""}`}
             >
-              👤 {pane.accountLabel}
+              <span className="account-icon" aria-hidden="true">👤</span>
+              <span className="account-name">{pane.accountLabel}</span>
             </span>
           )}
 
@@ -907,18 +1056,22 @@ export function Pane({
             <span className="status-label">{statusInfo.label}</span>
           </span>
 
-          {taskAtiva ? (
+          <span
+            className="pane-badge badge-session-time"
+            title={`Sessão iniciada às ${horaInicio} (${tempoSessaoCompleto} de atividade)`}
+          >
+            <span className="session-time-icon" aria-hidden="true">⏱️</span>
+            <span className="session-time-val">{tempoSessaoCurto}</span>
+          </span>
+
+          {taskAtiva && (
             <span
               className="pane-badge badge-active-task"
               title={`Tarefa ativa: #${taskAtiva.id} — ${taskAtiva.título}`}
             >
               <span className="task-icon" aria-hidden="true">📋</span>
-              <span className="task-id">#{taskAtiva.id.slice(-6)}</span>
+              <span className="task-id">#{taskAtiva.id.slice(-4)}</span>
               <span className="task-title">: {taskAtiva.título}</span>
-            </span>
-          ) : (
-            <span className="pane-badge badge-no-task" title="Nenhuma tarefa ativa atribuída">
-              Sem tarefa
             </span>
           )}
 
@@ -929,8 +1082,7 @@ export function Pane({
             >
               <span className="pane-conn-dot" />
               <span className="pane-conn-wire" aria-hidden="true" />
-              <span className="conn-label">🔗 Conectado</span>
-              <span className="conn-count">({conexoesReais.length})</span>
+              <span className="conn-label">🔗 {conexoesReais.length}</span>
             </span>
           )}
         </div>

@@ -14,8 +14,14 @@ import { createWebSocketServer } from "./websocket/index.ts";
 import { createApiRouter, type RouterContext } from "./routes/index.ts";
 import { accountPool } from "./providers/account-pool.ts";
 import type { PaneState } from "./sessions/pane-state.ts";
+import { parseServerOptions, resolveServerPort } from "./rede.ts";
 
-const porta = Number(process.env.COCKPIT_PORTA) || config.port;
+const serverOpts = parseServerOptions(process.argv.slice(2), config.port);
+const porta = await resolveServerPort(serverOpts.port, serverOpts.host, serverOpts.strict);
+const host = serverOpts.host;
+process.env.COCKPIT_PORT = String(porta);
+process.env.COCKPIT_PORTA = String(porta);
+if (host) process.env.COCKPIT_HOST = host;
 const app = express();
 const webDist = fileURLToPath(new URL("../web/dist", import.meta.url));
 const webIndex = join(webDist, "index.html");
@@ -40,6 +46,7 @@ const bridge = getDefaultBridge({
     writePane: (id, data) => writePty(id, data),
   },
 });
+accountPool.setPaneLabelResolver((paneId) => getPane(paneId)?.label);
 
 // Coordinator & WebSocket Server
 const coordinator = new MaestroCoordinator({
@@ -176,7 +183,10 @@ server.on("error", (err: NodeJS.ErrnoException) => {
 
 await initializePty();
 
-server.listen(porta, () => {
+const onPronto = () => {
   console.log(`cockpit → http://localhost:${porta}`);
+  if (host && host !== "localhost" && host !== "127.0.0.1") console.log(`cockpit (${host}) → http://${host}:${porta}`);
   console.log(`${listProjects().length} projeto(s) aberto(s)`);
-});
+};
+if (host) server.listen(porta, host, onPronto);
+else server.listen(porta, onPronto);

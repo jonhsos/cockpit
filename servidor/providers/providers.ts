@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { config, modelosDoCli } from "../config.ts";
-import { chaveDaPonte, pontede } from "./ponte.ts";
+import { chaveDaPonte, pontede, obterMapaModelosPonte } from "./ponte.ts";
 import { chaveDaDshApi, dshApiDoCli, sincronizarCatalogoDshGateway } from "./dsh-api.ts";
 
 /**
@@ -48,10 +48,15 @@ const COMO_INSTALAR: Record<string, string> = {
   agy: "baixe a Antigravity CLI em antigravity.google",
   codex: "npm i -g @openai/codex",
   grok: "curl -sSfL https://x.ai/grok/install.sh | sh",
+  kimi: "curl -fsSL https://kimi.ai/install.sh | sh",
+  opencode: "npm i -g opencode-ai",
+  ollama: "baixe o instalador em https://ollama.com",
 };
 
 const CODEX_MODELOS_PADRAO: Record<string, string> = {
   "gpt-6-astra": "GPT-6 Astra",
+  "gpt-6-sol": "GPT-6 Sol",
+  "gpt-6-luna": "GPT-6 Luna",
   "gpt-reserve": "GPT-Reserve",
   "gpt-5.6-sol": "GPT-5.6 Sol",
   "gpt-5.6-terra": "GPT-5.6 Terra",
@@ -63,14 +68,52 @@ const CODEX_MODELOS_PADRAO: Record<string, string> = {
 export function obterMapaModelosCodex(): Record<string, string> {
   const res: Record<string, string> = { ...CODEX_MODELOS_PADRAO };
   try {
-    const cachePath = join(homedir(), ".codex", "models_cache.json");
-    if (existsSync(cachePath)) {
-      const data = JSON.parse(readFileSync(cachePath, "utf8"));
-      if (Array.isArray(data.models)) {
-        for (const m of data.models) {
-          const id = m.id || m.slug;
-          const name = m.name || m.display_name || m.title;
-          if (id && name) res[id] = name;
+    const poolHomes: string[] = [];
+    const codexCfg = config.clis?.codex;
+    if (codexCfg?.env?.CODEX_HOME) poolHomes.push(codexCfg.env.CODEX_HOME.replace(/^~(?=$|\/|\\)/, homedir()));
+    if (Array.isArray(codexCfg?.pool)) {
+      for (const account of codexCfg.pool) {
+        if (account.env?.CODEX_HOME) poolHomes.push(account.env.CODEX_HOME.replace(/^~(?=$|\/|\\)/, homedir()));
+      }
+    }
+    const paths = [
+      join(homedir(), ".codex", "models_cache.json"),
+      ...(process.env.CODEX_HOME ? [join(process.env.CODEX_HOME, "models_cache.json")] : []),
+      ...poolHomes.map((dir) => join(dir, "models_cache.json")),
+    ];
+    let newestCacheContent: string | null = null;
+    let maxModelsCount = 0;
+
+    for (const cachePath of paths) {
+      if (existsSync(cachePath)) {
+        try {
+          const raw = readFileSync(cachePath, "utf8");
+          const data = JSON.parse(raw);
+          if (Array.isArray(data.models)) {
+            if (data.models.length > maxModelsCount) {
+              maxModelsCount = data.models.length;
+              newestCacheContent = raw;
+            }
+            for (const m of data.models) {
+              const id = m.id || m.slug;
+              const name = m.name || m.display_name || m.title;
+              if (id && name) res[id] = name;
+            }
+          }
+        } catch {
+          // Arquivo corrompido ou inacessível
+        }
+      }
+    }
+
+    if (newestCacheContent) {
+      for (const cachePath of paths) {
+        if (!existsSync(cachePath)) {
+          try {
+            writeFileSync(cachePath, newestCacheContent, "utf8");
+          } catch {
+            // Permissão de escrita
+          }
         }
       }
     }
@@ -81,6 +124,8 @@ export function obterMapaModelosCodex(): Record<string, string> {
 }
 
 const GROK_MODELOS_PADRAO: Record<string, string> = {
+  "grok-4.7": "Grok 4.7",
+  "grok-4.7-build-fast": "Grok 4.7 Build Fast",
   "grok-4.6": "Grok 4.6",
   "grok-4.5": "Grok 4.5",
 };
@@ -88,13 +133,51 @@ const GROK_MODELOS_PADRAO: Record<string, string> = {
 export function obterMapaModelosGrok(): Record<string, string> {
   const res: Record<string, string> = { ...GROK_MODELOS_PADRAO };
   try {
-    const cachePath = join(homedir(), ".grok", "models_cache.json");
-    if (existsSync(cachePath)) {
-      const data = JSON.parse(readFileSync(cachePath, "utf8"));
-      if (data.models && typeof data.models === "object") {
-        for (const [id, item] of Object.entries<any>(data.models)) {
-          const name = item?.info?.name || item?.name;
-          if (id && name) res[id] = name;
+    const paths = [
+      join(homedir(), ".grok", "models_cache.json"),
+      ...(process.env.GROK_HOME ? [join(process.env.GROK_HOME, "models_cache.json")] : []),
+    ];
+    for (const cachePath of paths) {
+      if (existsSync(cachePath)) {
+        const data = JSON.parse(readFileSync(cachePath, "utf8"));
+        if (data.models && typeof data.models === "object") {
+          for (const [id, item] of Object.entries<any>(data.models)) {
+            const name = item?.info?.name || item?.name;
+            if (id && name) res[id] = name;
+          }
+        }
+      }
+    }
+  } catch {
+    // Sem cache
+  }
+  return res;
+}
+
+const KIMI_MODELOS_PADRAO: Record<string, string> = {
+  "moonshot-ai/kimi-k3": "Kimi K3",
+  "moonshot-ai/kimi-k2.7-code": "Kimi K2.7 Code",
+  "moonshot-ai/kimi-k2.7-code-highspeed": "Kimi K2.7 Code (Highspeed)",
+  "moonshot-ai/kimi-k2.6": "Kimi K2.6",
+  "kimi-k3": "Kimi K3",
+  "kimi-k2.7-code": "Kimi K2.7 Code",
+  "kimi-k2.7-code-highspeed": "Kimi K2.7 Code (Highspeed)",
+  "kimi-k2.6": "Kimi K2.6",
+};
+
+export function obterMapaModelosKimi(): Record<string, string> {
+  const res: Record<string, string> = { ...KIMI_MODELOS_PADRAO };
+  try {
+    const configPath = join(homedir(), ".kimi-code", "config.toml");
+    if (existsSync(configPath)) {
+      const content = readFileSync(configPath, "utf8");
+      const regex = /\[models\."([^"]+)"\]/g;
+      let match;
+      while ((match = regex.exec(content)) !== null) {
+        const id = match[1];
+        if (id && !res[id]) {
+          const cleanName = id.replace(/^moonshot-ai\//, "").replace(/[-_]/g, " ");
+          res[id] = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
         }
       }
     }
@@ -105,9 +188,15 @@ export function obterMapaModelosGrok(): Record<string, string> {
 }
 
 const CLAUDE_MODELOS_PADRAO: Record<string, string> = {
-  "opus": "Claude Opus (Claude 3.7 / 4)",
-  "sonnet": "Claude Sonnet (Claude 3.7)",
-  "haiku": "Claude Haiku",
+  "fable": "Claude Fable (Claude 5)",
+  "opus": "Claude Opus (Claude 3.7 / 4 / 5)",
+  "sonnet": "Claude Sonnet (Claude 3.7 / 5)",
+  "haiku": "Claude Haiku (Claude 3.5 / 4.5)",
+  "claude-fable-5": "Claude Fable 5",
+  "claude-opus-5": "Claude Opus 5",
+  "claude-opus-4-8": "Claude Opus 4.8",
+  "claude-sonnet-5": "Claude Sonnet 5",
+  "claude-haiku-4-5": "Claude Haiku 4.5",
   "claude-opus-4-6-thinking": "Claude Opus 4.6 (Thinking)",
   "claude-sonnet-4-6": "Claude Sonnet 4.6",
 };
@@ -116,7 +205,9 @@ export function obterMapaModelos(id: string, spec: (typeof config.clis)[string])
   if (id === "agy") return obterMapaModelosAgy();
   if (id === "codex") return obterMapaModelosCodex();
   if (id === "grok") return obterMapaModelosGrok();
+  if (id === "kimi") return obterMapaModelosKimi();
   if (id === "claude") return { ...CLAUDE_MODELOS_PADRAO };
+  if (spec.ponte) return obterMapaModelosPonte(id);
   if (spec.dshApi?.modelos) {
     const res: Record<string, string> = {};
     for (const m of spec.dshApi.modelos) {
@@ -179,6 +270,10 @@ export function resolverExecutavel(comando: string): string | null {
   if (/[\\/]/.test(nome)) {
     const candidato = isAbsolute(nome) ? nome : resolve(nome);
     caminho = executavelValido(candidato) ? candidato : null;
+    if (!caminho && process.platform === "win32" && (nome === "/bin/bash" || nome.endsWith("/bash"))) {
+      const gitBash = "C:\\Program Files\\Git\\bin\\bash.exe";
+      if (executavelValido(gitBash)) caminho = gitBash;
+    }
   } else {
     try {
       caminho = execFileSync(process.platform === "win32" ? "where" : "which", [nome], {

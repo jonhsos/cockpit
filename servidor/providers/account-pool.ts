@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { config, salvarConfig, type ContaPoolSpec } from "../config.ts";
@@ -54,6 +54,29 @@ function expandEnv(env: Record<string, string> = {}): Record<string, string> {
     }
   }
   return expanded;
+}
+
+export function garantirDiretoriosDeConta(env?: Record<string, string>): void {
+  if (!env || typeof env !== "object") return;
+  const dirs = [
+    env.CODEX_HOME,
+    env.CLAUDE_CONFIG_DIR,
+    env.GROK_HOME,
+    env.JETSKI_APP_DATA_DIR,
+    env.HOME,
+  ];
+  for (const raw of dirs) {
+    if (typeof raw === "string" && raw.trim()) {
+      try {
+        const expandido = expandPath(raw.trim());
+        if (!existsSync(expandido)) {
+          mkdirSync(expandido, { recursive: true, mode: 0o700 });
+        }
+      } catch {
+        // Ignora erro se caminho for inválido ou sistema de arquivos não permitir
+      }
+    }
+  }
 }
 
 const PUBLIC_ACCOUNT_ENV_KEYS = new Set([
@@ -181,6 +204,11 @@ export class AccountPoolManager {
   private pools = new Map<string, Map<string, AccountRuntime>>();
   private paneToAccount = new Map<string, { cli: string; accountId: string }>();
   private sessionAffinity = new Map<string, string>();
+  private paneLabelResolver?: (paneId: string) => string | undefined;
+
+  public setPaneLabelResolver(resolver: (paneId: string) => string | undefined): void {
+    this.paneLabelResolver = resolver;
+  }
 
   constructor() {
     this.refreshFromConfig();
@@ -211,6 +239,10 @@ export class AccountPoolManager {
         const id = item.id || `acc-${i + 1}`;
         const label = item.label || id;
         const key = `${cli}:${id}`;
+
+        if (item.env) {
+          garantirDiretoriosDeConta(item.env);
+        }
 
         accMap.set(id, {
           id,
@@ -421,12 +453,14 @@ export class AccountPoolManager {
         }
 
         const firstPaneId = acc.activePanes.size > 0 ? Array.from(acc.activePanes)[0] : undefined;
+        const painelLabel = firstPaneId && this.paneLabelResolver ? this.paneLabelResolver(firstPaneId) : undefined;
 
         contas.push({
           id: acc.id,
           label: acc.label,
           status,
           painelId: firstPaneId,
+          painelLabel,
           limitedUntil: isCooldown ? acc.limitedUntil! : undefined,
           lastLimitDetail: acc.lastLimitDetail ?? undefined,
           env: publicAccountEnv(acc.env),
@@ -447,6 +481,9 @@ export class AccountPoolManager {
   }
 
   public addAccount(cli: string, conta: ContaPoolSpec): void {
+    if (conta.env) {
+      garantirDiretoriosDeConta(conta.env);
+    }
     config.clis[cli] ??= { command: cli };
     config.clis[cli].pool ??= [];
 

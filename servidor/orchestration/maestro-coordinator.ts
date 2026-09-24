@@ -23,6 +23,7 @@ import { listarProviders } from "../providers/providers.ts";
 import { resolverHarness, type Pedido } from "./harness.ts";
 import { identidadeVisualDoPapel } from "./roles.ts";
 import { accountPool } from "../providers/account-pool.ts";
+import { getDefaultBridge } from "../connections/index.ts";
 
 export interface MaestroCoordinatorDeps {
   continuity: Continuity;
@@ -312,6 +313,45 @@ export class MaestroCoordinator {
       JSON.stringify({ agent, tarefa, objetivo: mission.objetivo, cli: state.cli }),
     );
     this.deps.broadcast({ type: "spawned", pane: state });
+
+    // Conexão direta automática com o Orquestrador (Maestro) da missão
+    try {
+      const bridge = getDefaultBridge();
+      if (state.maestro) {
+        // Se este painel é o Maestro recém-criado, conecta a todos os especialistas já existentes na missão
+        const especialistas = listPanes().filter(
+          (p) =>
+            p.missionId === mission.id &&
+            !p.maestro &&
+            p.paneId !== state.paneId &&
+            p.status !== "dead" &&
+            p.status !== "failed",
+        );
+        for (const esp of especialistas) {
+          bridge.connect(state.paneId, esp.paneId, mission.id);
+        }
+        if (especialistas.length > 0) {
+          this.deps.broadcast({ type: "connection:updated" });
+        }
+      } else {
+        // Se este painel é um especialista (Arquiteto, Explorador, Construtor, Verificador, etc.), conecta ao Maestro existente
+        const maestro = listPanes().find(
+          (p) =>
+            p.missionId === mission.id &&
+            p.maestro &&
+            p.paneId !== state.paneId &&
+            p.status !== "dead" &&
+            p.status !== "failed",
+        );
+        if (maestro) {
+          bridge.connect(maestro.paneId, state.paneId, mission.id);
+          this.deps.broadcast({ type: "connection:updated" });
+        }
+      }
+    } catch {
+      // Ignora falhas de auto-conexão silenciosamente
+    }
+
     return state;
   }
 

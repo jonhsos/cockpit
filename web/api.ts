@@ -378,7 +378,8 @@ export const postMission = (
   skills?: string[],
   receita?: string,
   elenco?: Elenco,
-) => post("/api/missions", { projectId, nome, objetivo, skills, receita, elenco }).then(json<Mission>);
+  modo?: string,
+) => post("/api/missions", { projectId, nome, objetivo, skills, receita, elenco, modo }).then(json<Mission>);
 
 export const salvarElenco = (missionId: string, elenco: Elenco | null) =>
   post("/api/missions/" + missionId + "/elenco", { elenco }).then(json<{ elenco: Elenco | null }>);

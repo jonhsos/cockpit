@@ -58,13 +58,20 @@ export function createPanesRouter(ctx: RouterContext): Router {
           ? req.body.cor
           : (ctx.config.agents[novoAgente]?.cor ?? pane.cor);
 
-      // Se estiver promovendo a maestro, desativa maestro de outros painéis da mesma missão
+      // Se estiver promovendo a maestro, desativa maestro de outros painéis da mesma missão e conecta aos especialistas
       if (novoMaestro && pane.missionId) {
         for (const outro of listPanes()) {
-          if (outro.missionId === pane.missionId && outro.paneId !== pane.paneId && outro.maestro) {
-            updatePane(outro.paneId, { maestro: false });
+          if (outro.missionId === pane.missionId && outro.paneId !== pane.paneId) {
+            if (outro.maestro) {
+              updatePane(outro.paneId, { maestro: false });
+            } else if (outro.status !== "dead" && outro.status !== "failed") {
+              try {
+                ctx.bridge.connect(pane.paneId, outro.paneId, pane.missionId);
+              } catch {}
+            }
           }
         }
+        ctx.broadcast({ type: "connection:updated" });
       }
 
       const atualizado = updatePane(pane.paneId, {

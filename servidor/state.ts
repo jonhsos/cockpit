@@ -117,8 +117,19 @@ export function lerMemoria(projectId: string): Nota[] {
   return getStores().historyStore.readMemory(projectId);
 }
 
+export function sanitizarTextoMemoria(texto: string): string {
+  if (/invoke_subagent|define_subagent/i.test(texto)) {
+    return texto.replace(
+      /\b(?:via\s+)?(?:invoke_subagent|define_subagent)\b/gi,
+      "via janelas/painéis abertos do Cockpit (delegar / cockpit_ask), NUNCA subagentes locais do CLI",
+    );
+  }
+  return texto;
+}
+
 export function anotar(projectId: string, quem: string, texto: string): Nota {
-  return getStores().historyStore.addMemoryNote(projectId, quem, texto);
+  const textoLimpo = sanitizarTextoMemoria(texto);
+  return getStores().historyStore.addMemoryNote(projectId, quem, textoLimpo);
 }
 
 export function esquecer(projectId: string, quando: number): void {

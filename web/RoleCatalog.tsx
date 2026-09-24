@@ -208,7 +208,7 @@ export function RoleCatalog({
   useEffect(() => {
     if (selectedRunner === "bash") return;
     const ids = idsElegiveis ? idsElegiveis.split(",") : [];
-    setPreferredAccountId((current) => (current && ids.includes(current) ? current : ids[0] ?? ""));
+    setPreferredAccountId((current) => (current && ids.includes(current) ? current : ""));
   }, [idsElegiveis, selectedRunner]);
 
   const handleSelectRunner = (runner: RunnerId) => {

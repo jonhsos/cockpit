@@ -20,6 +20,8 @@ export function Maestro({ missionId, onClose, onChanged }: { missionId: string |
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("high");
   const [auto, setAuto] = useState(true);
+  const [preferredAccountId, setPreferredAccountId] = useState("");
+  const [accountPinned, setAccountPinned] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -89,6 +91,36 @@ export function Maestro({ missionId, onClose, onChanged }: { missionId: string |
             )}
           </div>
         )}
+        {currentProvider?.pool && currentProvider.pool.contas.length > 0 && (
+          <label className="campo-bloco">
+            <span className="rotulo">Conta do Maestro ({labels[cli] ?? cli})</span>
+            <select
+              className="campo"
+              value={preferredAccountId}
+              onChange={(e) => {
+                setPreferredAccountId(e.target.value);
+                if (!e.target.value) setAccountPinned(false);
+              }}
+            >
+              <option value="">Automático (usar próxima conta livre / balanceamento)</option>
+              {currentProvider.pool.contas.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.label || acc.id} ({acc.status === "ocupada" ? `ocupada · ${acc.painelLabel || "painel"}` : acc.status === "cooldown" ? "cooldown" : "livre"})
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {currentProvider?.pool && preferredAccountId && (
+          <label className="ressalva">
+            <input
+              type="checkbox"
+              checked={accountPinned}
+              onChange={(e) => setAccountPinned(e.target.checked)}
+            />
+            Fixar esta conta específica (não rotacionar automaticamente se bater cota).
+          </label>
+        )}
         <label className="campo-bloco"><span className="rotulo">Modelo do maestro</span><select className="campo" value={model} onChange={e => setModel(e.target.value)}>{(() => { const prov = status.providers.find(p => p.id === cli); return prov?.modelos.map(m => { const label = prov.nomesModelos?.[m]; return <option key={m} value={m}>{label && label !== m ? `${label} (${m})` : m}</option>; }); })()}</select></label>
         <label className="campo-bloco"><span className="rotulo">Esforço</span><select className="campo" value={effort} onChange={e => setEffort(e.target.value)}>{["low", "medium", "high", ...(cli === "codex" ? ["xhigh", "max", "ultra"] : cli === "claude" ? ["xhigh", "max"] : [])].map(e => <option key={e}>{e}</option>)}</select></label>
         <label className="ressalva"><input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} /> Continuar automaticamente em outro provedor quando houver limite.</label>
@@ -97,6 +129,6 @@ export function Maestro({ missionId, onClose, onChanged }: { missionId: string |
         {Object.entries(status.limits).map(([provider, limit]) => <div className="prov" key={provider}><div className="prov-corpo"><b>{labels[provider]}</b><span>{limit.detail}</span></div><button className="btn" disabled={busy} onClick={() => void act(async () => { setStatus(await request("/api/maestro/reset-limit", { cli: provider })); })}>Cota renovada</button></div>)}
       </>}
     </div>
-    <footer className="wizard-pe"><button className="btn" disabled={busy || !status} onClick={() => void act(async () => { await save(); setNotice("Preferência salva para os próximos maestros."); })}>Salvar padrão</button><button className="btn solid" disabled={busy || !status || !missionId} onClick={() => void act(async () => { await save(); await request(`/api/missions/${missionId}/maestro`, { cli }); setNotice("Novo maestro aberto com o contexto da missão."); })}>{busy ? "Aguarde…" : "Trocar nesta missão"}</button></footer>
+    <footer className="wizard-pe"><button className="btn" disabled={busy || !status} onClick={() => void act(async () => { await save(); setNotice("Preferência salva para os próximos maestros."); })}>Salvar padrão</button><button className="btn solid" disabled={busy || !status || !missionId} onClick={() => void act(async () => { await save(); await request(`/api/missions/${missionId}/maestro`, { cli, preferredAccountId: preferredAccountId || undefined, accountPinned: Boolean(accountPinned) }); setNotice("Novo maestro aberto com o contexto da missão."); })}>{busy ? "Aguarde…" : "Trocar nesta missão"}</button></footer>
   </div>;
 }

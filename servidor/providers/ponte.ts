@@ -147,6 +147,42 @@ function gravarGuardado(id: string, modelos: ModeloPonte[]): void {
 
 export const catalogoLidoEm = (id: string): number | null => lerGuardado()[id]?.quando ?? null;
 
+export const OPENROUTER_MODELOS_PADRAO: Record<string, string> = {
+  "openrouter/free": "Free Models Router",
+  "qwen/qwen3.8-27b:free": "Qwen 3.8 27B (Free)",
+  "inclusionai/ling-3.0-flash-vl:free": "Ling 3.0 Flash VL (Free)",
+  "inclusionai/ling-3.0-flash-fin:free": "Ling 3.0 Flash Fin (Free)",
+  "inclusionai/ling-3.0-flash-sante:free": "Ling 3.0 Flash Sante (Free)",
+  "nex-agi/nex-n2.5-mini:free": "Nex-N2.5-Mini (Free)",
+  "nex-agi/nex-n2.5-pro:free": "Nex-N2.5-Pro (Free)",
+  "dots-studio/dots-3-note-preview:free": "Dots3-Note Preview (Free)",
+  "liquid/lfm-2.5-2.6b:free": "LFM 2.5 2.6B (Free)",
+  "nvidia/nemotron-3.5-lightning:free": "Nemotron 3.5 Lightning (Free)",
+  "thinkingmachines/inkling-small:free": "Inkling Small (Free)",
+  "thinkingmachines/inkling:free": "Inkling (Free)",
+  "poolside/laguna-s-2.1:free": "Laguna S 2.1 (Free)",
+  "poolside/laguna-xs-2.1:free": "Laguna XS 2.1 (Free)",
+  "cohere/north-mini-code:free": "North Mini Code (Free)",
+  "nvidia/nemotron-3-ultra-550b-a55b:free": "Nemotron 3 Ultra (Free)",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": "Nemotron 3 Nano Omni (Free)",
+  "nvidia/nemotron-3-super-120b-a12b:free": "Nemotron 3 Super (Free)",
+  "google/gemma-4-26b-a4b-it:free": "Gemma 4 26B (Free)",
+  "google/gemma-4-31b-it:free": "Gemma 4 31B (Free)",
+  "z-ai/glm-5.2:free": "GLM 5.2 (Free)",
+  "nvidia/nemotron-3.5-content-safety:free": "Nemotron 3.5 Content Safety (Free)",
+};
+
+export function obterMapaModelosPonte(id: string): Record<string, string> {
+  const res: Record<string, string> = id === "openrouter" ? { ...OPENROUTER_MODELOS_PADRAO } : {};
+  const guardado = lerGuardado()[id];
+  if (guardado?.modelos) {
+    for (const m of guardado.modelos) {
+      if (m.id && m.nome) res[m.id] = m.nome;
+    }
+  }
+  return res;
+}
+
 /**
  * Preço zero nos dois lados. O OpenRouter devolve preço como string, então
  * "0" e "0.0000000" contam. Um modelo sem preço declarado não é considerado

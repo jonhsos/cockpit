@@ -13,7 +13,7 @@ for (const agent of ["luna", "terra", "astra"]) {
 assert.equal(resolverHarness({ agent: "artista", tipo: "visual" }).cli, "agy");
 assert.equal(resolverHarness({ agent: "builder", tipo: "visual" }).cli, "claude");
 assert.equal(resolverHarness({ agent: "astra", tipo: "implementar" }).model, "gpt-6-astra");
-assert.equal(resolverHarness({ agent: "luna", tipo: "arquitetura" }).model, "gpt-5.6-luna");
+assert.equal(resolverHarness({ agent: "luna", tipo: "arquitetura" }).model, "gpt-6-luna");
 assert.equal(resolverHarness({ agent: "astra", tipo: "visual", invoke: { cli: "agy" } }).cli, "agy");
 assert.equal(resolverHarness({ agent: "astra", tipo: "visual", invoke: { cli: "agy" }, roster: { cli: "codex" } }).cli, "codex");
 assert.throws(() => resolverHarness({ agent: "inexistente" }));

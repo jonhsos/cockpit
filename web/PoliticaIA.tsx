@@ -3,7 +3,7 @@ import type { AgentSpec, Provider } from "./api.ts";
 type Execucao = { cli: string; model: string; effort: string };
 type Politica = { modo: "padrao" | "unica" | "dividida"; unica?: Execucao; papeis?: Record<string, Execucao> };
 type Dados = { politica: Politica; agents: Record<string, AgentSpec>; providers: Provider[] };
-const sol = { cli: "codex", model: "gpt-5.6-sol", effort: "high" };
+const sol = { cli: "codex", model: "gpt-6-sol", effort: "high" };
 function Escolha({ value, providers, onChange }: { value: Execucao; providers: Provider[]; onChange: (e: Execucao) => void }) {
   const provider = providers.find(p => p.id === value.cli);
   return <div className="cartas">
