@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { TaskManager } from "../tasks/task-manager.ts";
 import type { MailboxManager } from "../connections/mailbox-manager.ts";
 import {
@@ -167,20 +168,24 @@ export class PaneDispatcher {
     }
 
     // 6. Enqueue task instruction into pane mailbox
-    const prompt = task.descrição ? `${task.título}\n\n${task.descrição}` : task.título;
+    const correlationId = `corr-${Date.now()}-${randomUUID().slice(0, 6)}`;
+    const promptCorpo = task.descrição ? `${task.título}\n\n${task.descrição}` : task.título;
+    const promptTerminal = `${promptCorpo}\n\n[Cockpit: Tarefa enviada pelo Orquestrador. Ao concluir, emita seu relatório com estado e evidências no terminal ou chame cockpit_reply (correlationId: "${correlationId}") ou cockpit_ask para "maestro"].`;
+
     this.mailboxManager.enqueue({
       from: "maestro",
       to: paneId,
       type: "ask",
+      correlationId,
       taskId,
-      task: prompt,
+      task: promptCorpo,
       missionId,
       status: "unread",
     });
 
     let deliveredToTerminal = false;
     if (this.paneProvider.writePane && panePodeReceberColaNoTerminal({ ...pane, status: "waiting-user" })) {
-      this.paneProvider.writePane(paneId, formatarColaNoTerminal(prompt));
+      this.paneProvider.writePane(paneId, formatarColaNoTerminal(promptTerminal));
       deliveredToTerminal = true;
     }
 

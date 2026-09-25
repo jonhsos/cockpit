@@ -49,6 +49,6 @@ export interface RouterContext {
   presetsDoMaestro: () => Record<string, { model: string; effort: string }>;
   especialistasDaMissao: (missionId: string) => any[];
   limparElenco: (bruto: unknown) => Elenco | undefined;
-  trackDelegation?: (missionId: string, paneId: string, agent?: string) => void;
+  trackDelegation?: (missionId: string, paneId: string, agent?: string, taskId?: string) => void;
   outputTails?: Map<string, string>;
 }

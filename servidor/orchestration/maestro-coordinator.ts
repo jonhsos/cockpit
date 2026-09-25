@@ -24,11 +24,13 @@ import { resolverHarness, type Pedido } from "./harness.ts";
 import { identidadeVisualDoPapel } from "./roles.ts";
 import { accountPool } from "../providers/account-pool.ts";
 import { getDefaultBridge } from "../connections/index.ts";
+import { getTaskManager, type TaskManager } from "../tasks/index.ts";
 
 export interface MaestroCoordinatorDeps {
   continuity: Continuity;
   broadcast: (msg: unknown) => void;
   porta: number;
+  taskManager?: TaskManager;
 }
 
 export class MaestroCoordinator {
@@ -44,7 +46,17 @@ export class MaestroCoordinator {
 
   private pendingDelegations = new Map<
     string,
-    Map<string, { paneId: string; agent: string; delegatedAt: number; seenActive: boolean }>
+    Map<
+      string,
+      {
+        paneId: string;
+        agent: string;
+        taskId?: string;
+        delegatedAt: number;
+        seenActive: boolean;
+        lastActiveAt?: number;
+      }
+    >
   >();
 
   private deps: MaestroCoordinatorDeps;
@@ -53,7 +65,7 @@ export class MaestroCoordinator {
     this.deps = deps;
   }
 
-  public trackDelegation(missionId: string, paneId: string, agent?: string): void {
+  public trackDelegation(missionId: string, paneId: string, agent?: string, taskId?: string): void {
     if (!missionId || !paneId) return;
     let map = this.pendingDelegations.get(missionId);
     if (!map) {
@@ -63,6 +75,7 @@ export class MaestroCoordinator {
     map.set(paneId, {
       paneId,
       agent: agent || paneId,
+      taskId,
       delegatedAt: Date.now(),
       seenActive: false,
     });
@@ -99,25 +112,51 @@ export class MaestroCoordinator {
       for (const [paneId, info] of delegations.entries()) {
         const pane = allPanes.find((p) => p.paneId === paneId);
         if (!pane || pane.status === "dead" || pane.status === "failed") {
-          allDone = false;
           continue;
         }
 
         const norm = normalizePaneStatus(pane.status);
+        const raw = this.outputTails.get(paneId) ?? "";
+        if (raw.trim().length > 0) {
+          info.seenActive = true;
+        }
+
         if (norm === "working") {
           info.seenActive = true;
+          info.lastActiveAt = agora;
           allDone = false;
-          break;
+          continue;
         }
 
-        if (pane.status === "starting" && agora - info.delegatedAt < 2000) {
+        if (pane.status === "starting" && agora - info.delegatedAt < 3000) {
           allDone = false;
-          break;
+          continue;
         }
 
-        if (agora - info.delegatedAt < 600) {
+        // Se o especialista ainda não foi visto ativo:
+        // LLMs levam de 1 a 5s para iniciar output. Não declare conclusão prematura antes de 15s
+        // a não ser que tenha havido saída real no terminal registrada.
+        if (!info.seenActive) {
+          if (agora - info.delegatedAt < 15000) {
+            allDone = false;
+            continue;
+          }
+          if (raw.trim().length === 0) {
+            allDone = false;
+            continue;
+          }
+        }
+
+        // Se foi visto ativo, garante uma janela de estabilidade (1500ms) após a última atividade,
+        // permitindo que pausas transitórias de tool calls ou compilação não encerrem a tarefa antes da hora.
+        if (
+          info.seenActive &&
+          info.lastActiveAt &&
+          agora - info.lastActiveAt < 1500 &&
+          agora - info.delegatedAt < 3000
+        ) {
           allDone = false;
-          break;
+          continue;
         }
 
         completedAgents.push(pane.label || info.agent || paneId);
@@ -127,6 +166,7 @@ export class MaestroCoordinator {
         this.pendingDelegations.delete(missionId);
         const nomes = completedAgents.join(", ");
 
+        const tm = this.deps.taskManager ?? getTaskManager();
         const entregas: string[] = [];
         for (const [paneId, info] of delegations.entries()) {
           const pane = allPanes.find((p) => p.paneId === paneId);
@@ -141,6 +181,24 @@ export class MaestroCoordinator {
           const lines = clean.split("\n").filter((l) => l.trim().length > 0);
           const resumo = lines.slice(-25).join("\n") || "(nenhuma saída no terminal)";
           entregas.push(`=== [${nomeAgente}] ===\n${resumo}`);
+
+          // Transita a tarefa para complete no TaskManager e desocupa o painel
+          const taskIdToComplete = info.taskId || pane?.activeTaskId;
+          if (taskIdToComplete && tm) {
+            try {
+              const currentTask = tm.getTask(taskIdToComplete);
+              if (currentTask && currentTask.status !== "complete" && currentTask.status !== "failed") {
+                tm.transitionTask(taskIdToComplete, "complete", {
+                  resultado: resumo,
+                });
+              }
+            } catch {
+              // Best effort
+            }
+          }
+          if (pane) {
+            updatePane(paneId, { activeTaskId: null });
+          }
         }
 
         const notification = `\x1b[200~[Cockpit] Os especialistas (${nomes}) concluíram suas tarefas com sucesso!\n\n${entregas.join("\n\n")}\n\n[Cockpit] Avalie as informações e entregas acima para continuar o trabalho ou apresentar o resultado ao usuário. Use "ler_resultado" para a íntegra ou "situacao" para o estado dos painéis.\x1b[201~\r\n`;

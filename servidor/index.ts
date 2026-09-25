@@ -151,7 +151,7 @@ const routerContext: RouterContext = {
   presetsDoMaestro: () => coordinator.presetsDoMaestro(),
   especialistasDaMissao: (mId) => coordinator.especialistasDaMissao(mId),
   limparElenco: (b) => coordinator.limparElenco(b),
-  trackDelegation: (mId, pId, a) => coordinator.trackDelegation(mId, pId, a),
+  trackDelegation: (mId, pId, a, tId) => coordinator.trackDelegation(mId, pId, a, tId),
   outputTails: coordinator.outputTails,
 };
 

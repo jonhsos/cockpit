@@ -114,7 +114,7 @@ export function createMissionsRouter(ctx: RouterContext): Router {
                 status: "todo",
               });
               const dispatched = ctx.paneDispatcher.dispatchToExistingPane(mission.id, task.id, existing.paneId);
-              ctx.trackDelegation?.(mission.id, existing.paneId, existing.label || requestedAgent);
+              ctx.trackDelegation?.(mission.id, existing.paneId, existing.label || requestedAgent, task.id);
               res.json({
                 paneId: existing.paneId,
                 label: existing.label,
@@ -378,7 +378,7 @@ export function createMissionsRouter(ctx: RouterContext): Router {
             status: "todo",
           });
           const dispatched = ctx.paneDispatcher.dispatchToExistingPane(missionId, task.id, existing.paneId);
-          ctx.trackDelegation?.(missionId, existing.paneId, existing.label || requestedAgent);
+          ctx.trackDelegation?.(missionId, existing.paneId, existing.label || requestedAgent, task.id);
           res.json({
             paneId: existing.paneId,
             label: existing.label,

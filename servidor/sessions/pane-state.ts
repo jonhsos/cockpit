@@ -43,6 +43,7 @@ export interface PaneState {
   effort: string | null;
   tipo: string | null;
   tarefa?: string | null;
+  activeTaskId?: string | null;
   cwd: string;
   projectId: string | null;
   missionId: string | null;
