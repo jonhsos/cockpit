@@ -306,6 +306,15 @@ export function Pane({
     const area = host.current!;
     term.open(area);
 
+    // CLIs podem ativar mouse tracking até no buffer normal. Nesse estado o xterm
+    // só permite selecionar texto com Shift; para o Cockpit, arrastar deve
+    // selecionar o scrollback sem exigir modificador.
+    const selecionarComMouse = (ev: MouseEvent) => {
+      if (ev.button !== 0 || ev.shiftKey || term.buffer.active.type !== "normal" || term.modes.mouseTrackingMode === "none") return;
+      Object.defineProperty(ev, "shiftKey", { value: true });
+    };
+    area.addEventListener("mousedown", selecionarComMouse, true);
+
     term.onData((data) => {
       if (isDshRef.current) return;
       send({ type: "input", paneId: pane.paneId, data });
@@ -337,7 +346,10 @@ export function Pane({
       if (ev.type !== "keydown") return true;
       if (atalhoDeCopiar(ev)) {
         if (!term.hasSelection()) return true;
-        void copiarTexto(term.getSelection());
+        // Dispara `copy` no próprio textarea do xterm, sem trocar foco.
+        // O listener abaixo grava a seleção em clipboardData, inclusive em HTTP na rede local.
+        // Se o navegador negar execCommand, deixa o atalho nativo tentar.
+        if (document.execCommand("copy")) ev.preventDefault();
         return false;
       }
       if (atalhoDeColar(ev)) {
@@ -588,6 +600,7 @@ export function Pane({
       if (resizeTimer) clearTimeout(resizeTimer);
       observer.disconnect();
       offOutput?.();
+      area.removeEventListener("mousedown", selecionarComMouse, true);
       area.removeEventListener("copy", aoCopiar);
       area.removeEventListener("paste", aoColar);
       area.removeEventListener("contextmenu", aoMenu, true);
