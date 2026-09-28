@@ -639,6 +639,7 @@ export function App() {
           {/* No celular a lateral é gaveta e precisa de uma porta. No desktop
               ela está sempre aberta, e este botão não existe. */}
           <button className="icon-btn abrir-lateral" aria-label="Abrir lateral" onClick={() => setLateralAberta(true)}><Icon name="grid" size={17} /></button>
+          <span className="titulo-mobile">{active?.nome ?? project?.nome ?? "Cockpit"}</span>
 
           {verMissao && active && <Modal title="Detalhes da missão" onClose={() => setVerMissao(false)}>
             <section className="mission-details">

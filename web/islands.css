@@ -1900,3 +1900,103 @@ select.stage-mode-select:hover { border-color: #58a6ff; }
   .caret-btn svg { transition: none; }
   .mascote-corpo, .mascote-olho { animation: none; }
 }
+
+/* ---------- toque: teclas e colar ----------
+   Teclado de celular não tem Esc, Tab, setas nem Ctrl+C. A barra aparece só
+   onde o ponteiro é o dedo (ou a tela é estreita) — no desktop ela não existe. */
+.pane-teclas { display: none; }
+.titulo-mobile { display: none; }
+.pane-cola-manual {
+  position: absolute;
+  inset: auto 8px 8px 8px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--fio-forte);
+  border-radius: 14px;
+  background: var(--carta);
+  box-shadow: 0 12px 40px #000c;
+}
+.pane-cola-manual label { font-size: 12px; color: var(--ink-3); }
+.pane-cola-manual textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid var(--fio-forte);
+  border-radius: 10px;
+  background: var(--preto);
+  color: var(--ink);
+  font: 16px/1.4 var(--fonte-mono); /* 16px: abaixo disso o iOS dá zoom ao focar */
+  resize: vertical;
+}
+.pane-cola-acoes { display: flex; justify-content: flex-end; gap: 8px; }
+.pane-cola-acoes .btn { min-height: 38px; }
+
+@media (pointer: coarse), (max-width: 760px) {
+  .pane-teclas {
+    display: flex;
+    flex: none;
+    gap: 4px;
+    padding: 5px 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-top: 1px solid var(--fio);
+    background: var(--barra);
+  }
+  .pane-teclas::-webkit-scrollbar { display: none; }
+  .pane-teclas button {
+    flex: none;
+    min-width: 38px;
+    height: 34px;
+    padding: 0 9px;
+    border: 1px solid var(--fio-forte);
+    border-radius: 8px;
+    background: var(--carta);
+    color: var(--ink-2);
+    font: 600 13px/1 var(--fonte-mono);
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .pane-teclas button:active { background: var(--fio-forte); color: var(--ink); }
+  .pane-teclas .tecla-colar { color: var(--neon); border-color: var(--neon-linha, var(--fio-forte)); font-family: inherit; }
+}
+
+@media (max-width: 760px) {
+  /* O botão da gaveta ganha uma faixa própria: antes ficava por baixo do
+     cabeçalho do primeiro terminal (z-index 10) e não dava para abrir a lateral. */
+  .stage { padding: 50px 6px 6px; }
+  .abrir-lateral { top: 7px; left: 8px; z-index: 20; }
+  .titulo-mobile {
+    display: block;
+    position: absolute;
+    top: 7px;
+    left: 54px;
+    right: 12px;
+    height: 36px;
+    line-height: 36px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+    pointer-events: none;
+  }
+  .cockpit:not(:has(.panes-wrap .pane)) .titulo-mobile { display: none; }
+  .partida { padding-top: 20px; }
+
+  /* Um terminal por tela, com encaixe na rolagem: meia tela é pouco demais. */
+  .panes { grid-auto-rows: 100%; scroll-snap-type: y proximity; gap: 8px; scrollbar-gutter: auto; }
+  .panes > .pane { scroll-snap-align: start; }
+
+  /* Badges numa linha só, rolando de lado — em vez de três linhas de cabeçalho. */
+  .pane-head-badges { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .pane-head-badges::-webkit-scrollbar { display: none; }
+  .pane-head-badges > * { flex: none; }
+
+  /* iOS dá zoom em campo com fonte < 16px ao focar. */
+  .pane-dsh-input, .campo, .modal-window input, .modal-window textarea, .modal-window select { font-size: 16px; }
+}

@@ -33,9 +33,33 @@ import {
   formatarHoraInicio,
 } from "./rotulos.ts";
 import { roleDefinitionFor } from "./role-contract.ts";
-import { atalhoDeColar, atalhoDeCopiar, colarTexto, copiarTexto } from "./clipboard.ts";
+import { atalhoDeColar, atalhoDeCopiar, clipboardLegivel, colarTexto, copiarTexto } from "./clipboard.ts";
 
 const BARRAS = 40;
+
+const TECLAS = {
+  esc: "\x1b",
+  tab: "\t",
+  shiftTab: "\x1b[Z",
+  cima: "\x1b[A",
+  baixo: "\x1b[B",
+  esquerda: "\x1b[D",
+  direita: "\x1b[C",
+  ctrlC: "\x03",
+  enter: "\r",
+} as const;
+
+const ROTULOS_TECLAS: [keyof typeof TECLAS, string, string][] = [
+  ["esc", "Esc", "Esc"],
+  ["tab", "Tab", "Tab"],
+  ["shiftTab", "⇧Tab", "Shift+Tab"],
+  ["cima", "↑", "Seta para cima"],
+  ["baixo", "↓", "Seta para baixo"],
+  ["esquerda", "←", "Seta para a esquerda"],
+  ["direita", "→", "Seta para a direita"],
+  ["ctrlC", "^C", "Ctrl+C"],
+  ["enter", "⏎", "Enter"],
+];
 
 function compacto(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -136,6 +160,8 @@ export function Pane({
   const fitter = useRef<FitAddon | null>(null);
   const [telaCheia, setTelaCheia] = useState(false);
   const [menuClip, setMenuClip] = useState<{ x: number; y: number; temSelecao: boolean } | null>(null);
+  const [colaManual, setColaManual] = useState(false);
+  const [textoColaManual, setTextoColaManual] = useState("");
 
   // Inline rename state
   const [renomeando, setRenomeando] = useState(false);
@@ -170,6 +196,27 @@ export function Pane({
     if (!term) return;
     term.paste(texto);
     term.focus();
+  };
+
+  // Sem leitura de clipboard (celular via http://IP) abre um campo onde o
+  // colar nativo do sistema funciona; com leitura, cola direto.
+  const pedirColar = () => {
+    setMenuClip(null);
+    if (!clipboardLegivel()) {
+      setColaManual(true);
+      return;
+    }
+    void colarTexto().then((texto) => {
+      if (texto) colarNoXtermRef.current(texto);
+      else setColaManual(true);
+    });
+  };
+
+  const enviarTecla = (tecla: keyof typeof TECLAS) => {
+    const term = terminal.current;
+    const seta = tecla === "cima" || tecla === "baixo" || tecla === "esquerda" || tecla === "direita";
+    const data = seta && term?.modes.applicationCursorKeysMode ? TECLAS[tecla].replace("\x1b[", "\x1bO") : TECLAS[tecla];
+    send({ type: "input", paneId: pane.paneId, data });
   };
 
   const handleEnviarPrompt = async () => {
@@ -331,10 +378,16 @@ export function Pane({
       ev.stopPropagation();
       colarNoXtermRef.current(texto);
     };
+    let ultimoToque = 0;
     const aoMenu = (ev: MouseEvent) => {
       ev.preventDefault();
       ev.stopPropagation();
       const temSelecao = term.hasSelection();
+      // Toque longo (Android dispara contextmenu) abre o menu; colar direto só com mouse.
+      if (!clipboardLegivel() || Date.now() - ultimoToque < 1000) {
+        setMenuClip({ x: ev.clientX, y: ev.clientY, temSelecao });
+        return;
+      }
       // readText no mesmo gesto do clique direito; se o browser negar,
       // abre Copiar/Colar em vez de fingir que colou.
       const tentativa = navigator.clipboard.readText();
@@ -393,6 +446,111 @@ export function Pane({
       return true;
     });
 
+    // Toque: o xterm 6 não rola com o dedo. Arrastar rola o scrollback (com
+    // inércia), tocar foca e abre o teclado, segurar abre Copiar/Colar — o iOS
+    // não dispara `contextmenu`. No limite do scrollback o gesto passa adiante
+    // para a página, senão não daria para rolar até o próximo terminal.
+    let toque: { y: number; x: number; t: number; resto: number; rolando: boolean; vel: number; ultimoT: number } | null = null;
+    let seguraTimer: ReturnType<typeof setTimeout> | null = null;
+    let inercia: number | null = null;
+    let menuPorToque = false;
+    const alturaLinha = () => Math.max(8, area.clientHeight / Math.max(1, term.rows));
+    const rolarLinhas = (linhas: number): boolean => {
+      if (!linhas) return true;
+      const buf = term.buffer.active;
+      if (buf.type === "normal") {
+        if ((linhas < 0 && buf.viewportY <= 0) || (linhas > 0 && buf.viewportY >= buf.baseY)) return false;
+        term.scrollLines(linhas);
+        return true;
+      }
+      const seq = linhas < 0 ? "\x1b[5~" : "\x1b[6~";
+      send({ type: "input", paneId: pane.paneId, data: seq });
+      return true;
+    };
+    const pararInercia = () => {
+      if (inercia !== null) cancelAnimationFrame(inercia);
+      inercia = null;
+    };
+    const aoToqueInicio = (ev: TouchEvent) => {
+      pararInercia();
+      ultimoToque = Date.now();
+      if (ev.touches.length !== 1) {
+        toque = null;
+        return;
+      }
+      const p = ev.touches[0];
+      toque = { x: p.clientX, y: p.clientY, t: Date.now(), resto: 0, rolando: false, vel: 0, ultimoT: Date.now() };
+      if (seguraTimer) clearTimeout(seguraTimer);
+      seguraTimer = setTimeout(() => {
+        seguraTimer = null;
+        if (!toque || toque.rolando) return;
+        toque = null;
+        menuPorToque = true;
+        setMenuClip({ x: p.clientX, y: p.clientY, temSelecao: term.hasSelection() });
+      }, 550);
+    };
+    const aoToqueMove = (ev: TouchEvent) => {
+      if (!toque || ev.touches.length !== 1) return;
+      const p = ev.touches[0];
+      const dy = toque.y - p.clientY;
+      if (!toque.rolando && Math.abs(dy) < 8 && Math.abs(p.clientX - toque.x) < 8) return;
+      if (seguraTimer) {
+        clearTimeout(seguraTimer);
+        seguraTimer = null;
+      }
+      toque.rolando = true;
+      const agora = Date.now();
+      const total = toque.resto + dy;
+      const linhas = Math.trunc(total / alturaLinha());
+      if (linhas && !rolarLinhas(linhas)) return; // limite: deixa a página rolar
+      ev.preventDefault();
+      ev.stopPropagation();
+      toque.resto = total - linhas * alturaLinha();
+      toque.vel = dy / Math.max(1, agora - toque.ultimoT);
+      toque.y = p.clientY;
+      toque.ultimoT = agora;
+    };
+    const aoToqueFim = (ev: TouchEvent) => {
+      if (seguraTimer) {
+        clearTimeout(seguraTimer);
+        seguraTimer = null;
+      }
+      // Sem isso o mousedown sintético do fim do toque fecha o menu que acabou de abrir.
+      if (menuPorToque) {
+        menuPorToque = false;
+        if (ev.cancelable) ev.preventDefault();
+      }
+      const t = toque;
+      toque = null;
+      if (!t) return;
+      if (!t.rolando) {
+        if (Date.now() - t.t < 550) term.focus();
+        return;
+      }
+      if (Date.now() - t.ultimoT > 80 || Math.abs(t.vel) < 0.3) return;
+      let vel = t.vel; // px/ms
+      let resto = 0;
+      let antes = performance.now();
+      const passo = (agora: number) => {
+        const dt = agora - antes;
+        antes = agora;
+        resto += vel * dt;
+        const linhas = Math.trunc(resto / alturaLinha());
+        resto -= linhas * alturaLinha();
+        vel *= Math.pow(0.95, dt / 16);
+        if ((linhas && !rolarLinhas(linhas)) || Math.abs(vel) < 0.05) {
+          inercia = null;
+          return;
+        }
+        inercia = requestAnimationFrame(passo);
+      };
+      inercia = requestAnimationFrame(passo);
+    };
+    area.addEventListener("touchstart", aoToqueInicio, { capture: true, passive: true });
+    area.addEventListener("touchmove", aoToqueMove, { capture: true, passive: false });
+    area.addEventListener("touchend", aoToqueFim, { capture: true });
+    area.addEventListener("touchcancel", aoToqueFim, { capture: true });
+
     // Replay HTTP é a fonte da verdade após refresh (o dump do WS pode
     // chegar antes do xterm existir e se perder no remount do React).
     let cancelled = false;
@@ -433,6 +591,12 @@ export function Pane({
       area.removeEventListener("copy", aoCopiar);
       area.removeEventListener("paste", aoColar);
       area.removeEventListener("contextmenu", aoMenu, true);
+      area.removeEventListener("touchstart", aoToqueInicio, true);
+      area.removeEventListener("touchmove", aoToqueMove, true);
+      area.removeEventListener("touchend", aoToqueFim, true);
+      area.removeEventListener("touchcancel", aoToqueFim, true);
+      if (seguraTimer) clearTimeout(seguraTimer);
+      pararInercia();
       term.dispose();
       terminal.current = null;
       fitter.current = null;
@@ -1090,6 +1254,58 @@ export function Pane({
 
       <div className="pane-term" ref={host} />
 
+      {!isDsh && (
+        // Teclado de celular não tem Esc, Tab nem setas — e sem eles não dá
+        // para interromper, aceitar sugestão ou escolher opção num CLI.
+        // preventDefault no pointerdown mantém o foco (e o teclado) no terminal.
+        <div className="pane-teclas" role="toolbar" aria-label="Teclas do terminal" onPointerDown={(e) => e.preventDefault()}>
+          <button type="button" className="tecla-colar" onClick={pedirColar}>Colar</button>
+          {ROTULOS_TECLAS.map(([tecla, rotulo, titulo]) => (
+            <button key={tecla} type="button" title={titulo} aria-label={titulo} onClick={() => enviarTecla(tecla)}>
+              {rotulo}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {colaManual && (
+        <div className="pane-cola-manual" role="dialog" aria-label="Colar no terminal">
+          <label htmlFor={`cola-${pane.paneId}`}>Toque e segure no campo e escolha Colar</label>
+          <textarea
+            id={`cola-${pane.paneId}`}
+            autoFocus
+            rows={3}
+            value={textoColaManual}
+            onChange={(e) => setTextoColaManual(e.target.value)}
+            placeholder="Cole aqui"
+          />
+          <div className="pane-cola-acoes">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setColaManual(false);
+                setTextoColaManual("");
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="btn acao"
+              disabled={!textoColaManual}
+              onClick={() => {
+                colarNoXtermRef.current(textoColaManual);
+                setColaManual(false);
+                setTextoColaManual("");
+              }}
+            >
+              Enviar ao terminal
+            </button>
+          </div>
+        </div>
+      )}
+
       {isDsh && (
         <div className="pane-dsh-prompt-box">
           <div className="pane-dsh-status-row">
@@ -1167,12 +1383,7 @@ export function Pane({
           <button
             type="button"
             role="menuitem"
-            onClick={() => {
-              void colarTexto().then((texto) => {
-                if (texto) colarNoXtermRef.current(texto);
-                setMenuClip(null);
-              });
-            }}
+            onClick={pedirColar}
           >
             Colar
           </button>

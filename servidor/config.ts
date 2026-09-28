@@ -208,6 +208,8 @@ export type PoliticaIA = { modo: "padrao" | "unica" | "dividida"; unica?: Execuc
 export type CockpitConfig = {
   politicaIA?: PoliticaIA;
   maestroAutoSwitch?: boolean;
+  /** Ordem em que os provedores assumem quando um esgota as contas (ex.: ["codex","claude","grok"]). */
+  ordemDeTroca?: string[];
   port: number;
   /** Marca as pastas que você abre como confiáveis para o Claude Code. */
   confiarNasPastasQueEuAbrir?: boolean;

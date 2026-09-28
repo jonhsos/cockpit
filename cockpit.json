@@ -15,7 +15,7 @@
     "modelos/efforts  = o que cada CLI aceita. O harness confere antes de usar."
   ],
   "port": 3000,
-  "maestroAutoSwitch": false,
+  "maestroAutoSwitch": true,
   "confiarNasPastasQueEuAbrir": true,
   "autoAprovar": true,
   "workspace": {

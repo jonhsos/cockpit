@@ -1,8 +1,9 @@
 import { config, modelosDoCli, type Elenco } from "../config.ts";
-import { Continuity, detectLimit, type LimitSignal } from "../missions/continuity.ts";
+import { Continuity, detectLimit, resetDoLimite, type LimitSignal } from "../missions/continuity.ts";
 import { readCodexQuota, type Quota } from "../providers/codex-quota.ts";
 import {
   resolveCli,
+  familiaDo,
   listPanes,
   getPane,
   stopPane,
@@ -23,6 +24,8 @@ import { listarProviders } from "../providers/providers.ts";
 import { resolverHarness, type Pedido } from "./harness.ts";
 import { identidadeVisualDoPapel } from "./roles.ts";
 import { accountPool } from "../providers/account-pool.ts";
+import { transferirSessaoCodex, ultimoModeloCodex } from "../providers/codex-sessions.ts";
+import { pastaDoClaude, transferirSessaoClaude, ultimoModeloClaude } from "../providers/claude-sessions.ts";
 import { getDefaultBridge } from "../connections/index.ts";
 import { getTaskManager, type TaskManager } from "../tasks/index.ts";
 
@@ -33,11 +36,25 @@ export interface MaestroCoordinatorDeps {
   taskManager?: TaskManager;
 }
 
+/** Como abrir o painel substituto: conta, e de onde continuar. */
+export type TrocaOpts = {
+  preferredAccountId?: string;
+  accountPinned?: boolean;
+  /** Painel que bateu no limite: dele vêm a conversa e o último modelo usado. */
+  origem?: PaneState;
+  resumeSessionId?: string;
+};
+
+/** Sem horário de reset no texto, tenta de novo depois disso. */
+const ESPERA_PADRAO_MS = 30 * 60 * 1000;
+
 export class MaestroCoordinator {
   public limits = new Map<string, LimitSignal>();
   public outputTails = new Map<string, string>();
   public seenSignals = new Map<string, string>();
   public switching = new Set<string>();
+  /** Último modelo/esforço aberto em cada CLI — a troca entre provedores volta nele. */
+  private ultimoModeloPorCli = new Map<string, { model?: string; effort?: string }>();
 
   public codexQuota: Quota | null = null;
   public quotaError: string | null = null;
@@ -283,9 +300,84 @@ export class MaestroCoordinator {
     return this.quotaPromise;
   }
 
+  /**
+   * Ordem em que os provedores assumem quando um esgota. `ordemDeTroca` no
+   * cockpit.json manda; sem ela, Codex → Claude → Grok → AGY → pontes, e depois
+   * qualquer outro CLI configurado. Shell nunca entra.
+   */
   public ordemDeTroca(): string[] {
-    return ["codex", "agy", "claude", ...listarPontes().map((p) => p.id)];
+    const preferida = Array.isArray(config.ordemDeTroca) && config.ordemDeTroca.length
+      ? config.ordemDeTroca
+      : ["codex", "claude", "grok", "agy", ...listarPontes().map((p) => p.id)];
+    const todos = [...preferida, ...Object.keys(config.clis)];
+    return [...new Set(todos)].filter((cli) => config.clis[cli] && familiaDo(cli) !== "bash" && cli !== "bash");
   }
+
+  /** Limite ainda valendo? Limite com prazo vencido é esquecido aqui. */
+  public limiteAtivo(cli: string): boolean {
+    const limite = this.limits.get(cli);
+    if (!limite) return false;
+    if (limite.ate !== undefined && limite.ate <= Date.now()) {
+      this.limits.delete(cli);
+      this.notifyMaestro();
+      return false;
+    }
+    return true;
+  }
+
+  /** O CLI pode receber o trabalho agora: instalado, sem limite e com conta livre no pool. */
+  public podeAssumir(cli: string): boolean {
+    if (this.limiteAtivo(cli)) return false;
+    if (!listarProviders().some((p) => p.id === cli && p.disponivel)) return false;
+    if (accountPool.hasPool(cli) && !accountPool.nextAvailable(cli)) return false;
+    return true;
+  }
+
+  private homeDaConta(cli: string, accountId: string | null | undefined, chave: string): string | undefined {
+    const conta = accountId ? accountPool.getAccounts(cli).find((a) => a.id === accountId) : undefined;
+    return conta?.env?.[chave] ?? config.clis[cli]?.env?.[chave];
+  }
+
+  /**
+   * O que o painel substituto herda do que bateu no limite:
+   * - mesmo CLI: o último modelo usado na conversa (vale /model) e, trocando de
+   *   conta, a própria conversa copiada para a conta nova (resume);
+   * - outro CLI: o último modelo que o usuário usou naquele CLI.
+   */
+  private continuacao(origem: PaneState | undefined, cli: string, contaNova?: string) {
+    const lembrado = this.ultimoModeloPorCli.get(cli) ?? {};
+    if (!origem || origem.cli !== cli) return { ...this.presetsDoMaestro()[cli], ...lembrado };
+
+    const familia = familiaDo(cli);
+    let model = origem.model ?? undefined;
+    let effort = origem.effort ?? undefined;
+    let resumeSessionId: string | undefined;
+    try {
+      if (familia === "codex") {
+        const deHome = this.homeDaConta(cli, origem.accountId, "CODEX_HOME") ?? "~/.codex";
+        const naSessao = ultimoModeloCodex(deHome, origem.paneId, origem.iniciadoEm, origem.sessionId);
+        model = naSessao.model ?? model;
+        effort = naSessao.effort ?? effort;
+        if (contaNova) {
+          const paraHome = this.homeDaConta(cli, contaNova, "CODEX_HOME") ?? "~/.codex";
+          resumeSessionId = transferirSessaoCodex(deHome, paraHome, origem.paneId, origem.iniciadoEm, origem.sessionId) ?? undefined;
+        }
+      } else if (familia === "claude" && origem.sessionId) {
+        const deDir = pastaDoClaude(this.homeDaConta(cli, origem.accountId, "CLAUDE_CONFIG_DIR"));
+        model = ultimoModeloClaude(deDir, origem.sessionId) ?? model;
+        if (contaNova) {
+          const paraDir = pastaDoClaude(this.homeDaConta(cli, contaNova, "CLAUDE_CONFIG_DIR"));
+          if (transferirSessaoClaude(deDir, paraDir, origem.sessionId)) resumeSessionId = origem.sessionId;
+        }
+      }
+    } catch (err) {
+      console.error("[MaestroCoordinator] Falha ao recuperar a conversa para a troca de conta:", err);
+    }
+    return { model, effort, resumeSessionId };
+  }
+
+  private static readonly TAREFA_RETOMADA =
+    "[Cockpit] A conta anterior atingiu o limite de uso. Esta é a mesma conversa, agora em outra conta. Continue exatamente de onde parou, sem refazer o que já foi feito.";
 
   public raizDe(missionId: string | null, projectId: string | null): string | null {
     if (missionId) {
@@ -304,7 +396,7 @@ export class MaestroCoordinator {
     harness?: Omit<Pedido, "agent"> & { backend?: "pty" | "dsh"; loginArgs?: string[]; role?: string },
     skills: string[] = [],
     maestroOverride?: boolean,
-    accountOpts?: { preferredAccountId?: string; accountPinned?: boolean },
+    accountOpts?: TrocaOpts,
   ): PaneState {
     const mission = getMission(missionId);
     if (!mission) throw new Error("missão não encontrada");
@@ -362,7 +454,11 @@ export class MaestroCoordinator {
       accountPinned: accountOpts?.accountPinned,
       backend: harness?.backend,
       loginArgs: harness?.loginArgs,
+      resumeSessionId: accountOpts?.resumeSessionId,
     });
+    if (state.cli !== "bash" && (state.model || state.effort)) {
+      this.ultimoModeloPorCli.set(state.cli, { model: state.model ?? undefined, effort: state.effort ?? undefined });
+    }
     attachPane(mission.id, state.paneId);
     this.deps.continuity.record(
       mission.id,
@@ -420,7 +516,7 @@ export class MaestroCoordinator {
     if (!mission || !getProject(mission.projectId)) throw Error("Missão indisponível.");
     this.deps.continuity.checkpoint(missionId, text);
     const maestro = listPanes().find((p) => p.missionId === missionId && p.maestro);
-    if (maestro && config.maestroAutoSwitch && this.limits.has(maestro.cli) && !this.switching.has(missionId)) {
+    if (maestro && config.maestroAutoSwitch && this.limiteAtivo(maestro.cli) && !this.switching.has(missionId)) {
       const fixo = execucaoDoPapel("maestro");
       if (fixo) {
         this.deps.broadcast({
@@ -430,7 +526,7 @@ export class MaestroCoordinator {
         return { ok: true };
       }
       const cli = this.clisDaMissao(missionId, this.ordemDeTroca()).find(
-        (c) => c !== maestro.cli && !this.limits.has(c) && listarProviders().some((p) => p.id === c && p.disponivel),
+        (c) => c !== maestro.cli && this.podeAssumir(c) && Boolean(this.presetsDoMaestro()[c]),
       );
       if (cli) {
         setTimeout(() => {
@@ -453,7 +549,7 @@ export class MaestroCoordinator {
   public async switchMaestro(
     missionId: string,
     cli: string,
-    accountOpts?: { preferredAccountId?: string; accountPinned?: boolean },
+    accountOpts?: TrocaOpts,
   ): Promise<PaneState> {
     const fixo = execucaoDoPapel("maestro");
     if (fixo && fixo.cli !== cli) {
@@ -481,7 +577,9 @@ export class MaestroCoordinator {
         detachPane(pane.paneId);
         this.deps.broadcast({ type: "exit", paneId: pane.paneId, code: 0 });
       }
-      const configured = config.agents.maestro;
+      // Só depois de parar: o CLI termina de gravar a conversa antes da cópia.
+      const origem = accountOpts?.origem ?? previous[0];
+      const continuar = this.continuacao(origem, cli, accountOpts?.preferredAccountId);
       auditLogger.logExecutorChange(previous[0]?.cli ?? "unknown", cli, "Troca de provedor do Maestro", {
         missionId,
         paneId: previous[0]?.paneId,
@@ -489,18 +587,11 @@ export class MaestroCoordinator {
       return this.abrirPainel(
         "maestro",
         missionId,
-        task,
-        {
-          invoke: {
-            cli,
-            ...(configured?.cli === cli
-              ? { model: configured.model, effort: configured.effort }
-              : this.presetsDoMaestro()[cli]),
-          },
-        },
+        continuar.resumeSessionId ? MaestroCoordinator.TAREFA_RETOMADA : task,
+        { invoke: { cli, model: continuar.model, effort: continuar.effort } },
         [],
         undefined,
-        accountOpts,
+        { ...accountOpts, resumeSessionId: continuar.resumeSessionId },
       );
     } finally {
       this.switching.delete(missionId);
@@ -510,7 +601,7 @@ export class MaestroCoordinator {
   public async switchSpecialist(
     pane: PaneState,
     cli: string,
-    accountOpts?: { preferredAccountId?: string; accountPinned?: boolean },
+    accountOpts?: TrocaOpts,
   ): Promise<void> {
     const fixo = execucaoDoPapel(pane.agent);
     if (fixo && fixo.cli !== cli) {
@@ -529,14 +620,15 @@ export class MaestroCoordinator {
         missionId: pane.missionId,
         paneId: pane.paneId,
       });
+      const continuar = this.continuacao(accountOpts?.origem ?? pane, cli, accountOpts?.preferredAccountId);
       const newPane = this.abrirPainel(
         pane.agent,
         mission.id,
-        task,
-        { invoke: { cli, ...this.presetsDoMaestro()[cli] } },
+        continuar.resumeSessionId ? MaestroCoordinator.TAREFA_RETOMADA : task,
+        { invoke: { cli, model: continuar.model, effort: continuar.effort }, role: pane.role },
         [],
         undefined,
-        accountOpts,
+        { ...accountOpts, resumeSessionId: continuar.resumeSessionId },
       );
       const delegations = this.pendingDelegations.get(mission.id);
       if (delegations && delegations.has(pane.paneId)) {
@@ -563,10 +655,13 @@ export class MaestroCoordinator {
     if (!signal || this.seenSignals.get(pane.paneId) === signal.detail) return;
     this.seenSignals.set(pane.paneId, signal.detail);
 
-    // 1. Marca limite na conta do pool vinculada a este painel
+    // 1. Marca limite na conta do pool vinculada a este painel, até o reset
+    //    que o próprio CLI anunciou (ou a espera padrão, sem pista no texto).
+    const reset = resetDoLimite(data) ?? resetDoLimite(tail.slice(-1500));
+    const esperaMs = reset && reset > Date.now() ? reset - Date.now() : ESPERA_PADRAO_MS;
     const currentAcc = accountPool.getAccountForPane(pane.paneId);
     if (currentAcc) {
-      accountPool.markLimited(pane.cli, currentAcc.id, signal.detail);
+      accountPool.markLimited(pane.cli, currentAcc.id, signal.detail, esperaMs);
     }
 
     if (signal.state === "warning" && pane.maestro) {
@@ -610,7 +705,7 @@ export class MaestroCoordinator {
           message: `[Cockpit Pool] ${pane.label} atingiu limite na conta "${currentAcc?.label ?? currentAcc?.id}". Rotacionando automaticamente para "${nextAcc.label || nextAcc.id}"...`,
         });
 
-        const rotateOpts = { preferredAccountId: nextAcc.id };
+        const rotateOpts: TrocaOpts = { preferredAccountId: nextAcc.id, origem: pane };
         void (pane.maestro
           ? this.switchMaestro(pane.missionId, pane.cli, rotateOpts)
           : this.switchSpecialist(pane, pane.cli, rotateOpts)
@@ -620,8 +715,11 @@ export class MaestroCoordinator {
         return;
       }
 
-      // Todas as contas do pool daquele CLI esgotaram (ou sem pool)
-      this.limits.set(pane.cli, signal);
+      // Todas as contas do pool daquele CLI esgotaram (ou sem pool): o CLI fica
+      // fora até a primeira conta voltar — aí ele pode assumir de novo.
+      const voltas = accountPool.getAccounts(pane.cli).map((a) => a.limitedUntil ?? 0).filter((t) => t > Date.now());
+      const ate = voltas.length ? Math.min(...voltas) : Date.now() + esperaMs;
+      this.limits.set(pane.cli, { ...signal, ate });
       this.notifyMaestro();
 
       if (config.maestroAutoSwitch && !this.switching.has(pane.maestro ? pane.missionId : pane.paneId)) {
@@ -634,15 +732,17 @@ export class MaestroCoordinator {
           return;
         }
         const target = this.clisDaMissao(pane.missionId, this.ordemDeTroca()).find(
-          (cli) =>
-            cli !== pane.cli &&
-            !this.limits.has(cli) &&
-            listarProviders().some((p) => p.id === cli && p.disponivel),
+          (cli) => cli !== pane.cli && this.podeAssumir(cli) && Boolean(this.presetsDoMaestro()[cli]),
         );
         if (target) {
+          this.deps.broadcast({
+            type: "notice",
+            message: `[Cockpit] ${pane.label}: todas as contas de ${pane.cli} no limite. Continuando em ${target}...`,
+          });
+          const trocaOpts: TrocaOpts = { origem: pane };
           void (pane.maestro
-            ? this.switchMaestro(pane.missionId, target)
-            : this.switchSpecialist(pane, target)
+            ? this.switchMaestro(pane.missionId, target, trocaOpts)
+            : this.switchSpecialist(pane, target, trocaOpts)
           ).catch((err) =>
             this.deps.broadcast({ type: "error", message: `Falha na continuidade: ${String(err)}` }),
           );

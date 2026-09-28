@@ -16,6 +16,7 @@ import { argsDaPonte, envDaPonte, pontede } from "../ponte.ts";
 import { dshApiDoCli, envDaDshApi } from "../providers/dsh-api.ts";
 import { getDefaultPaneStore } from "../persistence/index.ts";
 import { accountPool, garantirDiretoriosDeConta } from "../providers/account-pool.ts";
+import { marcaDoPainel } from "../providers/codex-sessions.ts";
 import { getDshManager } from "./dsh-backend/dsh-manager.ts";
 import { checkDshAvailability } from "./dsh-backend/dsh-availability.ts";
 import { hasSignificantTerminalOutput } from "./terminal-activity.ts";
@@ -86,6 +87,8 @@ export type SpawnOpts = {
   backend?: "pty" | "dsh";
   /** Argumentos de login executados diretamente no CLI, sem shell. */
   loginArgs?: string[];
+  /** Retoma esta conversa do CLI (troca de conta sem perder a sessão). */
+  resumeSessionId?: string;
 };
 
 export interface ManagerPaneEntry {
@@ -728,7 +731,7 @@ export class PtyManager {
       const autoAprovar = config.autoAprovar !== false;
 
       if (familia === "claude") {
-        sessionId = randomUUID();
+        sessionId = opts.resumeSessionId ?? randomUUID();
         if (autoAprovar && !args.includes("--dangerously-skip-permissions")) {
           args.push("--dangerously-skip-permissions");
         }
@@ -760,7 +763,8 @@ export class PtyManager {
           );
           args.push("--strict-mcp-config", "--mcp-config", caminho);
         }
-        args.push("--session-id", sessionId);
+        if (opts.resumeSessionId) args.push("--resume", sessionId);
+        else args.push("--session-id", sessionId);
       }
 
       if (familia === "agy") {
@@ -805,6 +809,8 @@ export class PtyManager {
         const regrasCodex = [
           spec.papel,
           "Canal real do Cockpit: cockpit_list / cockpit_ask / cockpit_inbox / delegar. As outras janelas da missão são os verdadeiros especialistas (Explorador, Arquiteto, Construtor, Revisor, Verificador, etc.). NUNCA crie subagentes internos do seu próprio CLI; use sempre as ferramentas do Cockpit.",
+          // Vai para o rollout: é como a troca de conta acha a conversa deste painel.
+          marcaDoPainel(paneId),
         ].filter((parte): parte is string => Boolean(parte?.trim()));
         if (regrasCodex.length) {
           args.push("-c", `developer_instructions=${JSON.stringify(regrasCodex.join("\n\n"))}`);
@@ -831,6 +837,12 @@ export class PtyManager {
         if (regras.length) args.push("--rules", regras.join("\n\n"));
       }
 
+      if (familia === "codex" && opts.resumeSessionId) {
+        // `codex resume [opções] <id> [prompt]` aceita as mesmas opções do modo interativo.
+        sessionId = opts.resumeSessionId;
+        args.unshift("resume");
+        args.push(opts.resumeSessionId);
+      }
       const porArgumento = Boolean(promptInicial) && ["claude", "agy", "codex", "grok"].includes(familia);
       if (porArgumento) {
         if (familia === "agy") args.push("--prompt-interactive", promptInicial!);
