@@ -354,6 +354,7 @@ export class PtyManager {
     this.initialized = true;
     try {
       await this.client.connect();
+      await this.syncSurvivingPanes();
     } catch (err) {
       // Ephemeral fallback: start in-process PtyHost on a fallback temporary socket
       try {
@@ -363,6 +364,7 @@ export class PtyManager {
         this.client = new PtyClient(fallbackSocket);
         this.setupClientEvents();
         await this.client.connect();
+        await this.syncSurvivingPanes();
       } catch (fallbackErr) {
         console.error("PTY Manager initialization and fallback failed:", fallbackErr);
       }

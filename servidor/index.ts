@@ -213,9 +213,13 @@ await initializePty();
 // O host PTY sobrevive ao reinício do servidor; recupere as delegações ainda
 // atribuídas para que respostas e alertas continuem chegando ao Maestro.
 for (const pane of listPanes()) {
-  if (!pane.missionId || !pane.activeTaskId || pane.maestro) continue;
-  const task = taskManager.getTask(pane.activeTaskId);
-  if (!task || task.pane !== pane.paneId || (task.status !== "in-progress" && task.status !== "in-review")) continue;
+  if (!pane.missionId || pane.maestro) continue;
+  const activeTasks = taskManager.listTasks(pane.missionId, { pane: pane.paneId })
+    .filter((task) => task.status === "in-progress" || task.status === "in-review")
+    .sort((a, b) => b.timestamps.atualizadaEm - a.timestamps.atualizadaEm);
+  const task = activeTasks.find((candidate) => candidate.id === pane.activeTaskId) ?? activeTasks[0];
+  if (!task) continue;
+  updatePane(pane.paneId, { activeTaskId: task.id });
   const ask = mailboxManager.getInbox(pane.paneId, pane.missionId)
     .filter((message) => message.type === "ask" && message.taskId === task.id)
     .at(-1);
