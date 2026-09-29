@@ -9,8 +9,10 @@ import { config, backendDo, parseCliBackend, type AgentSpec } from "../config.ts
 import { CASA, getMission } from "../state.ts";
 import { confiar } from "../confianca.ts";
 import { definirModelo, materializarPerfilAgy, appDataDirDoAgy } from "../agy.ts";
+import { gravarOverlayCockpitAgy, nomeDoAgenteAgy } from "./agy-cockpit-overlay.ts";
 import { resolverHarness, type Pedido } from "../harness.ts";
 import { identidadeVisualDoPapel, promptInicialDoPapel, roleContractFor, type RoleContractInput } from "../orchestration/roles.ts";
+import { regrasDeCanalCockpit, type JanelaDaMissao } from "../orchestration/elenco-missao.ts";
 import { pathComExecutaveisLocais, providerDisponivel, resolverExecutavel } from "../providers.ts";
 import { argsDaPonte, envDaPonte, pontede } from "../ponte.ts";
 import { dshApiDoCli, envDaDshApi } from "../providers/dsh-api.ts";
@@ -433,6 +435,40 @@ export class PtyManager {
     }
   }
 
+  private equipeDaMissao(missionId: string | null | undefined, opts?: { semMaestro?: boolean }): JanelaDaMissao[] {
+    if (!missionId) return [];
+    return [...this.ptys.values()]
+      .map((entry) => entry.state)
+      .filter(
+        (pane) =>
+          pane.missionId === missionId &&
+          pane.connected !== false &&
+          pane.status !== "dead" &&
+          pane.status !== "failed" &&
+          (!opts?.semMaestro || !pane.maestro),
+      )
+      .map((pane) => ({
+        paneId: pane.paneId,
+        label: pane.label,
+        role: pane.role,
+        agent: pane.agent,
+        cli: pane.cli,
+        runner: pane.runner,
+        connected: pane.connected,
+        status: pane.status,
+        maestro: pane.maestro,
+      }));
+  }
+
+  private regrasDeCanalDoPainel(opts: SpawnOpts, maestro: boolean): string {
+    const mission = opts.missionId ? getMission(opts.missionId) : null;
+    return regrasDeCanalCockpit({
+      maestro,
+      modo: mission?.modo,
+      janelas: this.equipeDaMissao(opts.missionId, { semMaestro: true }),
+    });
+  }
+
   /** Grava o MCP no perfil da conta. Não inventa HOME vazio — o token OAuth mora no HOME do perfil. */
   private gravarMcpAgyNoPerfil(paneId: string, opts: SpawnOpts, agent: AgentSpec, maestro: boolean, profileDir: string): void {
     const caminho = join(profileDir, ".gemini", "config", "mcp_config.json");
@@ -454,20 +490,33 @@ export class PtyManager {
       ),
     );
 
-    // Grava regras do Cockpit para o AGY no perfil
     try {
-      const rulesDir = join(profileDir, ".gemini", "rules");
-      mkdirSync(rulesDir, { recursive: true });
-      const regrasAgy = [
-        `# DIRETRIZES DO COCKPIT (${agent.label.toUpperCase()})`,
-        agent.papel || "",
-        "",
-        "## REGRA MANDATÓRIA DE ORQUESTRAÇÃO E DELEGAÇÃO:",
-        "- NUNCA utilize ferramentas internas de subagentes do seu CLI (como define_subagent, invoke_subagent, manage_subagents).",
-        "- Seus especialistas e agentes NÃO são subagentes locais: são as janelas/painéis reais abertos na missão do Cockpit (Explorador, Arquiteto, Construtor, Revisor, Verificador, Depurador, Finalizador, etc.).",
-        "- Toda delegação e comunicação entre agentes DEVE ser feita exclusivamente através das ferramentas MCP do Cockpit (delegar, cockpit_ask, cockpit_list, cockpit_inbox).",
-      ].filter(Boolean).join("\n");
-      writeFileSync(join(rulesDir, "cockpit.md"), regrasAgy);
+      const mission = opts.missionId ? getMission(opts.missionId) : null;
+      const janelas = opts.missionId
+        ? [...this.ptys.values()]
+            .map((entry) => entry.state)
+            .filter(
+              (pane) =>
+                pane.missionId === opts.missionId &&
+                pane.connected !== false &&
+                pane.status !== "dead" &&
+                pane.status !== "failed" &&
+                (!maestro || !pane.maestro),
+            )
+            .map((pane) => ({
+              paneId: pane.paneId,
+              label: pane.label,
+              role: pane.role || pane.agent,
+              cli: pane.cli,
+            }))
+        : [];
+      gravarOverlayCockpitAgy(profileDir, {
+        label: agent.label,
+        papel: agent.papel,
+        maestro,
+        modo: mission?.modo,
+        janelas,
+      });
     } catch {
       // Ignora falha de gravação de regras auxiliares
     }
@@ -482,13 +531,15 @@ export class PtyManager {
           mkdirSync(geminiHome, { recursive: true });
           const realGemini = join(realHome, ".gemini");
           for (const sub of readdirSync(realGemini)) {
-            if (sub === "config" || sub === "rules") {
+            if (sub === "config" || sub === "rules" || sub === "antigravity-cli") {
               const subHome = join(geminiHome, sub);
               mkdirSync(subHome, { recursive: true });
               const realSub = join(realGemini, sub);
+              if (!existsSync(realSub)) continue;
               for (const f of readdirSync(realSub)) {
                 if (sub === "config" && f === "mcp_config.json") continue;
                 if (sub === "rules" && f === "cockpit.md") continue;
+                if (sub === "antigravity-cli" && (f === "plugins" || f === "brain")) continue;
                 try {
                   symlinkSync(join(realSub, f), join(subHome, f));
                 } catch {
@@ -739,10 +790,13 @@ export class PtyManager {
         }
         if (spec.model) args.push("--model", spec.model);
         if (spec.effort) args.push("--effort", spec.effort);
+        if (!args.includes("--disallowed-tools") && !args.includes("--disallowedTools")) {
+          args.push("--disallowed-tools", "Task");
+        }
 
         const regrasClaude = [
           spec.papel,
-          "Canal real do Cockpit: cockpit_list / cockpit_ask / cockpit_inbox / delegar. As outras janelas da missão são os verdadeiros especialistas (Explorador, Arquiteto, Construtor, Revisor, Verificador, etc.). NUNCA crie subagentes internos do seu próprio CLI; use sempre as ferramentas do Cockpit. Não simule conversa nem leia o código do Cockpit.",
+          this.regrasDeCanalDoPainel(opts, maestro),
         ].filter((parte): parte is string => Boolean(parte?.trim()));
         if (regrasClaude.length && !args.includes("--append-system-prompt")) {
           args.push("--append-system-prompt", regrasClaude.join("\n\n"));
@@ -787,6 +841,8 @@ export class PtyManager {
         }
         if (spec.model) args.push("--model", spec.model);
         if (spec.effort) args.push("--effort", spec.effort);
+        const agenteAgy = nomeDoAgenteAgy(maestro);
+        if (!args.includes("--agent")) args.push("--agent", agenteAgy);
       }
 
       if (familia === "codex") {
@@ -810,7 +866,7 @@ export class PtyManager {
         }
         const regrasCodex = [
           spec.papel,
-          "Canal real do Cockpit: cockpit_list / cockpit_ask / cockpit_inbox / delegar. As outras janelas da missão são os verdadeiros especialistas (Explorador, Arquiteto, Construtor, Revisor, Verificador, etc.). NUNCA crie subagentes internos do seu próprio CLI; use sempre as ferramentas do Cockpit.",
+          this.regrasDeCanalDoPainel(opts, maestro),
           // Vai para o rollout: é como a troca de conta acha a conversa deste painel.
           marcaDoPainel(paneId),
         ].filter((parte): parte is string => Boolean(parte?.trim()));
@@ -832,9 +888,10 @@ export class PtyManager {
         }
         if (spec.model) args.push("-m", spec.model);
         if (spec.effort) args.push("--reasoning-effort", spec.effort);
+        if (!args.includes("--no-subagents")) args.push("--no-subagents");
         const regras = [
           spec.papel,
-          "Canal real do Cockpit: cockpit_list / cockpit_ask / cockpit_inbox / delegar. As outras janelas da missão são os verdadeiros especialistas (Explorador, Arquiteto, Construtor, Revisor, Verificador, etc.). NUNCA crie subagentes internos do seu próprio CLI; use sempre as ferramentas do Cockpit. Não simule conversa nem leia o código do Cockpit.",
+          this.regrasDeCanalDoPainel(opts, maestro),
         ].filter((parte): parte is string => Boolean(parte?.trim()));
         if (regras.length) args.push("--rules", regras.join("\n\n"));
       }

@@ -23,6 +23,9 @@ import { listarPontes } from "../providers/ponte.ts";
 import { listarProviders } from "../providers/providers.ts";
 import { resolverHarness, type Pedido } from "./harness.ts";
 import { identidadeVisualDoPapel } from "./roles.ts";
+import { formatarEquipeAberta, montarEspecialistasDaMissao } from "./elenco-missao.ts";
+import { formatarColaNoTerminal, panePodeReceberColaNoTerminal } from "./pane-identity.ts";
+import { normalizeMissionMode } from "./mission-modes.ts";
 import { accountPool } from "../providers/account-pool.ts";
 import { transferirSessaoCodex, ultimoModeloCodex } from "../providers/codex-sessions.ts";
 import { pastaDoClaude, transferirSessaoClaude, ultimoModeloClaude } from "../providers/claude-sessions.ts";
@@ -162,9 +165,15 @@ export class MaestroCoordinator {
         const pane = allPanes.find((p) => p.paneId === paneId);
         const raw = this.outputTails.get(paneId) ?? "";
         const quietSince = Math.max(info.delegatedAt, info.lastActiveAt ?? 0, info.lastOutputAt ?? 0);
-        if (info.replyResult || (relatorioConcluido(raw) &&
-          (!pane || pane.status === "dead" || pane.status === "failed" ||
-            normalizePaneStatus(pane.status) !== "working" && agora - quietSince >= ESTABILIDADE_RELATORIO_MS))) {
+        const quietMs = agora - quietSince;
+        const ocupadoDeVerdade =
+          Boolean(pane) &&
+          normalizePaneStatus(pane!.status) === "working" &&
+          Boolean(pane!.activeTaskId);
+        const noPrompt = Boolean(pane) && normalizePaneStatus(pane!.status) === "waiting-user";
+        const relatorio = relatorioConcluido(raw);
+
+        if (info.replyResult) {
           completedPaneIds.add(paneId);
           actionablePaneIds.add(paneId);
           completedAgents.push(pane?.label || info.agent || paneId);
@@ -176,17 +185,27 @@ export class MaestroCoordinator {
           interruptedAgents.push(pane?.label || info.agent || paneId);
           continue;
         }
-
-        const norm = normalizePaneStatus(pane.status);
-        if (norm === "working") {
-          info.lastActiveAt = agora;
-          continue;
-        }
-
         if (pane.status === "starting") {
           continue;
         }
-        if (agora - quietSince >= ALERTA_SEM_RELATORIO_MS && !info.notifiedStall) {
+        if (ocupadoDeVerdade) {
+          info.lastActiveAt = agora;
+          continue;
+        }
+        if (relatorio && quietMs >= ESTABILIDADE_RELATORIO_MS) {
+          completedPaneIds.add(paneId);
+          actionablePaneIds.add(paneId);
+          completedAgents.push(pane.label || info.agent || paneId);
+          continue;
+        }
+        // Voltou ao prompt: o CLI está ocioso. Não depende do modelo emitir COCKPIT_STATUS.
+        if (noPrompt && quietMs >= ESTABILIDADE_RELATORIO_MS && raw.trim().length > 0) {
+          completedPaneIds.add(paneId);
+          actionablePaneIds.add(paneId);
+          completedAgents.push(pane.label || info.agent || paneId);
+          continue;
+        }
+        if (quietMs >= ALERTA_SEM_RELATORIO_MS && !info.notifiedStall) {
           actionablePaneIds.add(paneId);
           interruptedAgents.push(pane.label || info.agent || paneId);
         }
@@ -525,6 +544,7 @@ export class MaestroCoordinator {
         if (maestro) {
           bridge.connect(maestro.paneId, state.paneId, mission.id);
           this.deps.broadcast({ type: "connection:updated" });
+          this.avisarEquipeAoMaestro(mission.id, state, maestro);
         }
       }
     } catch {
@@ -532,6 +552,32 @@ export class MaestroCoordinator {
     }
 
     return state;
+  }
+
+  private avisarEquipeAoMaestro(missionId: string, novo: PaneState, maestro: PaneState): void {
+    if (novo.maestro) return;
+    const status = normalizePaneStatus(maestro.status);
+    if (maestro.connected === false || status === "working" || status === "starting") return;
+    const janelas = listPanes()
+      .filter(
+        (p) =>
+          p.missionId === missionId &&
+          !p.maestro &&
+          p.status !== "dead" &&
+          p.status !== "failed",
+      )
+      .map((p) => ({
+        paneId: p.paneId,
+        label: p.label,
+        role: p.role,
+        agent: p.agent,
+        cli: p.cli,
+        runner: p.runner,
+        connected: p.connected,
+        status: p.status,
+      }));
+    const texto = `[Cockpit] Nova janela na equipe: ${novo.label} (${novo.role || novo.agent}, ${novo.cli}). Use delegar com "${novo.role || novo.agent}".\nEquipe aberta agora:\n${formatarEquipeAberta(janelas)}`;
+    writePty(maestro.paneId, formatarColaNoTerminal(texto));
   }
 
   public saveCheckpoint(missionId: string, value: unknown): { ok: boolean; instruction?: string } {
@@ -840,7 +886,7 @@ export class MaestroCoordinator {
   public especialistasDaMissao(missionId: string): any[] {
     const elenco = this.elencoDa(missionId);
     const soVisual = new Set(elenco?.soVisual ?? []);
-    return Object.entries(config.agents)
+    const catalogo = Object.entries(config.agents)
       .filter(([, a]) => !a.maestro)
       .map(([id, a]) => {
         try {
@@ -848,7 +894,7 @@ export class MaestroCoordinator {
           return {
             id,
             label: a.label,
-            papel: a.papel,
+            papel: a.papel ?? a.label,
             cli: bundle.cli,
             modelo: bundle.model,
             effort: bundle.effort,
@@ -865,7 +911,7 @@ export class MaestroCoordinator {
           return {
             id,
             label: a.label,
-            papel: a.papel,
+            papel: a.papel ?? a.label,
             cli: a.cli,
             modelo: a.model,
             effort: a.effort,
@@ -874,5 +920,24 @@ export class MaestroCoordinator {
           };
         }
       });
+    const janelas = listPanes()
+      .filter((p) => p.missionId === missionId && !p.maestro)
+      .map((p) => ({
+        paneId: p.paneId,
+        label: p.label,
+        role: p.role,
+        agent: p.agent,
+        cli: p.cli,
+        runner: p.runner,
+        model: p.model,
+        maestro: p.maestro,
+        connected: p.connected,
+        status: p.status,
+        canAcceptTask: panePodeReceberColaNoTerminal(p),
+      }));
+    const montado = montarEspecialistasDaMissao(janelas, catalogo);
+    const modo = normalizeMissionMode(getMission(missionId)?.modo);
+    if (modo === "dirigido") return montado.filter((e) => e.aberto);
+    return montado;
   }
 }

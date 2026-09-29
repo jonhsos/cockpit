@@ -124,8 +124,8 @@ try {
   assert.equal(await page.locator('.sidebar-island').count(), 1, 'as missoes vivem numa ilha');
   await page.screenshot({ path: 'web/ui-lateral.png', fullPage: true });
   await page.getByRole('button', { name: 'Adicionar agente', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Adicionar Agente ou Terminal', exact: true }).waitFor();
-  const catalog = page.getByRole('dialog', { name: 'Adicionar Agente ou Terminal', exact: true });
+  await page.getByRole('dialog', { name: 'Adicionar agente', exact: true }).waitFor();
+  const catalog = page.getByRole('dialog', { name: 'Adicionar agente', exact: true });
   assert.equal(await catalog.getByRole('radio').count(), 10, 'o catalogo exibe oito posições e duas especializações auxiliares');
   for (const nome of ['Orquestrador', 'Explorador', 'Arquiteto', 'Construtor', 'Depurador', 'Revisor', 'Verificador', 'Finalizador']) {
     assert.equal(await catalog.getByRole('radio', { name: new RegExp(nome) }).count(), 1, `${nome} aparece no catalogo`);

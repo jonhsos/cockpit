@@ -168,6 +168,12 @@ ok(
   lateralSrc.includes("arrasto-pega") && lateralSrc.includes("moverAntesOuDepois"),
   "Missões e agentes na lateral podem ser reordenados arrastando"
 );
+ok(
+  lateralSrc.includes("Correio") && lateralSrc.includes("mission-correio"),
+  "Lateral mostra o correio da missão (delegação colou/voltou)"
+);
+const apiSrc = readFileSync(resolve("web/api.ts"), "utf8");
+ok(apiSrc.includes("fetchCorreio") && apiSrc.includes("/correio"), "cliente busca GET /missions/:id/correio");
 
 const quadroSrc = readFileSync(resolve("web/QuadroTarefas.tsx"), "utf8");
 ok(
@@ -302,6 +308,7 @@ ok(
   appSrc.includes("paneParaEncerrar") && appSrc.includes("confirmacaoDestrutiva"),
   "Modais de confirmação protegem ações destrutivas (encerrar terminal, merge, override de lock)"
 );
+ok(appSrc.includes("fetchCorreio") && appSrc.includes("correio={correio}"), "App carrega correio e passa à Lateral");
 
 console.log(falhas === 0 ? "\nPASS: Marco 5 (UI, Catálogo por Papéis e Placar de Tarefas)" : `\nFALHOU: ${falhas}`);
 process.exit(falhas === 0 ? 0 : 1);

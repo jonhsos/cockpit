@@ -263,8 +263,8 @@ export const CANONICAL_RUNNERS: RunnerOption[] = [
   {
     id: "bash",
     label: "SHELL Limpo",
-    badge: "Soberano · /bin/bash -i -l",
-    description: "Terminal Linux vazio e isolado. Sem injeção de prompt, sem LLM no boot. Você comanda manualmente com soberania total.",
+    badge: "/bin/bash -i -l",
+    description: "Terminal vazio. Sem LLM e sem prompt oculto.",
     installed: true,
     isAi: false,
     icon: "terminal",

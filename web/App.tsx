@@ -32,6 +32,7 @@ import {
   fetchProjects,
   fetchProviders,
   fetchTree,
+  fetchCorreio,
   fetchConnections,
   createConnection,
   deleteConnection,
@@ -59,6 +60,7 @@ import {
   type TipoTarefa,
   type Usage,
   type Connection,
+  type CorreioItem,
   type Task,
 } from "./api.ts";
 
@@ -103,6 +105,7 @@ export function App() {
   const [usos, setUsos] = useState<Record<string, Usage>>({});
   const [memoria, setMemoria] = useState<Nota[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [correio, setCorreio] = useState<CorreioItem[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [paneParaEncerrar, setPaneParaEncerrar] = useState<string | null>(null);
   const [renomeandoAtiva, setRenomeandoAtiva] = useState(false);
@@ -330,9 +333,13 @@ export function App() {
           break;
         case "inbox:message":
           if (activeIdRef.current) {
-            void fetchConnections(activeIdRef.current).then((res) => {
+            const mid = activeIdRef.current;
+            void fetchConnections(mid).then((res) => {
               if (res.ok && res.connections) setConnections(res.connections);
             });
+            void fetchCorreio(mid).then((res) => {
+              if (res.ok && res.mensagens) setCorreio(res.mensagens);
+            }).catch(() => {});
           }
           break;
         case "mission:updated":
@@ -347,7 +354,7 @@ export function App() {
           }
           break;
         case "maestro:reactivated":
-          setAviso(`Especialistas (${msg.especialistas}) concluíram suas tarefas. Maestro foi reativado para consolidação.`);
+          setAviso(`Especialistas (${msg.especialistas}) concluíram. O Orquestrador recebeu o retorno.`);
           break;
       }
     });
@@ -363,6 +370,7 @@ export function App() {
     if (!activeId) {
       setConnections([]);
       setTasks([]);
+      setCorreio([]);
       return;
     }
     void fetchConnections(activeId).then((res) => {
@@ -370,6 +378,9 @@ export function App() {
     }).catch(() => {});
     void fetchTasks(activeId).then((res) => {
       if (res.ok && res.tasks) setTasks(res.tasks);
+    }).catch(() => {});
+    void fetchCorreio(activeId).then((res) => {
+      if (res.ok && res.mensagens) setCorreio(res.mensagens);
     }).catch(() => {});
   }, [activeId]);
 
@@ -632,6 +643,7 @@ export function App() {
           onPagina={setPaginaLateral}
           tarefas={paginaTarefas}
           arquivos={paginaArquivos}
+          correio={correio}
           rodape={ferramentas}
         />
         {lateralAberta && <button className="sidebar-veu" aria-label="Fechar lateral" onClick={() => setLateralAberta(false)} />}
@@ -743,17 +755,8 @@ export function App() {
           </Modal>}
 
           {verAgentes && active && (
-            <Modal title="Adicionar Agente ou Terminal" onClose={fecharEscolhaAgente}>
+            <Modal title="Adicionar agente" onClose={fecharEscolhaAgente}>
               <section className="agent-picker-panel">
-                <header className="panel-heading">
-                  <div>
-                    <h2>Catálogo de Papéis & Executores</h2>
-                    <p>Você define papel, executor e modelo em etapas independentes com soberania total.</p>
-                  </div>
-                  <button className="icon-btn" aria-label="Fechar catálogo" onClick={fecharEscolhaAgente}>
-                    <Icon name="close" />
-                  </button>
-                </header>
                 <RoleCatalog
                   providers={providers}
                   pontes={pontes}
@@ -1034,14 +1037,47 @@ export function App() {
                   </p>
                 </div>
               ) : visible.length === 0 ? (
-                <div className="partida">
-                  <h2>Traga o primeiro agente.</h2>
-                  <button className="botao-grande" disabled={connection !== "connected"} onClick={abrirEscolhaAgente}><Icon name="plus" size={16} /> Adicionar agente <Icon name="arrow" size={16} /></button>
-                  <p className="rodape-partida">
-                    O <strong>maestro</strong> divide o trabalho e chama os especialistas sozinho.
-                    Um especialista você comanda direto.
-                  </p>
-                </div>
+                correio.length > 0 ? (
+                  <div className="partida retomar">
+                    <h2>A equipe desta missão está fechada.</h2>
+                    <p className="rodape-partida">
+                      {active.modo === "dirigido"
+                        ? "Em Dirigido o Orquestrador só fala com janelas abertas. Reabra quem precisa continuar."
+                        : active.modo === "autonomo"
+                          ? "Há histórico no correio. Reabra o Orquestrador para ele retomar a coordenação."
+                          : "Há histórico no correio. Reabra um painel para retomar."}
+                    </p>
+                    <ul className="retomar-correio">
+                      {correio.slice(0, 4).map((msg) => {
+                        const estado = msg.type === "reply" ? "voltou" : msg.deliveredToTerminal ? "colou" : "na fila";
+                        const hora = new Date(msg.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+                        const trecho = (msg.task || msg.result || "").replace(/\s+/g, " ").slice(0, 88);
+                        return (
+                          <li key={msg.id}>
+                            <button type="button" onClick={abrirEscolhaAgente} disabled={connection !== "connected"}>
+                              <span className="retomar-rota">{msg.fromLabel} → {msg.toLabel}</span>
+                              <span className={`retomar-estado ${estado === "colou" ? "ok" : ""}`}>{estado} · {hora}</span>
+                              {trecho ? <small>{trecho}</small> : null}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <button className="botao-grande" disabled={connection !== "connected"} onClick={abrirEscolhaAgente}>
+                      <Icon name="plus" size={16} /> Adicionar agente <Icon name="arrow" size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="partida">
+                    <h2>Traga o primeiro agente.</h2>
+                    <button className="botao-grande" disabled={connection !== "connected"} onClick={abrirEscolhaAgente}><Icon name="plus" size={16} /> Adicionar agente <Icon name="arrow" size={16} /></button>
+                    <p className="rodape-partida">
+                      {active.modo === "dirigido"
+                        ? "Em Dirigido, abra o Orquestrador e os especialistas que ele pode usar."
+                        : "O Orquestrador divide o trabalho. Um especialista você comanda direto."}
+                    </p>
+                  </div>
+                )
               ) : null}
               <PaneGrid
                 panes={panes}

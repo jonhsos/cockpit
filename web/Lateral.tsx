@@ -9,7 +9,7 @@ import {
   formatarHoraInicio,
 } from "./rotulos.ts";
 import { Mascote } from "./Mascote.tsx";
-import type { AgentSpec, Mission, PaneState, Project } from "./api.ts";
+import type { AgentSpec, CorreioItem, Mission, PaneState, Project } from "./api.ts";
 import {
   aplicarOrdem,
   chaveMissoes,
@@ -63,6 +63,7 @@ export function Lateral({
   onPagina,
   tarefas,
   arquivos,
+  correio,
   rodape,
 }: {
   project: Project | undefined;
@@ -89,6 +90,7 @@ export function Lateral({
   onPagina: (pagina: Pagina) => void;
   tarefas?: ReactNode;
   arquivos: ReactNode;
+  correio?: CorreioItem[];
   rodape: ReactNode;
 }) {
   // Missões abertas na árvore. A ativa entra sozinha; fechar a ativa é
@@ -246,6 +248,9 @@ export function Lateral({
                 ) : <button className="mission-name" aria-current={activeId === m.id ? "true" : undefined} onClick={() => { onSelectMission(m.id); setAbertas(prev => new Set(prev).add(m.id)); }} title={m.objetivo || m.nome}>
                   <span>{m.nome}</span>
                   {daMissao.length > 0 && <em className="mission-count" aria-hidden="true">{daMissao.length}</em>}
+                  {m.id === activeId && daMissao.length > 0 && (correio ?? []).length > 0 && (
+                    <em className="mission-count correio-count" title="Mensagens no correio">{(correio ?? []).length}</em>
+                  )}
                 </button>}
                 {daMissao.length > 0 && onFecharJanelas && (
                   <button
@@ -258,7 +263,9 @@ export function Lateral({
                     fechar
                   </button>
                 )}
-                <button className="mission-rename-btn" aria-label={`Renomear ${m.nome}`} title="Renomear missão" onClick={() => { setRenomeando(m.id); setNomeEmEdicao(m.nome); }}>✏️</button>
+                <button className="mission-rename-btn" aria-label={`Renomear ${m.nome}`} title="Renomear missão" onClick={() => { setRenomeando(m.id); setNomeEmEdicao(m.nome); }}>
+                  <Icon name="pencil" size={12} />
+                </button>
               </div>
 
               {expandida && (
@@ -347,6 +354,36 @@ export function Lateral({
                   <Icon name="plus" size={14} /><span>Adicionar agente</span>
                 </button>
               </div>}
+              {expandida && m.id === activeId && daMissao.length > 0 && (
+                <div className="mission-correio">
+                  <div className="mission-correio-titulo">Correio</div>
+                  {(correio ?? []).length === 0 ? (
+                    <p className="mission-correio-vazio">Nenhuma delegação ainda.</p>
+                  ) : (
+                    <ul>
+                      {(correio ?? []).slice(0, 5).map((msg) => {
+                        const trecho = (msg.task || msg.result || "").replace(/\s+/g, " ").slice(0, 64);
+                        const cola = msg.type === "reply" ? "voltou" : msg.deliveredToTerminal ? "colou" : "na fila";
+                        const hora = new Date(msg.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+                        const vivo = daMissao.find((p) => p.paneId === msg.to || p.label === msg.toLabel);
+                        return (
+                          <li key={msg.id}>
+                            <button
+                              type="button"
+                              className="mission-correio-item"
+                              title={trecho}
+                              onClick={() => vivo ? onSelectPane(m.id, vivo.paneId) : onAddAgente(m.id)}
+                            >
+                              <span className="mission-correio-rota">{msg.fromLabel} → {msg.toLabel}</span>
+                              <span className={`mission-correio-estado${msg.deliveredToTerminal ? " colou" : ""}`}>{cola} · {hora}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

@@ -67,4 +67,9 @@ const contrato = promptInternoDoPapel({ role: "scout", agent: "scout", tarefa: "
 assert.match(contrato, /cockpit_ask/);
 assert.match(contrato, /Se NÃO houver Maestro/);
 
+const maestroContrato = promptInternoDoPapel({ role: "maestro", tarefa: "coordenar", modo: "dirigido" });
+assert.match(maestroContrato, /listar_especialistas/);
+assert.match(maestroContrato, /jion_verifier/);
+assert.match(maestroContrato, /aberto=true/);
+
 console.log("PASS: check-mcp-comunicacao.ts — especialistas falam entre si; Maestro orquestra.");

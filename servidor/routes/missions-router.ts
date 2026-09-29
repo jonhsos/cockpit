@@ -22,6 +22,7 @@ import {
 import { tiposDeTarefa } from "../orchestration/harness.ts";
 import { skillsDoAgente } from "../orchestration/skills.ts";
 import { gerar } from "../providers/media.ts";
+import { getDefaultPaneStore } from "../persistence/index.ts";
 
 export function createMissionsRouter(ctx: RouterContext): Router {
   const router = Router();
@@ -44,6 +45,15 @@ export function createMissionsRouter(ctx: RouterContext): Router {
     }
     ctx.trackDelegation?.(missionId, pane.paneId, pane.label, taskId);
     return taskId;
+  };
+
+  const alvosAutorizadosDirigido = (mission: { id: string; elenco?: { clis?: string[] } }) => {
+    const elencoClis = mission.elenco?.clis ?? [];
+    const authorizedAgents = Object.entries(ctx.config.agents)
+      .filter(([, a]) => elencoClis.length === 0 || elencoClis.includes((a as { cli?: string }).cli ?? ""))
+      .map(([k]) => k);
+    const openPaneTargets = ctx.paneDispatcher.listAvailablePanes(mission.id).flatMap((p) => [p.label, p.role, p.paneId, p.runner]);
+    return Array.from(new Set([...authorizedAgents, ...openPaneTargets].filter(Boolean)));
   };
 
   const fail = (res: any, err: unknown) =>
@@ -107,15 +117,10 @@ export function createMissionsRouter(ctx: RouterContext): Router {
             throw Error("Delegação autônoma desativada no modo Livre. Controle manual do usuário.");
           }
           if (modeInfo.modo === "dirigido") {
-            const elencoClis = mission.elenco?.clis ?? [];
-            const authorizedAgents = Object.entries(ctx.config.agents)
-              .filter(([, a]) => elencoClis.length === 0 || elencoClis.includes((a as any).cli))
-              .map(([k]) => k);
-            const openPaneTargets = ctx.paneDispatcher.listAvailablePanes(mission.id).flatMap(p => [p.label, p.role]);
             const guard = canMaestroDelegate({
               mode: modeInfo.modo,
               targetAgentOrRole: String(args.agente),
-              authorizedRoles: Array.from(new Set([...authorizedAgents, ...openPaneTargets])),
+              authorizedRoles: alvosAutorizadosDirigido(mission),
               emergencyHalt: modeInfo.emergencyHalt,
             });
             if (!guard.allowed) throw Error(guard.reason);
@@ -321,12 +326,48 @@ export function createMissionsRouter(ctx: RouterContext): Router {
     }
   });
 
+  router.get("/missions/:id/correio", (req, res) => {
+    const mission = getMission(req.params.id);
+    if (!mission) return fail(res, new Error("missão não encontrada"));
+    const panes = ctx.paneDispatcher.listAvailablePanes(mission.id);
+    const gravados = getDefaultPaneStore().listPanes(mission.id);
+    const nomeDe = (id: string, gravado?: unknown) => {
+      if (typeof gravado === "string" && gravado.trim() && gravado !== id) return gravado;
+      if (!id) return "?";
+      if (id === "maestro") return "ORQUESTRADOR";
+      return (
+        panes.find((p) => p.paneId === id)?.label ||
+        gravados.find((p) => p.paneId === id)?.label ||
+        panes.find((p) => p.role === id)?.label ||
+        id
+      );
+    };
+    const mensagens = ctx.mailboxManager.listMission(mission.id).slice(0, 50).map((m) => ({
+      id: m.id,
+      from: m.from,
+      to: m.to,
+      fromLabel: nomeDe(m.from, m.metadata?.fromLabel),
+      toLabel: nomeDe(m.to, m.metadata?.toLabel),
+      type: m.type,
+      task: m.task,
+      result: m.result,
+      timestamp: m.timestamp,
+      deliveredToTerminal: m.metadata?.deliveredToTerminal === true,
+      status: m.status,
+    }));
+    res.json({ ok: true, mensagens });
+  });
+
   router.get("/missions/:id/elenco", (req, res) => {
     const mission = getMission(req.params.id);
     if (!mission) return fail(res, new Error("missão não encontrada"));
+    const especialistas = ctx.especialistasDaMissao(mission.id);
+    const modo = ctx.missionModeManager.getMissionMode(mission.id, normalizeMissionMode(mission.modo)).modo;
     res.json({
       elenco: mission.elenco ?? null,
-      especialistas: ctx.especialistasDaMissao(mission.id),
+      modo,
+      janelas_abertas: especialistas.filter((e: { aberto?: boolean }) => e.aberto),
+      especialistas,
       tarefas: tiposDeTarefa(),
     });
   });
@@ -370,15 +411,10 @@ export function createMissionsRouter(ctx: RouterContext): Router {
         throw new Error("Delegação autônoma desativada no modo Livre. O usuário mantém controle manual.");
       }
       if (modeInfo.modo === "dirigido") {
-        const elencoClis = mission.elenco?.clis ?? [];
-        const authorizedAgents = Object.entries(ctx.config.agents)
-          .filter(([, a]) => elencoClis.length === 0 || elencoClis.includes((a as any).cli))
-          .map(([k]) => k);
-        const openPaneTargets = ctx.paneDispatcher.listAvailablePanes(missionId).flatMap((p) => [p.label, p.role]);
         const guard = canMaestroDelegate({
           mode: modeInfo.modo,
           targetAgentOrRole: String(req.body.agent ?? ""),
-          authorizedRoles: [...authorizedAgents, ...openPaneTargets],
+          authorizedRoles: alvosAutorizadosDirigido(mission),
           emergencyHalt: modeInfo.emergencyHalt,
         });
         if (!guard.allowed) throw Error(guard.reason);

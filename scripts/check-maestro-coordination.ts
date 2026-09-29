@@ -213,9 +213,11 @@ try {
   assert.equal(resultadoPorPaneId?.agente, "REVIEWER");
   assert.ok(resultadoPorPaneId?.saida?.includes("0 erros"));
 
-  // Output parcial ou eco do prompt não pode encerrar tarefa por silêncio.
+  // Output parcial ou eco do prompt não pode encerrar tarefa por silêncio enquanto o CLI ainda trabalha.
   coordinator.trackDelegation("m1", "pane-builder", "builder");
   assert.equal(coordinator.outputTails.has("pane-builder"), false, "Nova tarefa não reutiliza relatório anterior");
+  builderPane.status = "working";
+  builderPane.activeTaskId = null;
   coordinator.outputTails.set("pane-builder", 'Executando testes... "COCKPIT_STATUS: complete" citado no prompt');
   const pending = (coordinator as any).pendingDelegations.get("m1").get("pane-builder");
   pending.delegatedAt = Date.now() - 11_000;
@@ -231,9 +233,23 @@ try {
   assert.ok((coordinator as any).pendingDelegations.get("m1")?.has("pane-builder"), "Silêncio não encerra delegação");
   coordinator.checkDelegations();
   assert.equal(writtenToMaestro.length, 2, "Aviso de silêncio não se repete a cada pulso");
+  builderPane.status = "waiting-user";
+  builderPane.activeTaskId = null;
   coordinator.outputTails.set("pane-builder", "Trabalho retomado e verificado.\nCOCKPIT_STATUS: complete");
   coordinator.checkDelegations();
   assert.equal(writtenToMaestro.length, 3, "Relatório tardio ainda conclui a delegação");
+
+  // Voltar ao prompt sem o marcador também entrega o tail ao Orquestrador.
+  coordinator.trackDelegation("m1", "pane-scout", "scout");
+  scoutPane.status = "waiting-user";
+  scoutPane.activeTaskId = null;
+  coordinator.outputTails.set("pane-scout", "Mapa do repo em src/ e cmd/. Sem alterações.");
+  const pendingScout = (coordinator as any).pendingDelegations.get("m1").get("pane-scout");
+  pendingScout.delegatedAt = Date.now() - 11_000;
+  pendingScout.lastActiveAt = Date.now() - 11_000;
+  coordinator.checkDelegations();
+  assert.equal(writtenToMaestro.length, 4, "Prompt ocioso após trabalho acorda o Maestro sem COCKPIT_STATUS");
+  assert.ok(writtenToMaestro[3]?.includes("Mapa do repo"));
 
   // cockpit_reply é confirmação explícita mesmo se o status do PTY ainda for working.
   const task = taskManager.createTask("m1", { título: "Entrega do Builder", status: "todo" });
@@ -250,8 +266,8 @@ try {
     correlationId: "corr-builder", result: "Entrega final com evidências",
   } as any), true);
   coordinator.checkDelegations();
-  assert.equal(writtenToMaestro.length, 4, "Resposta correlacionada acorda o Maestro");
-  assert.ok(writtenToMaestro[3]?.includes("Entrega final com evidências"));
+  assert.equal(writtenToMaestro.length, 5, "Resposta correlacionada acorda o Maestro");
+  assert.ok(writtenToMaestro[4]?.includes("Entrega final com evidências"));
   assert.equal(taskManager.getTask(task.id)?.status, "complete", "Tarefa persistida deve concluir após entrega");
   assert.equal(taskManager.getTask(task.id)?.resultado, "Entrega final com evidências");
 
@@ -266,11 +282,11 @@ try {
   rejectNotification = true;
   coordinator.checkDelegations();
   assert.equal(taskManager.getTask(retriedTask.id)?.status, "in-progress", "Falha de entrega mantém tarefa pendente");
-  assert.equal(writtenToMaestro.length, 4);
+  assert.equal(writtenToMaestro.length, 5);
   rejectNotification = false;
   coordinator.checkDelegations();
   assert.equal(taskManager.getTask(retriedTask.id)?.status, "complete");
-  assert.equal(writtenToMaestro.length, 5);
+  assert.equal(writtenToMaestro.length, 6);
 
   // Restaurar mocks
   manager.writePty = originalWritePty;

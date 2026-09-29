@@ -288,7 +288,7 @@ export function RoleCatalog({
 
       {etapa === 1 && !criandoCustom && (
         <section className="catalog-step" aria-label="Escolha do papel semântico">
-          <div className="step-header"><h3>Qual trabalho este painel possui?</h3><p>Escolha uma identidade funcional. As 8 posições principais cobrem o ciclo completo; cada uma incorpora funções auxiliares sem misturar responsabilidades. Executor, modelo e conta ficam separados.</p></div>
+          <div className="step-header"><h3>Quem trabalha neste painel?</h3><p>As 8 posições principais cobrem o ciclo. Executor e modelo vêm no passo seguinte.</p></div>
           <div className="role-catalog-layout">
             <div className="role-grid" role="radiogroup" aria-label="Papéis oficiais">
               <div className="role-group role-primary-group">
@@ -306,12 +306,15 @@ export function RoleCatalog({
               </div>}
             </div>
             <aside className="role-contract-card" aria-label={`Contrato de ${currentRole.label}`}>
-              <div className="role-contract-heading"><Mascote semente={currentRole.id} cor={currentRole.color} estado="neutro" tamanho={28} /><div><span className="role-contract-kicker">Contrato oficial</span><h4>{currentRole.label}</h4></div></div>
-              <p className="role-contract-outcome"><b>Resultado:</b> {currentRole.outcome}</p>
+              <div className="role-contract-heading"><Mascote semente={currentRole.id} cor={currentRole.color} estado="neutro" tamanho={28} /><div><h4>{currentRole.label}</h4></div></div>
+              <p className="role-contract-outcome">{currentRole.outcome}</p>
               <ContractList title="Funções incorporadas" items={currentRole.incorporates ?? []} />
-              <ContractList title="Possui" items={currentRole.owns} />
-              <ContractList title="Não possui" items={currentRole.doesNotOwn} />
-              <ContractList title="Entrega" items={currentRole.deliverables} />
+              <details className="role-contract-mais">
+                <summary>Possui, limites e entrega</summary>
+                <ContractList title="Possui" items={currentRole.owns} />
+                <ContractList title="Não possui" items={currentRole.doesNotOwn} />
+                <ContractList title="Entrega" items={currentRole.deliverables} />
+              </details>
             </aside>
           </div>
           <footer className="catalog-actions"><button type="button" className="btn quiet" onClick={onCancel}>Cancelar</button><button type="button" className="btn solid" onClick={() => setEtapa(2)}>Continuar com {currentRole.label} <Icon name="arrow" size={15} /></button></footer>
@@ -340,7 +343,7 @@ export function RoleCatalog({
 
       {etapa === 2 && (
         <section className="catalog-step" aria-label="Escolha do executor">
-          <div className="step-header"><h3>Onde {currentRole.label} vai executar?</h3><p>O executor é a infraestrutura. Ele não muda o contrato do papel e não pode ser trocado silenciosamente.</p></div>
+          <div className="step-header"><h3>Em qual executor?</h3><p>{currentRole.label} mantém o mesmo papel. Aqui você só escolhe o CLI.</p></div>
           <div className="runner-grid" role="radiogroup" aria-label="Executores disponíveis">
             {runners.map((runner) => {
               const unavailable = !aiDisponivel(runner.id);
@@ -350,15 +353,15 @@ export function RoleCatalog({
           </div>
           {(selectedRunner === "codex" || selectedRunner === "claude") && <div className="backend-choice"><div><b>Transporte da sessão</b><p>{selectedBackend === "dsh" ? "DSH recebe prompts como mensagens estruturadas e mantém o Shell separado." : "PTY emula o terminal clássico e preserva a interação direta do CLI."}</p></div><div className="backend-choice-buttons"><button type="button" className={`btn mini${selectedBackend === "dsh" ? " solid" : ""}`} onClick={() => setSelectedBackend("dsh")}>DSH estruturado</button><button type="button" className={`btn mini${selectedBackend === "pty" ? " solid" : ""}`} onClick={() => setSelectedBackend("pty")}>PTY clássico</button></div></div>}
           {selectedProvider?.backend === "dsh" && selectedRunner !== "codex" && selectedRunner !== "claude" && <div className="backend-choice"><div><b>DSH estruturado</b><p>Esta API é exclusiva do DSH. A chave fica no cofre do Cockpit e o modelo recebe prompts estruturados.</p></div></div>}
-          {selectedRunner === "bash" && <div className="sovereign-bash-banner"><div className="banner-icon"><Icon name="terminal" size={20} /></div><div className="banner-content"><strong>SHELL limpo e soberano</strong><p>Abre estritamente como <code>/bin/bash -i -l</code>. Sem prompt interno, sem LLM no boot e sem instruções ocultas.</p></div></div>}
+          {selectedRunner === "bash" && <div className="sovereign-bash-banner clean-bash-banner"><div className="banner-icon"><Icon name="terminal" size={20} /></div><div className="banner-content"><strong>SHELL limpo</strong><p>Sobe <code>/bin/bash -i -l</code>, sem LLM e sem prompt oculto.</p></div></div>}
           <footer className="catalog-actions"><button type="button" className="btn quiet" onClick={() => setEtapa(1)}>Voltar ao papel</button>{selectedRunner === "bash" ? <button type="button" className="btn solid bash-launch" onClick={handleFinish}>Abrir SHELL limpo</button> : <button type="button" className="btn solid" onClick={() => setEtapa(3)}>Configurar parâmetros <Icon name="arrow" size={15} /></button>}</footer>
         </section>
       )}
 
       {etapa === 3 && selectedRunner !== "bash" && (
         <section className="catalog-step" aria-label="Revisão da configuração">
-          <div className="step-header"><h3>Revise antes de abrir</h3><p>O contrato de {currentRole.label} será aplicado no backend a cada sessão de IA.</p></div>
-          <div className="launch-summary"><div><span>Papel</span><b>{currentRole.label}</b><small>{currentRole.outcome}</small></div><div><span>Executor</span><b>{selectedRunner.toUpperCase()} · {selectedBackend.toUpperCase()}</b><small>O executor não redefine responsabilidades.</small></div></div>
+          <div className="step-header"><h3>Modelo e conta</h3><p>{currentRole.label} em {selectedRunner === "bash" ? "bash" : selectedRunner}.</p></div>
+          <div className="launch-summary"><div><span>Papel</span><b>{currentRole.label}</b></div><div><span>Executor</span><b>{selectedRunner} · {selectedBackend}</b></div></div>
           {selectedBackend === "dsh" && <p className="dica dsh-role-note">Este painel usa o DSH. O pool de contas do Cockpit fica reservado ao PTY tradicional; no gateway, a rotação pertence ao provedor configurado.</p>}
           <label className="campo-bloco"><span className="rotulo">Modelo <em>opcional; vazio usa o padrão real do executor</em></span><select className="campo" value={selectedModel} onChange={(event) => { setSelectedModel(event.target.value); setCustomModel(""); }}><option value="">Padrão do executor</option>{availableModels.map((model) => {
             const label = modelDisplayName(model);
@@ -373,8 +376,7 @@ export function RoleCatalog({
           {contasNaoAutenticadas.length > 0 && <div className="aviso-contas-auth"><div className="auth-warning-heading"><b>Autenticação pendente</b><span aria-live="polite">{loginMsg}</span></div>{selectedRunner === "codex" && <p className="auth-help">O login do Codex usa autenticação por dispositivo e grava a sessão na pasta desta conta.</p>}{contasNaoAutenticadas.map((account) => <div className="auth-account-row" key={account.id}><span><b>{account.label || account.id}</b><code>{account.id}</code></span><button type="button" className="btn mini" onClick={async () => { setLoginMsg(`Abrindo login para ${account.label || account.id}…`); try { const result = await openLoginTerminal(selectedRunner, account.id, missionId); if (!result.ok) throw new Error(result.error || "falha ao abrir"); setLoginMsg("Terminal de login aberto; conclua a autenticação nele"); } catch (error) { setLoginMsg(error instanceof Error ? error.message : String(error)); } }}>Fazer login</button></div>)}</div>}
           {contasElegiveis.length > 0 && <><label className="campo-bloco"><span className="rotulo">Conta do pool</span><select className="campo" value={preferredAccountId} onChange={(event) => { setPreferredAccountId(event.target.value); if (!event.target.value) setAccountPinned(false); }}><option value="">Automático (pool escolhe)</option>{contasElegiveis.map((account) => <option key={account.id} value={account.id}>{account.label || account.id}{account.status === "ocupada" ? " · em uso" : ""}</option>)}</select></label><label className={`account-pin${preferredAccountId ? "" : " disabled"}`}><input type="checkbox" checked={accountPinned} disabled={!preferredAccountId} onChange={(event) => setAccountPinned(event.target.checked)} /><span><b>Fixar conta</b><small>Não fazer rotação automática se a cota acabar.</small></span></label></>}
           <label className="campo-bloco"><span className="rotulo">Tarefa inicial <em>opcional</em></span><textarea className="campo area" rows={3} value={tarefa} onChange={(event) => setTarefa(event.target.value)} placeholder={`O que ${currentRole.label} deve fazer primeiro?`} maxLength={64000} /></label>
-          <p className="dica">Sem tarefa inicial, o painel apenas abre e aguarda sua instrução — nenhum prompt ou rodada de LLM é enviado no boot.</p>
-          <div className="final-contract-note"><Icon name="agent" size={17} /><span><b>Contrato protegido</b><small>Ao enviar uma tarefa, o contrato do papel acompanha a instrução; se ela pedir algo fora do papel, o agente deve explicar o conflito e escalar — não improvisar.</small></span></div>
+          <p className="dica">Sem tarefa inicial o painel só abre e espera. O contrato do papel entra quando houver trabalho.</p>
           <footer className="catalog-actions"><button type="button" className="btn quiet" onClick={() => setEtapa(2)}>Voltar ao executor</button><button type="button" className="btn solid" onClick={handleFinish}>Abrir {currentRole.label}</button></footer>
         </section>
       )}

@@ -160,6 +160,32 @@ export class MailboxManager {
     return [...box.outbox];
   }
 
+  public listMission(missionId = "default"): MailboxMessage[] {
+    const mm = this.getMissionMailboxes(missionId);
+    const seen = new Set<string>();
+    const all: MailboxMessage[] = [];
+    for (const box of mm.values()) {
+      for (const msg of [...box.inbox, ...box.outbox]) {
+        if (seen.has(msg.id)) continue;
+        seen.add(msg.id);
+        all.push(msg);
+      }
+    }
+    return all.sort((a, b) => b.timestamp - a.timestamp);
+  }
+
+  public patchMetadata(missionId: string, messageId: string, patch: Record<string, unknown>): boolean {
+    const mm = this.getMissionMailboxes(missionId || "default");
+    for (const box of mm.values()) {
+      const msg = box.inbox.find((m) => m.id === messageId) ?? box.outbox.find((m) => m.id === messageId);
+      if (!msg) continue;
+      msg.metadata = { ...(msg.metadata ?? {}), ...patch };
+      this.persist(missionId || "default");
+      return true;
+    }
+    return false;
+  }
+
   public markRead(
     paneId: string,
     messageId: string,

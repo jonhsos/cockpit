@@ -173,7 +173,7 @@ export class PaneDispatcher {
     const promptCorpo = task.descrição ? `${task.título}\n\n${task.descrição}` : task.título;
     const promptTerminal = `${promptCorpo}\n\n[Cockpit: Tarefa enviada pelo Orquestrador. Trabalhe até finalizar. Ao concluir, emita relatório com estado e evidências no terminal, terminando com uma linha isolada "COCKPIT_STATUS: complete" somente se terminou de fato. Se interrompida, explique e não emita esse marcador. Também pode chamar cockpit_reply para "maestro" com correlationId: "${correlationId}"].`;
 
-    this.mailboxManager.enqueue({
+    const enqueued = this.mailboxManager.enqueue({
       from: "maestro",
       to: paneId,
       type: "ask",
@@ -182,12 +182,14 @@ export class PaneDispatcher {
       task: promptCorpo,
       missionId,
       status: "unread",
+      metadata: { deliveredToTerminal: false, fromLabel: "ORQUESTRADOR", toLabel: pane.label || pane.role || paneId },
     });
 
     let deliveredToTerminal = false;
     if (this.paneProvider.writePane && panePodeReceberColaNoTerminal({ ...pane, status: "waiting-user" })) {
       deliveredToTerminal = this.paneProvider.writePane(paneId, formatarColaNoTerminal(promptTerminal)) !== false;
     }
+    this.mailboxManager.patchMetadata(missionId, enqueued.id, { deliveredToTerminal });
     if (!deliveredToTerminal) {
       this.taskManager.transitionTask(taskId, "blocked", { reason: "Tarefa ficou na inbox; terminal não recebeu o prompt", force: true });
       pane.activeTaskId = null;

@@ -16,6 +16,7 @@ export * from "./skills.ts";
 export * from "./receitas.ts";
 export * from "./marketplace.ts";
 export * from "./maestro-coordinator.ts";
+export * from "./elenco-missao.ts";
 
 let defaultMissionModeManager: MissionModeManager | null = null;
 let defaultPaneDispatcher: PaneDispatcher | null = null;

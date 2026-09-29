@@ -187,6 +187,11 @@ export class InterAgentBridge {
       task: taskText,
       missionId,
       status: "unread",
+      metadata: {
+        deliveredToTerminal: false,
+        fromLabel: fromPane?.label || fromId,
+        toLabel: targetPane.label || toId,
+      },
     });
 
     if (isDead) {
@@ -213,9 +218,11 @@ export class InterAgentBridge {
         if (fromPane?.maestro) this.orchestrationHooks.onAskDelivered?.(message, targetPane);
       }
     }
+    this.mailboxManager.patchMetadata(missionId, message.id, { deliveredToTerminal });
 
     return {
       ...message,
+      metadata: { ...(message.metadata ?? {}), deliveredToTerminal },
       deliveredToTerminal,
       queued: true,
       delivered: deliveredToTerminal,

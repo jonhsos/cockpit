@@ -49,7 +49,7 @@ const TOOLS: Tool[] = [
     maestroOnly: true,
     name: "listar_especialistas",
     description:
-      "Lista os especialistas reais abertos ou disponíveis para delegação nas janelas desta missão, com seus papéis, provedores e modelos. NUNCA crie subagentes internos do seu próprio CLI: delegue sempre para estes especialistas da missão via 'delegar' ou 'cockpit_ask'. Chame antes de delegar.",
+      "Lista a equipe desta missão. Use janelas_abertas (aberto=true) — são as janelas reais (EXPLORADOR, DEPURADOR, VERIFICADOR, CONSTRUTOR…). No modo Dirigido só estas valem. NUNCA crie subagentes internos do CLI (jion_*, invoke_subagent): delegue com 'delegar' usando delegarComo ou o papel da janela. Chame antes de delegar.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     run: async () => texto(await api(`/api/missions/${MISSAO}/elenco`)),
   },

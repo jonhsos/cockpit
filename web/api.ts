@@ -467,6 +467,23 @@ export const releaseLock = (missionId: string, params: { taskId: string; files?:
   post(`/api/missions/${missionId}/locks/release`, params).then(json<{ ok: true }>);
 
 // conexões e handoffs (R5)
+export type CorreioItem = {
+  id: string;
+  from: string;
+  to: string;
+  fromLabel: string;
+  toLabel: string;
+  type: string;
+  task?: string;
+  result?: string;
+  timestamp: number;
+  deliveredToTerminal: boolean;
+  status: string;
+};
+
+export const fetchCorreio = (missionId: string) =>
+  fetch(`/api/missions/${missionId}/correio`).then(json<{ ok: boolean; mensagens: CorreioItem[] }>);
+
 export const fetchConnections = (missionId: string) =>
   fetch(`/api/missions/${missionId}/connections`).then(json<{ ok: boolean; connections: Connection[] }>);
 

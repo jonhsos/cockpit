@@ -833,7 +833,7 @@ export function Pane({
                     setRenomeando(true);
                   }}
                 >
-                  ✏️
+                  <Icon name="pencil" size={11} />
                 </button>
               </span>
             )}
@@ -904,11 +904,11 @@ export function Pane({
                     className="meter"
                     title={`${compacto(usage.in + usage.cacheWrite + usage.cacheRead)} entrada · ${compacto(usage.out)} saída · ${usage.turnos} turnos em ${usage.model ?? "—"} · Sessão ativa há ${tempoSessaoCompleto}`}
                   >
-                    ${usage.custo.toFixed(2)} · ⏱️ {tempoSessaoCurto}
+                    ${usage.custo.toFixed(2)} · {tempoSessaoCurto}
                   </span>
                 ) : (
                   <span className="meter" title={`Sessão iniciada às ${horaInicio} (${tempoSessaoCompleto})`}>
-                    ⏱️ {tempoSessaoCurto}
+                    {tempoSessaoCurto}
                   </span>
                 )}
                 <span className="dica">
@@ -919,7 +919,7 @@ export function Pane({
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                     <span style={{ color: "var(--ink-3)" }}>Duração da sessão:</span>
                     <span style={{ fontWeight: 600, color: "var(--ink)" }} title={`Iniciado em ${new Date(inicio).toLocaleString()}`}>
-                      ⏱️ {tempoSessaoCompleto} <span style={{ color: "var(--ink-3)", fontWeight: 400, fontSize: 11 }}>(iniciado às {horaInicio})</span>
+                      {tempoSessaoCompleto} <span style={{ color: "var(--ink-3)", fontWeight: 400, fontSize: 11 }}>(iniciado às {horaInicio})</span>
                     </span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -958,7 +958,7 @@ export function Pane({
                               }}
                               title="Abrir terminal de login para esta conta"
                             >
-                              🔑 Login
+                              Login
                             </button>
                           )}
                         </div>
@@ -1056,7 +1056,7 @@ export function Pane({
                       : outroId;
                     return (
                       <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, color: "var(--ink)" }}>
-                        <span>🔗 {outroNome}</span>
+                        <span>{outroNome}</span>
                         <button
                           type="button"
                           className="btn mini"
@@ -1089,7 +1089,7 @@ export function Pane({
                           .filter((p) => p.paneId !== pane.paneId)
                           .map((p) => (
                             <option key={p.paneId} value={p.paneId}>
-                              {p.maestro ? "⭐ " : ""}{nomeDoPainel(p, todosPaineis, agentes)} ({roleDefinitionFor(p.role || (p.maestro ? "maestro" : p.agent)).label})
+                              {nomeDoPainel(p, todosPaineis, agentes)} ({roleDefinitionFor(p.role || (p.maestro ? "maestro" : p.agent)).label})
                             </option>
                           ))}
                       </select>
@@ -1126,12 +1126,11 @@ export function Pane({
               onClick={onClose}
               aria-label="Encerrar painel"
             >
-              ✕
+              <Icon name="close" size={13} />
             </button>
           </div>
         </div>
 
-        {/* Linha 2: badges — quebram de linha em janela estreita, nunca somem nem cortam. */}
         <div className="pane-head-badges">
           <div className="pane-role-container">
             <button
@@ -1164,7 +1163,7 @@ export function Pane({
                   className={pane.maestro ? "active" : ""}
                   onClick={() => handleEscolherPapel("maestro")}
                 >
-                  👑 Orquestrador (coordenação)
+                  <Icon name="team" size={12} /> Orquestrador
                 </button>
                 {CATALOG_ROLES.filter((r) => r.id !== "maestro").map((r) => (
                   <button
@@ -1181,24 +1180,14 @@ export function Pane({
           </div>
 
           <span
-            className={`pane-badge badge-runner ${pane.cli}`}
-            title={`Executor: ${pane.cli} (Soberano)`}
+            className={`pane-badge pane-badge-more badge-runner ${pane.cli}`}
+            title={`Executor: ${pane.cli}`}
           >
-            {pane.cli === "bash" ? (
-              <>
-                <span className="runner-icon" aria-hidden="true">💻</span>
-                <span className="runner-name">bash</span>
-              </>
-            ) : (
-              <>
-                <span className="runner-icon" aria-hidden="true">⚡</span>
-                <span className="runner-name">{pane.cli}</span>
-              </>
-            )}
+            <span className="runner-name">{pane.cli === "bash" ? "bash" : pane.cli}</span>
           </span>
 
           <span
-            className={`pane-badge badge-backend ${isDsh ? "dsh" : "pty"}`}
+            className={`pane-badge pane-badge-more badge-backend ${isDsh ? "dsh" : "pty"}`}
             title={`Backend de execução: ${isDsh ? "DSH (SDK headless / subagentes)" : "PTY (Terminal interativo CLI)"}`}
           >
             {isDsh ? "dsh" : "pty"}
@@ -1206,20 +1195,19 @@ export function Pane({
 
           {pane.accountLabel && (
             <span
-              className="pane-badge badge-account"
+              className="pane-badge pane-badge-more badge-account"
               title={`Conta do pool: ${pane.accountLabel}${pane.accountPinned ? " (fixada)" : ""}`}
             >
-              <span className="account-icon" aria-hidden="true">👤</span>
               <span className="account-name">{pane.accountLabel}</span>
             </span>
           )}
 
           {pane.cli === "bash" ? (
-            <span className="pane-badge badge-model clean-bash" title="Terminal Linux soberano sem LLM">
+            <span className="pane-badge pane-badge-more badge-model clean-bash" title="Terminal Linux soberano sem LLM">
               Shell limpo
             </span>
           ) : pane.model ? (
-            <span className="pane-badge badge-model" title={`Modelo: ${pane.model}${pane.effort ? ` · ${pane.effort}` : ""}`}>
+            <span className="pane-badge pane-badge-more badge-model" title={`Modelo: ${pane.model}${pane.effort ? ` · ${pane.effort}` : ""}`}>
               <span className="model-name">{pane.model}</span>
               {pane.effort ? <span className="model-effort"> · {pane.effort}</span> : null}
             </span>
@@ -1234,19 +1222,17 @@ export function Pane({
           </span>
 
           <span
-            className="pane-badge badge-session-time"
+            className="pane-badge pane-badge-more badge-session-time"
             title={`Sessão iniciada às ${horaInicio} (${tempoSessaoCompleto} de atividade)`}
           >
-            <span className="session-time-icon" aria-hidden="true">⏱️</span>
             <span className="session-time-val">{tempoSessaoCurto}</span>
           </span>
 
           {taskAtiva && (
             <span
-              className="pane-badge badge-active-task"
+              className="pane-badge pane-badge-more badge-active-task"
               title={`Tarefa ativa: #${taskAtiva.id} — ${taskAtiva.título}`}
             >
-              <span className="task-icon" aria-hidden="true">📋</span>
               <span className="task-id">#{taskAtiva.id.slice(-4)}</span>
               <span className="task-title">: {taskAtiva.título}</span>
             </span>
@@ -1259,7 +1245,7 @@ export function Pane({
             >
               <span className="pane-conn-dot" />
               <span className="pane-conn-wire" aria-hidden="true" />
-              <span className="conn-label">🔗 {conexoesReais.length}</span>
+              <span className="conn-label">{conexoesReais.length}</span>
             </span>
           )}
         </div>

@@ -22,6 +22,7 @@ const paths = {
   compress: "M5 8h3V5M16 5v3h3M5 16h3v3M19 16h-3v3",
   grip: "M9 5v14M15 5v14",
   panel: "M4 4h16v16H4zM10 4v16",
+  pencil: "M4 20h4L18 10l-4-4L4 16zM13 7l4 4",
 };
 
 export function Icon({ name, size = 18, style }: { name: keyof typeof paths; size?: number; style?: CSSProperties }) {
