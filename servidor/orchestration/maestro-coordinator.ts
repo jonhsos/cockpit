@@ -28,6 +28,7 @@ import { transferirSessaoCodex, ultimoModeloCodex } from "../providers/codex-ses
 import { pastaDoClaude, transferirSessaoClaude, ultimoModeloClaude } from "../providers/claude-sessions.ts";
 import { getDefaultBridge } from "../connections/index.ts";
 import { getTaskManager, type TaskManager } from "../tasks/index.ts";
+import type { MailboxMessage } from "../connections/connection-types.ts";
 
 export interface MaestroCoordinatorDeps {
   continuity: Continuity;
@@ -47,6 +48,13 @@ export type TrocaOpts = {
 
 /** Sem horário de reset no texto, tenta de novo depois disso. */
 const ESPERA_PADRAO_MS = 30 * 60 * 1000;
+const ESTABILIDADE_RELATORIO_MS = 10_000;
+const ALERTA_SEM_RELATORIO_MS = 60_000;
+
+function relatorioConcluido(output: string): boolean {
+  const clean = output.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
+  return /^\s*COCKPIT_STATUS:\s*complete\s*$/im.test(clean);
+}
 
 export class MaestroCoordinator {
   public limits = new Map<string, LimitSignal>();
@@ -69,9 +77,12 @@ export class MaestroCoordinator {
         paneId: string;
         agent: string;
         taskId?: string;
+        correlationId?: string;
+        replyResult?: string;
         delegatedAt: number;
-        seenActive: boolean;
         lastActiveAt?: number;
+        lastOutputAt?: number;
+        notifiedStall?: boolean;
       }
     >
   >();
@@ -82,8 +93,11 @@ export class MaestroCoordinator {
     this.deps = deps;
   }
 
-  public trackDelegation(missionId: string, paneId: string, agent?: string, taskId?: string): void {
+  public trackDelegation(missionId: string, paneId: string, agent?: string, taskId?: string, correlationId?: string): void {
     if (!missionId || !paneId) return;
+    // Um painel recém-criado pode produzir o relatório antes deste registro.
+    const pane = getPane(paneId);
+    if (!pane || Date.now() - pane.iniciadoEm > 5000) this.outputTails.delete(paneId);
     let map = this.pendingDelegations.get(missionId);
     if (!map) {
       map = new Map();
@@ -93,9 +107,20 @@ export class MaestroCoordinator {
       paneId,
       agent: agent || paneId,
       taskId,
+      correlationId,
       delegatedAt: Date.now(),
-      seenActive: false,
     });
+  }
+
+  /** Resposta correlacionada confirma entrega; processamento aguarda Maestro ficar livre. */
+  public acceptReply(message: MailboxMessage): boolean {
+    if (message.type !== "reply" || !message.correlationId || !message.result?.trim()) return false;
+    const info = this.pendingDelegations.get(message.missionId)?.get(message.from);
+    if (!info || info.correlationId !== message.correlationId) return false;
+    const maestro = listPanes().find((pane) => pane.missionId === message.missionId && pane.maestro);
+    if (!maestro || message.to !== maestro.paneId && message.to !== "maestro") return false;
+    info.replyResult = message.result;
+    return true;
   }
 
   public clearDelegations(missionId?: string): void {
@@ -104,6 +129,10 @@ export class MaestroCoordinator {
     } else {
       this.pendingDelegations.clear();
     }
+  }
+
+  public hasPendingDelegation(missionId: string, paneId: string): boolean {
+    return this.pendingDelegations.get(missionId)?.has(paneId) === true;
   }
 
   public checkDelegations(): void {
@@ -116,79 +145,63 @@ export class MaestroCoordinator {
 
       const allPanes = listPanes();
       const maestro = allPanes.find((p) => p.missionId === missionId && p.maestro);
-      if (!maestro) continue;
+      if (!maestro || maestro.connected === false || maestro.status === "dead" || maestro.status === "failed") continue;
 
       const maestroNorm = normalizePaneStatus(maestro.status);
       if (maestroNorm === "working" || maestro.status === "starting") {
         continue;
       }
 
-      let allDone = true;
       const completedAgents: string[] = [];
+      const interruptedAgents: string[] = [];
+      const completedPaneIds = new Set<string>();
+      const deadPaneIds = new Set<string>();
+      const actionablePaneIds = new Set<string>();
 
       for (const [paneId, info] of delegations.entries()) {
         const pane = allPanes.find((p) => p.paneId === paneId);
+        const raw = this.outputTails.get(paneId) ?? "";
+        const quietSince = Math.max(info.delegatedAt, info.lastActiveAt ?? 0, info.lastOutputAt ?? 0);
+        if (info.replyResult || (relatorioConcluido(raw) &&
+          (!pane || pane.status === "dead" || pane.status === "failed" ||
+            normalizePaneStatus(pane.status) !== "working" && agora - quietSince >= ESTABILIDADE_RELATORIO_MS))) {
+          completedPaneIds.add(paneId);
+          actionablePaneIds.add(paneId);
+          completedAgents.push(pane?.label || info.agent || paneId);
+          continue;
+        }
         if (!pane || pane.status === "dead" || pane.status === "failed") {
+          deadPaneIds.add(paneId);
+          actionablePaneIds.add(paneId);
+          interruptedAgents.push(pane?.label || info.agent || paneId);
           continue;
         }
 
         const norm = normalizePaneStatus(pane.status);
-        const raw = this.outputTails.get(paneId) ?? "";
-        if (raw.trim().length > 0) {
-          info.seenActive = true;
-        }
-
         if (norm === "working") {
-          info.seenActive = true;
           info.lastActiveAt = agora;
-          allDone = false;
           continue;
         }
 
-        if (pane.status === "starting" && agora - info.delegatedAt < 3000) {
-          allDone = false;
+        if (pane.status === "starting") {
           continue;
         }
-
-        // Se o especialista ainda não foi visto ativo:
-        // LLMs levam de 1 a 5s para iniciar output. Não declare conclusão prematura antes de 15s
-        // a não ser que tenha havido saída real no terminal registrada.
-        if (!info.seenActive) {
-          if (agora - info.delegatedAt < 15000) {
-            allDone = false;
-            continue;
-          }
-          if (raw.trim().length === 0) {
-            allDone = false;
-            continue;
-          }
+        if (agora - quietSince >= ALERTA_SEM_RELATORIO_MS && !info.notifiedStall) {
+          actionablePaneIds.add(paneId);
+          interruptedAgents.push(pane.label || info.agent || paneId);
         }
-
-        // Se foi visto ativo, garante uma janela de estabilidade (1500ms) após a última atividade,
-        // permitindo que pausas transitórias de tool calls ou compilação não encerrem a tarefa antes da hora.
-        if (
-          info.seenActive &&
-          info.lastActiveAt &&
-          agora - info.lastActiveAt < 1500 &&
-          agora - info.delegatedAt < 3000
-        ) {
-          allDone = false;
-          continue;
-        }
-
-        completedAgents.push(pane.label || info.agent || paneId);
       }
 
-      if (allDone && completedAgents.length > 0) {
-        this.pendingDelegations.delete(missionId);
-        const nomes = completedAgents.join(", ");
+      if (actionablePaneIds.size > 0) {
+        const nomes = [...completedAgents, ...interruptedAgents].join(", ");
 
-        const tm = this.deps.taskManager ?? getTaskManager();
         const entregas: string[] = [];
+        const outcomes: { paneId: string; info: { taskId?: string; replyResult?: string; notifiedStall?: boolean }; pane: PaneState | undefined; relatorio: string; concluido: boolean }[] = [];
         for (const [paneId, info] of delegations.entries()) {
+          if (!actionablePaneIds.has(paneId)) continue;
           const pane = allPanes.find((p) => p.paneId === paneId);
           const nomeAgente = (pane?.label || info.agent || paneId).toUpperCase();
-          const raw = this.outputTails.get(paneId) ?? "";
+          const raw = info.replyResult ?? this.outputTails.get(paneId) ?? "";
           const clean = raw
             .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")
             .replace(/\x1b\].*?(\x07|\x1b\\)/g, "")
@@ -197,31 +210,43 @@ export class MaestroCoordinator {
             .trim();
           const lines = clean.split("\n").filter((l) => l.trim().length > 0);
           const resumo = lines.slice(-25).join("\n") || "(nenhuma saída no terminal)";
-          entregas.push(`=== [${nomeAgente}] ===\n${resumo}`);
-
-          // Transita a tarefa para complete no TaskManager e desocupa o painel
-          const taskIdToComplete = info.taskId || pane?.activeTaskId;
-          if (taskIdToComplete && tm) {
-            try {
-              const currentTask = tm.getTask(taskIdToComplete);
-              if (currentTask && currentTask.status !== "complete" && currentTask.status !== "failed") {
-                tm.transitionTask(taskIdToComplete, "complete", {
-                  resultado: resumo,
-                });
-              }
-            } catch {
-              // Best effort
-            }
-          }
-          if (pane) {
-            updatePane(paneId, { activeTaskId: null });
-          }
+          const concluido = completedPaneIds.has(paneId);
+          entregas.push(`=== [${nomeAgente}] ${concluido ? "CONCLUÍDO" : "SEM CONFIRMAÇÃO"} ===\n${resumo}`);
+          outcomes.push({ paneId, info, pane, relatorio: clean, concluido });
         }
 
-        const notification = `\x1b[200~[Cockpit] Os especialistas (${nomes}) concluíram suas tarefas com sucesso!\n\n${entregas.join("\n\n")}\n\n[Cockpit] Avalie as informações e entregas acima para continuar o trabalho ou apresentar o resultado ao usuário. Use "ler_resultado" para a íntegra ou "situacao" para o estado dos painéis.\x1b[201~\r\n`;
+        const notification = `\x1b[200~[Cockpit] Atualização dos especialistas (${nomes}). Concluídos: ${completedAgents.length}; sem confirmação: ${interruptedAgents.length}.\n\n${entregas.join("\n\n")}\n\n[Cockpit] Confira as tarefas sem confirmação e retome ou redistribua o trabalho. Use "ler_resultado" para a íntegra ou "situacao" para o estado dos painéis.\x1b[201~\r`;
 
         try {
-          writePty(maestro.paneId, notification);
+          if (writePty(maestro.paneId, notification) === false) continue;
+          const tm = this.deps.taskManager ?? getTaskManager();
+          for (const { paneId, info, pane, relatorio, concluido } of outcomes) {
+            if (!concluido && !deadPaneIds.has(paneId)) {
+              info.notifiedStall = true;
+              continue;
+            }
+            const taskId = info.taskId || pane?.activeTaskId;
+            if (taskId) {
+              try {
+                const currentTask = tm.getTask(taskId);
+                if (currentTask && currentTask.status !== "complete" && currentTask.status !== "failed") {
+                  if (concluido) {
+                    if (currentTask.status !== "in-review") {
+                      tm.transitionTask(taskId, "in-review", { force: currentTask.status !== "in-progress" });
+                    }
+                    tm.transitionTask(taskId, "complete", { resultado: relatorio });
+                  } else {
+                    tm.transitionTask(taskId, "blocked", { reason: "Painel encerrado sem relatório final", force: true });
+                  }
+                }
+              } catch (err) {
+                console.error(`[MaestroCoordinator] Falha ao atualizar tarefa ${taskId}:`, err);
+              }
+            }
+            if (pane) updatePane(paneId, { activeTaskId: null });
+            delegations.delete(paneId);
+          }
+          if (delegations.size === 0) this.pendingDelegations.delete(missionId);
           this.deps.broadcast({
             type: "maestro:reactivated",
             missionId,
@@ -646,8 +671,14 @@ export class MaestroCoordinator {
     if (hasSignificantTerminalOutput(data)) {
       this.deps.continuity.record(pane.missionId, pane.paneId, "output", data);
     }
-    const tail = ((this.outputTails.get(pane.paneId) ?? "") + data).slice(-4000);
+    const tail = ((this.outputTails.get(pane.paneId) ?? "") + data).slice(-64_000);
     this.outputTails.set(pane.paneId, tail);
+    if (hasSignificantTerminalOutput(data)) {
+      const info = this.pendingDelegations.get(pane.missionId)?.get(pane.paneId);
+      if (info) {
+        info.lastOutputAt = Date.now();
+      }
+    }
     if (!/429|quota|limit|exhausted|cota|limite|RESOURCE/i.test(data) && !/429|quota|limit|exhausted|cota|limite|RESOURCE/i.test(tail.slice(-400))) {
       return;
     }

@@ -5,6 +5,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as pty from "../servidor/pty.ts";
+import { DiskStore } from "../servidor/persistence/disk-store.ts";
+import { TaskStore } from "../servidor/persistence/task-store.ts";
+import { FileOwnershipManager } from "../servidor/tasks/file-ownership.ts";
+import { TaskManager } from "../servidor/tasks/task-manager.ts";
 
 console.log("Iniciando verificação de coordenação do Maestro e entrega de informações...");
 
@@ -12,20 +16,25 @@ const tempDir = mkdtempSync(join(tmpdir(), "check-maestro-coord-"));
 
 try {
   const continuity = new Continuity(tempDir);
+  const taskManager = new TaskManager(new FileOwnershipManager(), new TaskStore(new DiskStore(tempDir)));
   let lastBroadcast: any = null;
   const coordinator = new MaestroCoordinator({
     continuity,
     broadcast: (msg) => { lastBroadcast = msg; },
     porta: 3000,
+    taskManager,
   });
 
   const manager = pty.getDefaultPtyManager();
   const writtenToMaestro: string[] = [];
   const originalWritePty = manager.writePty;
+  let rejectNotification = false;
   manager.writePty = (paneId: string, data: string) => {
+    if (rejectNotification) return false;
     if (paneId === "pane-maestro") {
       writtenToMaestro.push(data);
     }
+    return true;
   };
 
   // Mock listPanes
@@ -81,11 +90,11 @@ try {
   // Simular outputs gerados pelos especialistas
   coordinator.outputTails.set(
     "pane-scout",
-    "Explorando src/...\nEncontrados 15 módulos.\n\x1b[32mConclusão:\x1b[0m Arquitetura é modular e componentes estão em web/."
+    "Explorando src/...\nEncontrados 15 módulos.\n\x1b[32mConclusão:\x1b[0m Arquitetura é modular e componentes estão em web/.\nCOCKPIT_STATUS: complete"
   );
   coordinator.outputTails.set(
     "pane-builder",
-    "Criando botões e ajustando layout.\n\x1b[34m[Build]\x1b[0m 3 arquivos modificados com sucesso sem erros."
+    "Criando botões e ajustando layout.\n\x1b[34m[Build]\x1b[0m 3 arquivos modificados com sucesso sem erros.\nCOCKPIT_STATUS: complete"
   );
 
   // 2. Enquanto os agentes estão "working", checkDelegations não deve disparar
@@ -99,10 +108,15 @@ try {
   builderPane.status = "waiting-user";
   scoutPane.status = "waiting-user";
 
-  // Forçar o timestamp de delegação para o passado para simular o tempo decorrido (> 4s)
+  // Silêncio breve não indica conclusão, mesmo com marcador no output.
+  coordinator.checkDelegations();
+  assert.equal(writtenToMaestro.length, 0);
+
+  // Forçar janela de estabilidade após relatório explícito.
   const map = (coordinator as any).pendingDelegations.get("m1");
   for (const info of map.values()) {
-    info.delegatedAt = Date.now() - 5000;
+    info.delegatedAt = Date.now() - 11_000;
+    info.lastActiveAt = Date.now() - 11_000;
   }
 
   // 4. Executar checkDelegations agora que ambos terminaram
@@ -112,9 +126,9 @@ try {
   const notification = writtenToMaestro[0];
 
   // 5. Verificar que a notificação contém os resumos de entrega reais de BUILDER e SCOUT
-  assert.ok(notification.includes("=== [BUILDER] ==="), "Notificação deve conter cabeçalho do BUILDER");
+  assert.ok(notification.includes("=== [BUILDER] CONCLUÍDO ==="), "Notificação deve conter cabeçalho do BUILDER");
   assert.ok(notification.includes("3 arquivos modificados com sucesso"), "Notificação deve conter o resultado do BUILDER");
-  assert.ok(notification.includes("=== [SCOUT] ==="), "Notificação deve conter cabeçalho do SCOUT");
+  assert.ok(notification.includes("=== [SCOUT] CONCLUÍDO ==="), "Notificação deve conter cabeçalho do SCOUT");
   assert.ok(notification.includes("Arquitetura é modular"), "Notificação deve conter o resultado do SCOUT");
   assert.ok(!notification.includes("\x1b[32m"), "Sequências ANSI devem ser limpas da notificação");
 
@@ -198,6 +212,65 @@ try {
   );
   assert.equal(resultadoPorPaneId?.agente, "REVIEWER");
   assert.ok(resultadoPorPaneId?.saida?.includes("0 erros"));
+
+  // Output parcial ou eco do prompt não pode encerrar tarefa por silêncio.
+  coordinator.trackDelegation("m1", "pane-builder", "builder");
+  assert.equal(coordinator.outputTails.has("pane-builder"), false, "Nova tarefa não reutiliza relatório anterior");
+  coordinator.outputTails.set("pane-builder", 'Executando testes... "COCKPIT_STATUS: complete" citado no prompt');
+  const pending = (coordinator as any).pendingDelegations.get("m1").get("pane-builder");
+  pending.delegatedAt = Date.now() - 11_000;
+  pending.lastActiveAt = Date.now() - 11_000;
+  coordinator.checkDelegations();
+  assert.equal(writtenToMaestro.length, 1, "Silêncio e marcador citado não confirmam conclusão");
+
+  pending.delegatedAt = Date.now() - 61_000;
+  pending.lastActiveAt = Date.now() - 61_000;
+  coordinator.checkDelegations();
+  assert.equal(writtenToMaestro.length, 2, "Interrupção prolongada avisa o Maestro");
+  assert.ok(writtenToMaestro[1]?.includes("SEM CONFIRMAÇÃO"));
+  assert.ok((coordinator as any).pendingDelegations.get("m1")?.has("pane-builder"), "Silêncio não encerra delegação");
+  coordinator.checkDelegations();
+  assert.equal(writtenToMaestro.length, 2, "Aviso de silêncio não se repete a cada pulso");
+  coordinator.outputTails.set("pane-builder", "Trabalho retomado e verificado.\nCOCKPIT_STATUS: complete");
+  coordinator.checkDelegations();
+  assert.equal(writtenToMaestro.length, 3, "Relatório tardio ainda conclui a delegação");
+
+  // cockpit_reply é confirmação explícita mesmo se o status do PTY ainda for working.
+  const task = taskManager.createTask("m1", { título: "Entrega do Builder", status: "todo" });
+  taskManager.assignTask(task.id, "pane-builder");
+  taskManager.transitionTask(task.id, "in-progress");
+  coordinator.trackDelegation("m1", "pane-builder", "builder", task.id, "corr-builder");
+  builderPane.status = "working";
+  assert.equal(coordinator.acceptReply({
+    type: "reply", from: "pane-builder", to: "pane-maestro", missionId: "m1",
+    correlationId: "corr-errada", result: "Resultado falso",
+  } as any), false);
+  assert.equal(coordinator.acceptReply({
+    type: "reply", from: "pane-builder", to: "pane-maestro", missionId: "m1",
+    correlationId: "corr-builder", result: "Entrega final com evidências",
+  } as any), true);
+  coordinator.checkDelegations();
+  assert.equal(writtenToMaestro.length, 4, "Resposta correlacionada acorda o Maestro");
+  assert.ok(writtenToMaestro[3]?.includes("Entrega final com evidências"));
+  assert.equal(taskManager.getTask(task.id)?.status, "complete", "Tarefa persistida deve concluir após entrega");
+  assert.equal(taskManager.getTask(task.id)?.resultado, "Entrega final com evidências");
+
+  const retriedTask = taskManager.createTask("m1", { título: "Entrega após fila cheia", status: "todo" });
+  taskManager.assignTask(retriedTask.id, "pane-builder");
+  taskManager.transitionTask(retriedTask.id, "in-progress");
+  coordinator.trackDelegation("m1", "pane-builder", "builder", retriedTask.id, "corr-retry");
+  assert.equal(coordinator.acceptReply({
+    type: "reply", from: "pane-builder", to: "pane-maestro", missionId: "m1",
+    correlationId: "corr-retry", result: "Resultado após nova tentativa",
+  } as any), true);
+  rejectNotification = true;
+  coordinator.checkDelegations();
+  assert.equal(taskManager.getTask(retriedTask.id)?.status, "in-progress", "Falha de entrega mantém tarefa pendente");
+  assert.equal(writtenToMaestro.length, 4);
+  rejectNotification = false;
+  coordinator.checkDelegations();
+  assert.equal(taskManager.getTask(retriedTask.id)?.status, "complete");
+  assert.equal(writtenToMaestro.length, 5);
 
   // Restaurar mocks
   manager.writePty = originalWritePty;

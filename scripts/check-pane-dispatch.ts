@@ -76,7 +76,9 @@ try {
       if (p) Object.assign(p, upd);
     },
     writePane: (id: string, data: string) => {
+      if (id === "pane-reject") return false;
       writtenInputs.push({ id, data });
+      return true;
     },
   };
 
@@ -152,6 +154,18 @@ try {
   assert.equal(writtenInputs.length, 1);
   assert.equal(writtenInputs[0].id, "pane-idle");
   assert.match(writtenInputs[0].data, /^\x1b\[200~.*Implement auth module.*\x1b\[201~\r$/s);
+
+  // Falha ao aceitar prompt não pode parecer entrega bem sucedida.
+  panes.set("pane-reject", {
+    paneId: "pane-reject", label: "Builder 2", role: "builder", runner: "claude",
+    status: "waiting-user", activeTaskId: null, missionId: "m1",
+  });
+  const rejectedTask = taskManager.createTask("m1", { título: "Prompt rejeitado", status: "todo" });
+  const rejected = dispatcher.dispatchToExistingPane("m1", rejectedTask.id, "pane-reject");
+  assert.equal(rejected.deliveredToTerminal, false);
+  assert.equal(taskManager.getTask(rejectedTask.id)?.status, "blocked");
+  assert.equal(panes.get("pane-reject")?.activeTaskId, null);
+  panes.delete("pane-reject");
 
   // -------------------------------------------------------------
   // Test 3: Dispatch to Busy Pane (Conflict / Error)

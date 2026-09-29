@@ -25,12 +25,19 @@ export interface PaneInfo {
   missionId?: string | null;
   connected?: boolean;
   attachedRunner?: string | null;
+  maestro?: boolean;
+}
+
+export interface OrchestrationHooks {
+  canDeliverAsk?: (target: PaneInfo) => boolean;
+  onAskDelivered?: (message: MailboxMessage, target: PaneInfo) => void;
+  onReply?: (message: MailboxMessage) => boolean;
 }
 
 export interface BridgePaneProvider {
   getPane(id: string): PaneInfo | undefined;
   listPanes(): PaneInfo[];
-  writePane?(id: string, data: string): void;
+  writePane?(id: string, data: string): boolean | void;
 }
 
 export class InterAgentBridge {
@@ -43,6 +50,11 @@ export class InterAgentBridge {
   // Correlation tracking
   private activeCorrelationIds: Set<string> = new Set();
   private repliedCorrelationIds: Set<string> = new Set();
+  private orchestrationHooks: OrchestrationHooks = {};
+
+  public setOrchestrationHooks(hooks: OrchestrationHooks): void {
+    this.orchestrationHooks = hooks;
+  }
 
   constructor(
     mailboxManager: MailboxManager,
@@ -189,11 +201,17 @@ export class InterAgentBridge {
     const canPaste = options?.force
       ? targetPane.connected !== false && shellPodeReceberTarefa(targetPane)
       : panePodeReceberColaNoTerminal(targetPane);
+    const canDeliverNow = canPaste && (!fromPane?.maestro || this.orchestrationHooks.canDeliverAsk?.(targetPane) !== false);
     let deliveredToTerminal = false;
-    if (canPaste && this.paneProvider.writePane) {
-      this.paneProvider.writePane(toId, formatarColaNoTerminal(taskText));
-      deliveredToTerminal = true;
-      targetPane.status = "working";
+    if (canDeliverNow && this.paneProvider.writePane) {
+      const prompt = fromPane?.maestro
+        ? `${taskText}\n\n[Cockpit: tarefa do Orquestrador. Trabalhe até concluir. Depois envie cockpit_reply para "maestro" com correlationId "${correlationId}" e resultado completo, ou emita relatório no terminal terminando com uma linha isolada COCKPIT_STATUS: complete. Se interromper, explique; não sinalize conclusão.]`
+        : taskText;
+      deliveredToTerminal = this.paneProvider.writePane(toId, formatarColaNoTerminal(prompt)) !== false;
+      if (deliveredToTerminal) {
+        targetPane.status = "working";
+        if (fromPane?.maestro) this.orchestrationHooks.onAskDelivered?.(message, targetPane);
+      }
     }
 
     return {
@@ -239,19 +257,20 @@ export class InterAgentBridge {
       missionId,
       status: "unread",
     });
-    if (toPane && toPane.status !== "dead" && toPane.status !== "failed") {
+    const handledByOrchestrator = this.orchestrationHooks.onReply?.(message) === true;
+    if (!handledByOrchestrator && toPane && toPane.status !== "dead" && toPane.status !== "failed") {
       const canPaste = panePodeReceberColaNoTerminal(toPane);
       if (canPaste && this.paneProvider.writePane) {
         const quem = fromPane?.label || fromId;
-        this.paneProvider.writePane(
+        const delivered = this.paneProvider.writePane(
           toId,
           formatarColaNoTerminal(`Resposta de ${quem}:\n\n${resultText ?? ""}`),
         );
-        toPane.status = "working";
+        if (delivered !== false) toPane.status = "working";
       }
     }
 
-    if (!isKnown) {
+    if (!isKnown && !handledByOrchestrator) {
       return {
         ...message,
         warning: "CORRELATION_UNKNOWN",

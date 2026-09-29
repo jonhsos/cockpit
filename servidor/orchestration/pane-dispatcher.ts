@@ -45,13 +45,14 @@ export interface DispatchResult {
   paneId: string;
   status: string;
   deliveredToTerminal?: boolean;
+  correlationId?: string;
 }
 
 export interface DispatcherPaneProvider {
   getPane(id: string): PaneDispatcherState | undefined;
   listPanes(): PaneDispatcherState[];
   updatePane?(id: string, update: Partial<PaneDispatcherState>): void;
-  writePane?(id: string, data: string): void;
+  writePane?(id: string, data: string): boolean | void;
 }
 
 export class PaneDispatcher {
@@ -170,7 +171,7 @@ export class PaneDispatcher {
     // 6. Enqueue task instruction into pane mailbox
     const correlationId = `corr-${Date.now()}-${randomUUID().slice(0, 6)}`;
     const promptCorpo = task.descrição ? `${task.título}\n\n${task.descrição}` : task.título;
-    const promptTerminal = `${promptCorpo}\n\n[Cockpit: Tarefa enviada pelo Orquestrador. Ao concluir, emita seu relatório com estado e evidências no terminal ou chame cockpit_reply (correlationId: "${correlationId}") ou cockpit_ask para "maestro"].`;
+    const promptTerminal = `${promptCorpo}\n\n[Cockpit: Tarefa enviada pelo Orquestrador. Trabalhe até finalizar. Ao concluir, emita relatório com estado e evidências no terminal, terminando com uma linha isolada "COCKPIT_STATUS: complete" somente se terminou de fato. Se interrompida, explique e não emita esse marcador. Também pode chamar cockpit_reply para "maestro" com correlationId: "${correlationId}"].`;
 
     this.mailboxManager.enqueue({
       from: "maestro",
@@ -185,8 +186,13 @@ export class PaneDispatcher {
 
     let deliveredToTerminal = false;
     if (this.paneProvider.writePane && panePodeReceberColaNoTerminal({ ...pane, status: "waiting-user" })) {
-      this.paneProvider.writePane(paneId, formatarColaNoTerminal(promptTerminal));
-      deliveredToTerminal = true;
+      deliveredToTerminal = this.paneProvider.writePane(paneId, formatarColaNoTerminal(promptTerminal)) !== false;
+    }
+    if (!deliveredToTerminal) {
+      this.taskManager.transitionTask(taskId, "blocked", { reason: "Tarefa ficou na inbox; terminal não recebeu o prompt", force: true });
+      pane.activeTaskId = null;
+      pane.status = "waiting-user";
+      this.paneProvider.updatePane?.(paneId, { activeTaskId: null, status: "waiting-user" });
     }
 
     this.onEvent?.("pane:task_dispatched", { missionId, taskId, paneId, deliveredToTerminal });
@@ -195,8 +201,9 @@ export class PaneDispatcher {
       ok: true,
       taskId,
       paneId,
-      status: "in-progress",
+      status: deliveredToTerminal ? "in-progress" : "blocked",
       deliveredToTerminal,
+      correlationId,
     };
   }
 }

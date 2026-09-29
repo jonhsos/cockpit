@@ -1055,22 +1055,24 @@ export class PtyManager {
     return state;
   }
 
-  public writePty(paneId: string, data: string): void {
+  public writePty(paneId: string, data: string): boolean {
     const entry = this.ptys.get(paneId);
-    if (!entry || entry.state.status === "dead" || entry.state.connected === false) return;
+    if (!entry || entry.state.status === "dead" || entry.state.connected === false) return false;
+    const isDsh = entry.state.backend === "dsh";
+    if (isDsh && (!getDshManager().has(paneId) || !getDshManager().write(paneId, data))) return false;
     this.registrarEntradaManual(entry, data);
     entry.state.bytesIn += data.length;
     entry.lastData = Date.now();
     entry.state.atualizadoEm = Date.now();
-    if (getDshManager().has(paneId)) {
-      getDshManager().write(paneId, data);
-      return;
+    if (isDsh) {
+      return true;
     }
     this.client.input(paneId, data).catch(() => {
       entry.state.status = "dead";
       entry.state.connected = false;
       this.limparMcpAgy(paneId);
     });
+    return true;
   }
 
   public async submitPrompt(paneId: string, prompt: string): Promise<boolean> {

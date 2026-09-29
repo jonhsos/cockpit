@@ -235,13 +235,14 @@ export class DshManager {
   }
 
   /** Enfileira session/prompt — não é stdin PTY. */
-  public write(paneId: string, data: string): void {
+  public write(paneId: string, data: string): boolean {
     const entry = this.panes.get(paneId);
-    if (!entry || entry.closed) return;
+    if (!entry || entry.closed) return false;
     const text = extractPromptText(data);
     const clean = text.trim();
-    if (!clean || clean.length > MAX_DSH_PROMPT_LENGTH || entry.pendingPromptCount >= MAX_DSH_PROMPT_QUEUE) return;
+    if (!clean || clean.length > MAX_DSH_PROMPT_LENGTH || entry.pendingPromptCount >= MAX_DSH_PROMPT_QUEUE) return false;
     void this.enqueuePrompt(paneId, clean).catch(() => {});
+    return true;
   }
 
   /** resize: no-op no path DSH (documentado). */

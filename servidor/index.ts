@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { config, salvarConfig } from "./config.ts";
 import { Continuity } from "./missions/continuity.ts";
-import { getPane, listPanes, initializePty, getDefaultPtyManager, writePty } from "./pty.ts";
+import { getPane, listPanes, initializePty, getDefaultPtyManager, updatePane, writePty } from "./pty.ts";
 import { CASA, detachPane, listProjects } from "./state.ts";
 import { observar } from "./missions/watcher.ts";
 import { getDefaultBridge, getDefaultMailboxManager } from "./connections/index.ts";
@@ -54,6 +54,31 @@ const coordinator = new MaestroCoordinator({
   broadcast: (msg) => wsServer.broadcast(msg),
   porta,
 });
+bridge.setOrchestrationHooks({
+  canDeliverAsk: (target) => !coordinator.hasPendingDelegation(target.missionId ?? "", target.paneId),
+  onAskDelivered: (message, target) => {
+    let taskId = message.taskId;
+    try {
+      const task = taskId ? taskManager.getTask(taskId) : undefined;
+      const trackedTask = task ?? taskManager.createTask(message.missionId, {
+        título: (message.task ?? "Tarefa do Orquestrador").slice(0, 80),
+        descrição: message.task,
+        papel: target.role,
+        status: "todo",
+      });
+      taskId = trackedTask.id;
+      taskManager.assignTask(taskId, target.paneId, target.label, target.role);
+      if (trackedTask.status === "todo" || trackedTask.status === "blocked") {
+        taskManager.transitionTask(taskId, "in-progress");
+      }
+      updatePane(target.paneId, { activeTaskId: taskId, status: "working" });
+    } catch (err) {
+      console.error(`[Cockpit] Falha ao persistir tarefa enviada para ${target.paneId}:`, err);
+    }
+    coordinator.trackDelegation(message.missionId, target.paneId, target.label, taskId, message.correlationId);
+  },
+  onReply: (message) => coordinator.acceptReply(message),
+});
 
 let broadcast: (msg: unknown) => void = () => {};
 
@@ -69,7 +94,9 @@ const cleanupPane = (paneId: string, code = 0, exitedPane?: PaneState) => {
   }
 
   detachPane(paneId);
-  coordinator.outputTails.delete(paneId);
+  if (!pane?.missionId || !coordinator.hasPendingDelegation(pane.missionId, paneId)) {
+    coordinator.outputTails.delete(paneId);
+  }
   coordinator.seenSignals.delete(paneId);
 
   if (isFirst) {
@@ -151,7 +178,7 @@ const routerContext: RouterContext = {
   presetsDoMaestro: () => coordinator.presetsDoMaestro(),
   especialistasDaMissao: (mId) => coordinator.especialistasDaMissao(mId),
   limparElenco: (b) => coordinator.limparElenco(b),
-  trackDelegation: (mId, pId, a, tId) => coordinator.trackDelegation(mId, pId, a, tId),
+  trackDelegation: (mId, pId, a, tId, correlationId) => coordinator.trackDelegation(mId, pId, a, tId, correlationId),
   outputTails: coordinator.outputTails,
 };
 
@@ -182,6 +209,18 @@ server.on("error", (err: NodeJS.ErrnoException) => {
 });
 
 await initializePty();
+
+// O host PTY sobrevive ao reinício do servidor; recupere as delegações ainda
+// atribuídas para que respostas e alertas continuem chegando ao Maestro.
+for (const pane of listPanes()) {
+  if (!pane.missionId || !pane.activeTaskId || pane.maestro) continue;
+  const task = taskManager.getTask(pane.activeTaskId);
+  if (!task || task.pane !== pane.paneId || (task.status !== "in-progress" && task.status !== "in-review")) continue;
+  const ask = mailboxManager.getInbox(pane.paneId, pane.missionId)
+    .filter((message) => message.type === "ask" && message.taskId === task.id)
+    .at(-1);
+  coordinator.trackDelegation(pane.missionId, pane.paneId, pane.label, task.id, ask?.correlationId);
+}
 
 const onPronto = () => {
   console.log(`cockpit → http://localhost:${porta}`);

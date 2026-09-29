@@ -364,7 +364,7 @@ export function promptInternoDoPapel(options: {
     ...maestroDirectives,
     "COMUNICAÇÃO COM OUTROS PAINÉIS:",
     "Há um canal real (MCP cockpit_list / cockpit_ask / cockpit_inbox / cockpit_reply / delegar). Não simule conversa e não leia schemas em disco nem o código do Cockpit.",
-    "Se existir um Maestro/Orquestrador na missão: reporte a ele. Ao concluir qualquer tarefa delegada, emita seu relatório no terminal ou envie diretamente ao Maestro usando a tool 'cockpit_reply' (se recebeu correlationId) ou 'cockpit_ask' com destino 'maestro'. Não distribua trabalho por conta própria.",
+    "Se existir um Maestro/Orquestrador na missão: execute a tarefa até terminar e reporte a ele. Ao concluir, emita relatório no terminal com COCKPIT_STATUS: complete na última linha ou envie diretamente ao Maestro usando cockpit_reply com o correlationId recebido. Se precisar parar antes, explique o impedimento sem declarar conclusão. Não distribua trabalho por conta própria.",
     "Se NÃO houver Maestro: aí sim fale direto com os outros painéis via cockpit_ask.",
     "Se as tools MCP não aparecerem: node \"$COCKPIT_MAESTRO_BRIDGE\" cockpit_list '{}'",
     "MÉTODO OBRIGATÓRIO:",
@@ -385,7 +385,7 @@ export function promptInternoDoPapel(options: {
     "CONTEXTO DA MISSÃO:",
     `<objetivo>${objective}</objetivo>`,
     `<tarefa>${task}</tarefa>`,
-    "Ao terminar, emita no terminal seu relatório completo (ou envie via cockpit_reply / cockpit_ask para o Maestro) com: estado, trabalho realizado, evidências, arquivos afetados (se houver), riscos e próximo passo.",
+    "Ao terminar, emita no terminal seu relatório completo (ou envie via cockpit_reply para o Maestro) com: estado, trabalho realizado, evidências, arquivos afetados (se houver), riscos e próximo passo. Se concluiu de fato, termine com uma linha isolada COCKPIT_STATUS: complete. Se interrompeu, não emita esse marcador.",
   ].join("\n");
 }
 

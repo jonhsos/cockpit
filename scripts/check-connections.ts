@@ -310,6 +310,40 @@ try {
   const unknownReply = bridge.reply("pane-2", "pane-1", "non-existent-corr-id", "Some result", undefined, "m1");
   assert.equal(unknownReply.warning, "CORRELATION_UNKNOWN");
 
+  // Maestro acompanha pedidos entregues e recebe uma única entrega correlacionada.
+  panes.set("pane-maestro", {
+    paneId: "pane-maestro", label: "Maestro", role: "maestro", runner: "codex",
+    cli: "codex", model: "gpt-6-astra", status: "waiting-user", missionId: "m1",
+    cwd: "/tmp/project", maestro: true,
+  });
+  panes.get("pane-1")!.status = "waiting-user";
+  let trackedCorrelation: string | undefined;
+  let capturedResult: string | undefined;
+  bridge.setOrchestrationHooks({
+    canDeliverAsk: () => trackedCorrelation === undefined,
+    onAskDelivered: (message, target) => {
+      assert.equal(target.paneId, "pane-1");
+      trackedCorrelation = message.correlationId;
+    },
+    onReply: (message) => {
+      if (message.correlationId !== trackedCorrelation) return false;
+      capturedResult = message.result;
+      return true;
+    },
+  });
+  const maestroAsk = bridge.ask("pane-maestro", "pane-1", "Termine o trabalho", undefined, "m1");
+  assert("correlationId" in maestroAsk);
+  assert.equal(trackedCorrelation, maestroAsk.correlationId);
+  assert.match(writtenInputs.at(-1)?.data ?? "", /cockpit_reply.*correlationId/);
+  const writesBeforeBusyAsk = writtenInputs.length;
+  const queuedMaestroAsk = bridge.ask("pane-maestro", "pane-1", "Outra tarefa", undefined, "m1", { force: true });
+  assert.equal("deliveredToTerminal" in queuedMaestroAsk && queuedMaestroAsk.deliveredToTerminal, false);
+  assert.equal(writtenInputs.length, writesBeforeBusyAsk, "Tarefa em curso impede sobreposição mesmo com force");
+  const writesBeforeReply = writtenInputs.length;
+  bridge.reply("pane-1", "pane-maestro", trackedCorrelation!, "Entregue com evidências", undefined, "m1");
+  assert.equal(capturedResult, "Entregue com evidências");
+  assert.equal(writtenInputs.length, writesBeforeReply, "Coordenador entrega resposta sem colagem duplicada");
+
   // -------------------------------------------------------------
   // Test 7: cockpit handoff (Ownership check, Circular loop detection, Dead pane rejection)
   // -------------------------------------------------------------

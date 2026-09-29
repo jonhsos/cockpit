@@ -70,8 +70,8 @@ export function spawnPane(
 /**
  * Writes data / keystrokes into the pane master PTY.
  */
-export function writePty(paneId: string, data: string): void {
-  manager.writePty(paneId, data);
+export function writePty(paneId: string, data: string): boolean {
+  return manager.writePty(paneId, data);
 }
 
 /**

@@ -431,17 +431,17 @@ export function Pane({
       if (term.buffer.active.type === "normal") {
         term.scrollLines(ev.deltaY < 0 ? -passos : passos);
         ev.preventDefault();
-        return true;
+        return false;
       }
 
       // Buffer alternativo (TUI):
       if (ev.shiftKey) {
         term.scrollLines(ev.deltaY < 0 ? -passos : passos);
         ev.preventDefault();
-        return true;
+        return false;
       }
 
-      if (term.modes.mouseTrackingMode !== "none") return false;
+      if (term.modes.mouseTrackingMode !== "none") return true;
 
       const viewport = area.querySelector(".xterm-viewport") as HTMLElement | null;
       if (viewport && viewport.scrollHeight > viewport.clientHeight + 2) {
@@ -455,7 +455,7 @@ export function Pane({
       const passosTui = Math.min(4, Math.max(1, Math.round(Math.abs(ev.deltaY) / 100)));
       const seq = ev.deltaY < 0 ? "\x1b[5~" : "\x1b[6~";
       for (let i = 0; i < passosTui; i++) send({ type: "input", paneId: pane.paneId, data: seq });
-      return true;
+      return false;
     });
 
     // Toque: o xterm 6 não rola com o dedo. Arrastar rola o scrollback (com

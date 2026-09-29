@@ -9,7 +9,7 @@ import {
   persistir,
 } from "../missions/missions.ts";
 import { getProject, lerMemoria, anotar } from "../state.ts";
-import { listPanes, killPty, stopPane, replayPane, flushDshKills } from "../pty.ts";
+import { listPanes, killPty, stopPane, replayPane, flushDshKills, updatePane } from "../pty.ts";
 import { branchStatus } from "../missions/git.ts";
 import { readUsage, somaUsage } from "../providers/usage.ts";
 import { getRun, iniciarSquad, avancarFase, encerrarRun } from "../orchestration/squad.ts";
@@ -25,6 +25,26 @@ import { gerar } from "../providers/media.ts";
 
 export function createMissionsRouter(ctx: RouterContext): Router {
   const router = Router();
+
+  const trackSpawnedTask = (missionId: string, pane: { paneId: string; label: string; role?: string }, tarefa: string): string | undefined => {
+    let taskId: string | undefined;
+    try {
+      const task = ctx.taskManager.createTask(missionId, {
+        título: tarefa.slice(0, 80) || "Tarefa do Orquestrador",
+        descrição: tarefa,
+        papel: pane.role,
+        status: "todo",
+      });
+      taskId = task.id;
+      ctx.taskManager.assignTask(task.id, pane.paneId, pane.label, pane.role);
+      ctx.taskManager.transitionTask(task.id, "in-progress");
+      updatePane(pane.paneId, { activeTaskId: task.id });
+    } catch (err) {
+      console.error(`[Cockpit] Falha ao persistir tarefa do painel ${pane.paneId}:`, err);
+    }
+    ctx.trackDelegation?.(missionId, pane.paneId, pane.label, taskId);
+    return taskId;
+  };
 
   const fail = (res: any, err: unknown) =>
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
@@ -114,7 +134,7 @@ export function createMissionsRouter(ctx: RouterContext): Router {
                 status: "todo",
               });
               const dispatched = ctx.paneDispatcher.dispatchToExistingPane(mission.id, task.id, existing.paneId);
-              ctx.trackDelegation?.(mission.id, existing.paneId, existing.label || requestedAgent, task.id);
+              if (dispatched.deliveredToTerminal) ctx.trackDelegation?.(mission.id, existing.paneId, existing.label || requestedAgent, task.id, dispatched.correlationId);
               res.json({
                 paneId: existing.paneId,
                 label: existing.label,
@@ -147,8 +167,8 @@ export function createMissionsRouter(ctx: RouterContext): Router {
           });
           if (!spawnGuard.allowed) throw Error(spawnGuard.reason);
           const spawned = ctx.abrirPainel(String(args.agente), mission.id, String(args.tarefa), { tipo: args.tipo });
-          ctx.trackDelegation?.(mission.id, spawned.paneId, String(args.agente));
-          res.json(spawned);
+          const taskId = trackSpawnedTask(mission.id, spawned, String(args.tarefa));
+          res.json({ ...spawned, taskId });
           break;
         }
         case "cockpit_list":
@@ -378,7 +398,7 @@ export function createMissionsRouter(ctx: RouterContext): Router {
             status: "todo",
           });
           const dispatched = ctx.paneDispatcher.dispatchToExistingPane(missionId, task.id, existing.paneId);
-          ctx.trackDelegation?.(missionId, existing.paneId, existing.label || requestedAgent, task.id);
+          if (dispatched.deliveredToTerminal) ctx.trackDelegation?.(missionId, existing.paneId, existing.label || requestedAgent, task.id, dispatched.correlationId);
           res.json({
             paneId: existing.paneId,
             label: existing.label,
@@ -427,11 +447,12 @@ export function createMissionsRouter(ctx: RouterContext): Router {
         },
         Array.isArray(req.body.skills) ? (req.body.skills as string[]) : [],
       );
-      ctx.trackDelegation?.(req.params.id, state.paneId, state.label || String(req.body.agent));
+      const taskId = trackSpawnedTask(req.params.id, state, String(req.body.tarefa ?? ""));
       res.json({
         paneId: state.paneId,
         label: state.label,
         cli: state.cli,
+        taskId,
         skills: skillsDoAgente(state.agent, ctx.config.agents[state.agent]!, [
           ...(getMission(req.params.id)?.skills ?? []),
           ...(Array.isArray(req.body.skills) ? (req.body.skills as string[]) : []),
